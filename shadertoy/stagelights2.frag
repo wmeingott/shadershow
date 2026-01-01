@@ -1,0 +1,66 @@
+/*
+    @SnoopethDuckDuck -6 chars
+    @Xor              -1 chars
+    
+    Thanks! :D
+    
+*/
+
+void mainImage(out vec4 o, vec2 u) {
+    float f, i, r, e,
+          t = iTime;
+    vec3 p, z = iResolution;
+    for(o*=i;
+        i++<1e2;
+        f += r = .01 + abs(--r)*.1,
+        o += 1. / r)
+        for(p = vec3((u-z.xy/2.)/z.y * f, f+t),
+            p += cos(t+p.yzx+p.zzx)*.6,
+            r =  cos(p.z),
+            e = 1.6;
+            e < 32.;
+            e += e )
+            r += abs(dot(sin(t + p*e ), z/z)) / e;
+    o = tanh(vec4(iColorRGB[0],1) * o * o / f / 7e6);
+}
+
+
+
+/* you can put it out with this :D
+
+void mainImage( out vec4 o, vec2 u ) {
+    float s=.002,i,n;
+    vec3 r = iResolution,p;
+    for(o *= i; i++ < 40. && s > .001;) {
+        s = 1. + (p += vec3((u-r.xy/2.)/r.y,1) * s).y;
+        for (n =.5; n < 20.;n+=n)
+            s += abs(dot(sin(p.z+iTime+p * n), vec3(.1))) / n;
+        o += s *.03+.03;
+    }
+    o = tanh(o);
+}
+
+*/
+
+
+/* original fire shader
+
+void mainImage(out vec4 o, vec2 u) {
+    float f, i, r, e,
+          t = iTime;
+    vec3 p, z = iResolution;
+    for(o*=i;
+        i++<1e2;
+        f += r = .01 + abs(r)*.1,
+        o += 1. / r)
+        for(p = vec3(((u-z.xy/2.)/z.y) * f, f+t),
+            p += cos(t+p.yzx+p.zzx)*.6,
+            r =  cos(p.z)-1.,
+            e = 1.6;
+            e < 32.;
+            e += e )
+            r += abs(dot(sin(t + p*e ), vec3(1))) / e;
+    o = tanh(vec4(6,2,1,1) * o * o / f / 7e6);
+}
+
+*/

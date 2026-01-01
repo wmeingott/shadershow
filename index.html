@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' file: blob:;">
+  <title>ShaderShow</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Toolbar -->
+    <div id="toolbar">
+      <div class="toolbar-group">
+        <button id="btn-play" title="Play/Pause (Space)">
+          <span class="icon">&#9658;</span>
+        </button>
+        <button id="btn-reset" title="Reset Time (Ctrl+R)">
+          <span class="icon">&#8634;</span>
+        </button>
+        <button id="btn-preview" title="Toggle Preview" class="active">
+          <span class="icon">&#128065;</span>
+        </button>
+        <button id="btn-grid" title="Toggle Shader Grid">
+          <span class="icon">&#9638;</span>
+        </button>
+      </div>
+
+      <div class="toolbar-group">
+        <label for="resolution-select">Resolution:</label>
+        <select id="resolution-select">
+          <option value="640x360">360p (640x360)</option>
+          <option value="854x480">480p (854x480)</option>
+          <option value="1280x720" selected>720p (1280x720)</option>
+          <option value="1920x1080">1080p (1920x1080)</option>
+          <option value="custom">Custom</option>
+        </select>
+        <input type="number" id="custom-width" placeholder="W" min="1" max="4096" value="1280" class="hidden">
+        <span id="custom-x" class="hidden">x</span>
+        <input type="number" id="custom-height" placeholder="H" min="1" max="4096" value="720" class="hidden">
+      </div>
+
+      <div class="toolbar-group channels">
+        <span class="channel-label">Channels:</span>
+        <div class="channel-slot" id="channel-0" title="iChannel0 - Click File > Load Texture">0</div>
+        <div class="channel-slot" id="channel-1" title="iChannel1 - Click File > Load Texture">1</div>
+        <div class="channel-slot" id="channel-2" title="iChannel2 - Click File > Load Texture">2</div>
+        <div class="channel-slot" id="channel-3" title="iChannel3 - Click File > Load Texture">3</div>
+      </div>
+
+      <div class="toolbar-group stats">
+        <span id="fps-display">FPS: --</span>
+        <span id="time-display">Time: 0.00s</span>
+        <span id="frame-display">Frame: 0</span>
+      </div>
+    </div>
+
+    <!-- Parameters Bar - Controls -->
+    <div id="params-bar">
+      <div class="param-group">
+        <label for="param-speed">Speed</label>
+        <input type="range" id="param-speed" min="0" max="5" step="0.01" value="1">
+        <span class="param-value" id="param-speed-value">1.00</span>
+      </div>
+      <div class="param-divider"></div>
+      <div class="param-group">
+        <label for="param-p0">P0</label>
+        <input type="range" id="param-p0" min="0" max="1" step="0.01" value="0.5">
+        <span class="param-value" id="param-p0-value">0.50</span>
+      </div>
+      <div class="param-group">
+        <label for="param-p1">P1</label>
+        <input type="range" id="param-p1" min="0" max="1" step="0.01" value="0.5">
+        <span class="param-value" id="param-p1-value">0.50</span>
+      </div>
+      <div class="param-group">
+        <label for="param-p2">P2</label>
+        <input type="range" id="param-p2" min="0" max="1" step="0.01" value="0.5">
+        <span class="param-value" id="param-p2-value">0.50</span>
+      </div>
+      <div class="param-group">
+        <label for="param-p3">P3</label>
+        <input type="range" id="param-p3" min="0" max="1" step="0.01" value="0.5">
+        <span class="param-value" id="param-p3-value">0.50</span>
+      </div>
+      <div class="param-group">
+        <label for="param-p4">P4</label>
+        <input type="range" id="param-p4" min="0" max="1" step="0.01" value="0.5">
+        <span class="param-value" id="param-p4-value">0.50</span>
+      </div>
+    </div>
+
+    <!-- Color Sliders Row 1 (Colors 0-4) -->
+    <div id="color-bar-1" class="color-bar">
+      <span class="param-label">C0:</span>
+      <div class="param-group"><label class="color-red">R</label><input type="range" id="param-r0" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-r0-value">1.00</span></div>
+      <div class="param-group"><label class="color-green">G</label><input type="range" id="param-g0" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-g0-value">1.00</span></div>
+      <div class="param-group"><label class="color-blue">B</label><input type="range" id="param-b0" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-b0-value">1.00</span></div>
+      <div class="param-divider"></div>
+      <span class="param-label">C1:</span>
+      <div class="param-group"><label class="color-red">R</label><input type="range" id="param-r1" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-r1-value">1.00</span></div>
+      <div class="param-group"><label class="color-green">G</label><input type="range" id="param-g1" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-g1-value">1.00</span></div>
+      <div class="param-group"><label class="color-blue">B</label><input type="range" id="param-b1" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-b1-value">1.00</span></div>
+      <div class="param-divider"></div>
+      <span class="param-label">C2:</span>
+      <div class="param-group"><label class="color-red">R</label><input type="range" id="param-r2" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-r2-value">1.00</span></div>
+      <div class="param-group"><label class="color-green">G</label><input type="range" id="param-g2" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-g2-value">1.00</span></div>
+      <div class="param-group"><label class="color-blue">B</label><input type="range" id="param-b2" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-b2-value">1.00</span></div>
+      <div class="param-divider"></div>
+      <span class="param-label">C3:</span>
+      <div class="param-group"><label class="color-red">R</label><input type="range" id="param-r3" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-r3-value">1.00</span></div>
+      <div class="param-group"><label class="color-green">G</label><input type="range" id="param-g3" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-g3-value">1.00</span></div>
+      <div class="param-group"><label class="color-blue">B</label><input type="range" id="param-b3" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-b3-value">1.00</span></div>
+      <div class="param-divider"></div>
+      <span class="param-label">C4:</span>
+      <div class="param-group"><label class="color-red">R</label><input type="range" id="param-r4" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-r4-value">1.00</span></div>
+      <div class="param-group"><label class="color-green">G</label><input type="range" id="param-g4" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-g4-value">1.00</span></div>
+      <div class="param-group"><label class="color-blue">B</label><input type="range" id="param-b4" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-b4-value">1.00</span></div>
+    </div>
+
+    <!-- Color Sliders Row 2 (Colors 5-9) -->
+    <div id="color-bar-2" class="color-bar">
+      <span class="param-label">C5:</span>
+      <div class="param-group"><label class="color-red">R</label><input type="range" id="param-r5" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-r5-value">1.00</span></div>
+      <div class="param-group"><label class="color-green">G</label><input type="range" id="param-g5" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-g5-value">1.00</span></div>
+      <div class="param-group"><label class="color-blue">B</label><input type="range" id="param-b5" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-b5-value">1.00</span></div>
+      <div class="param-divider"></div>
+      <span class="param-label">C6:</span>
+      <div class="param-group"><label class="color-red">R</label><input type="range" id="param-r6" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-r6-value">1.00</span></div>
+      <div class="param-group"><label class="color-green">G</label><input type="range" id="param-g6" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-g6-value">1.00</span></div>
+      <div class="param-group"><label class="color-blue">B</label><input type="range" id="param-b6" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-b6-value">1.00</span></div>
+      <div class="param-divider"></div>
+      <span class="param-label">C7:</span>
+      <div class="param-group"><label class="color-red">R</label><input type="range" id="param-r7" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-r7-value">1.00</span></div>
+      <div class="param-group"><label class="color-green">G</label><input type="range" id="param-g7" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-g7-value">1.00</span></div>
+      <div class="param-group"><label class="color-blue">B</label><input type="range" id="param-b7" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-b7-value">1.00</span></div>
+      <div class="param-divider"></div>
+      <span class="param-label">C8:</span>
+      <div class="param-group"><label class="color-red">R</label><input type="range" id="param-r8" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-r8-value">1.00</span></div>
+      <div class="param-group"><label class="color-green">G</label><input type="range" id="param-g8" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-g8-value">1.00</span></div>
+      <div class="param-group"><label class="color-blue">B</label><input type="range" id="param-b8" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-b8-value">1.00</span></div>
+      <div class="param-divider"></div>
+      <span class="param-label">C9:</span>
+      <div class="param-group"><label class="color-red">R</label><input type="range" id="param-r9" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-r9-value">1.00</span></div>
+      <div class="param-group"><label class="color-green">G</label><input type="range" id="param-g9" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-g9-value">1.00</span></div>
+      <div class="param-group"><label class="color-blue">B</label><input type="range" id="param-b9" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-b9-value">1.00</span></div>
+    </div>
+
+    <!-- Main Content -->
+    <div id="main-content">
+      <!-- Editor Panel -->
+      <div id="editor-panel">
+        <div id="editor"></div>
+      </div>
+
+      <!-- Resizer -->
+      <div id="resizer"></div>
+
+      <!-- Right Panel Container -->
+      <div id="right-panel">
+        <!-- Shader Grid Panel -->
+        <div id="grid-panel" class="hidden">
+        <div class="shader-grid">
+          <div class="grid-slot" data-slot="0"><canvas></canvas><span class="slot-number">1</span></div>
+          <div class="grid-slot" data-slot="1"><canvas></canvas><span class="slot-number">2</span></div>
+          <div class="grid-slot" data-slot="2"><canvas></canvas><span class="slot-number">3</span></div>
+          <div class="grid-slot" data-slot="3"><canvas></canvas><span class="slot-number">4</span></div>
+          <div class="grid-slot" data-slot="4"><canvas></canvas><span class="slot-number">5</span></div>
+          <div class="grid-slot" data-slot="5"><canvas></canvas><span class="slot-number">6</span></div>
+          <div class="grid-slot" data-slot="6"><canvas></canvas><span class="slot-number">7</span></div>
+          <div class="grid-slot" data-slot="7"><canvas></canvas><span class="slot-number">8</span></div>
+          <div class="grid-slot" data-slot="8"><canvas></canvas><span class="slot-number">9</span></div>
+          <div class="grid-slot" data-slot="9"><canvas></canvas><span class="slot-number">10</span></div>
+          <div class="grid-slot" data-slot="10"><canvas></canvas><span class="slot-number">11</span></div>
+          <div class="grid-slot" data-slot="11"><canvas></canvas><span class="slot-number">12</span></div>
+          <div class="grid-slot" data-slot="12"><canvas></canvas><span class="slot-number">13</span></div>
+          <div class="grid-slot" data-slot="13"><canvas></canvas><span class="slot-number">14</span></div>
+          <div class="grid-slot" data-slot="14"><canvas></canvas><span class="slot-number">15</span></div>
+          <div class="grid-slot" data-slot="15"><canvas></canvas><span class="slot-number">16</span></div>
+        </div>
+      </div>
+
+        <!-- Preview Panel -->
+        <div id="preview-panel">
+          <canvas id="shader-canvas"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Status Bar -->
+    <div id="status-bar">
+      <span id="status-message">Ready</span>
+      <span id="cursor-position">Ln 1, Col 1</span>
+    </div>
+  </div>
+
+  <!-- Ace Editor -->
+  <script src="node_modules/ace-builds/src-min-noconflict/ace.js"></script>
+  <script src="node_modules/ace-builds/src-min-noconflict/mode-glsl.js"></script>
+  <script src="node_modules/ace-builds/src-min-noconflict/theme-monokai.js"></script>
+
+  <script src="shader-renderer.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>

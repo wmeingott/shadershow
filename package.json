@@ -1,0 +1,26 @@
+{
+  "name": "shadershow",
+  "version": "1.0.0",
+  "description": "A VS Code-like GLSL shader editor with Shadertoy compatibility",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --enable-logging"
+  },
+  "keywords": [
+    "glsl",
+    "shader",
+    "shadertoy",
+    "webgl",
+    "editor"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0"
+  },
+  "dependencies": {
+    "ace-builds": "^1.32.0",
+    "grandiose-mac": "^0.0.6"
+  }
+}

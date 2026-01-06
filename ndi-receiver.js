@@ -1,4 +1,15 @@
-const grandiose = require('grandiose-mac');
+// Load platform-appropriate NDI library
+let grandiose;
+try {
+  if (process.platform === 'darwin') {
+    grandiose = require('grandiose-mac');
+  } else {
+    grandiose = require('grandiose');
+  }
+} catch (err) {
+  console.warn('NDI library not available:', err.message);
+  grandiose = null;
+}
 
 class NDIReceiver {
   constructor(channel) {
@@ -13,6 +24,11 @@ class NDIReceiver {
 
   // Find available NDI sources on the network
   static async findSources(timeout = 3000) {
+    if (!grandiose) {
+      console.error('NDI library not available on this platform');
+      return [];
+    }
+
     try {
       const sources = await grandiose.find({
         showLocalSources: true
@@ -25,6 +41,11 @@ class NDIReceiver {
   }
 
   async connect(source) {
+    if (!grandiose) {
+      console.error('NDI library not available on this platform');
+      return false;
+    }
+
     if (this.receiver) {
       await this.disconnect();
     }

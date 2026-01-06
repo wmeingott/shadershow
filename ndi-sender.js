@@ -1,4 +1,15 @@
-const grandiose = require('grandiose-mac');
+// Load platform-appropriate NDI library
+let grandiose;
+try {
+  if (process.platform === 'darwin') {
+    grandiose = require('grandiose-mac');
+  } else {
+    grandiose = require('grandiose');
+  }
+} catch (err) {
+  console.warn('NDI library not available:', err.message);
+  grandiose = null;
+}
 
 class NDISender {
   constructor(name = 'ShaderShow') {
@@ -13,6 +24,11 @@ class NDISender {
   }
 
   async start(options = {}) {
+    if (!grandiose) {
+      console.error('NDI library not available on this platform');
+      return false;
+    }
+
     if (this.sender) {
       console.log('NDI sender already started');
       return true;

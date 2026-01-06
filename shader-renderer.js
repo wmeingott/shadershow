@@ -175,7 +175,11 @@ class ShaderRenderer {
       this.cleanupChannel(channel);
 
       const video = document.createElement('video');
-      video.src = `file://${filePath}`;
+      // Convert file path to proper file:// URL (handles Windows paths)
+      const fileUrl = filePath.startsWith('/')
+        ? `file://${filePath}`
+        : `file:///${filePath.replace(/\\/g, '/')}`;
+      video.src = fileUrl;
       video.loop = true;
       video.muted = true;
       video.playsInline = true;

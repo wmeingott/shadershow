@@ -22,5 +22,8 @@
   "dependencies": {
     "ace-builds": "^1.32.0",
     "grandiose-mac": "^0.0.6"
+  },
+  "optionalDependencies": {
+    "grandiose": "^0.0.4"
   }
 }

@@ -141,7 +141,7 @@ export async function assignShaderToSlot(slotIndex, shaderCode, filePath, skipSa
       presets: presets || []
     };
     slot.classList.add('has-shader');
-    slot.title = filePath ? `Slot ${slotIndex + 1}: ${filePath.split('/').pop()}` : `Slot ${slotIndex + 1}: Current shader`;
+    slot.title = filePath ? `Slot ${slotIndex + 1}: ${filePath.split('/').pop().split('\\').pop()}` : `Slot ${slotIndex + 1}: Current shader`;
 
     if (!skipSave) {
       // Save shader code to individual file
@@ -341,7 +341,7 @@ export function loadGridShaderToEditor(slotIndex) {
   // Update save button state
   updateSaveButtonState();
 
-  const slotName = slotData.filePath ? slotData.filePath.split('/').pop() : `slot ${slotIndex + 1}`;
+  const slotName = slotData.filePath ? slotData.filePath.split('/').pop().split('\\').pop() : `slot ${slotIndex + 1}`;
   setStatus(`Editing ${slotName} (slot ${slotIndex + 1})`, 'success');
 }
 
@@ -401,7 +401,7 @@ export function playGridShader(slotIndex) {
     });
   }
 
-  const slotName = slotData.filePath ? slotData.filePath.split('/').pop() : `slot ${slotIndex + 1}`;
+  const slotName = slotData.filePath ? slotData.filePath.split('/').pop().split('\\').pop() : `slot ${slotIndex + 1}`;
   setStatus(`Playing ${slotName}`, 'success');
 }
 

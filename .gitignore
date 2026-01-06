@@ -43,3 +43,8 @@ yarn-error.log*
 
 # Backup files
 *.bak
+
+# Large SDK installers
+ndi/*.pkg
+ndi/*.dmg
+ndi/*.exe

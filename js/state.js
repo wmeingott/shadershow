@@ -10,6 +10,8 @@ export const state = {
   paramsEnabled: true,
   ndiEnabled: false,
   ndiFrameCounter: 0,
+  syphonEnabled: false,
+  syphonFrameCounter: 0,
 
   // Mouse assignment for params P0-P4
   mouseAssignments: { p0: '', p1: '', p2: '', p3: '', p4: '' },

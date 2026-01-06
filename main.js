@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const NDISender = require('./ndi-sender');
 const NDIReceiver = require('./ndi-receiver');
+const SyphonSender = require('./syphon-sender');
 
 let mainWindow;
 let fullscreenWindow = null;
@@ -14,6 +15,10 @@ let ndiResolution = { width: 1920, height: 1080, label: '1920x1080 (1080p)' };
 // NDI input receivers for channels (one per channel 0-3)
 let ndiReceivers = [null, null, null, null];
 let ndiSourceCache = []; // Cached NDI sources for menu
+
+// Syphon output (macOS only)
+let syphonEnabled = false;
+let syphonSender = null;
 
 // NDI resolution presets
 const ndiResolutions = [
@@ -304,7 +309,15 @@ function createMenu() {
           label: 'NDI Resolution',
           id: 'ndi-resolution-menu',
           submenu: buildNDIResolutionSubmenu()
-        }
+        },
+        ...(isMac ? [
+          { type: 'separator' },
+          {
+            label: 'Start Syphon Output',
+            id: 'syphon-toggle',
+            click: () => toggleSyphonOutput()
+          }
+        ] : [])
       ]
     }
   ];
@@ -786,6 +799,70 @@ async function sendNDIFrame(frameData) {
   }
 }
 
+// Syphon output functions (macOS only)
+function toggleSyphonOutput() {
+  if (syphonEnabled) {
+    stopSyphonOutput();
+  } else {
+    startSyphonOutput();
+  }
+}
+
+async function startSyphonOutput() {
+  if (process.platform !== 'darwin') {
+    console.log('Syphon is only available on macOS');
+    return;
+  }
+
+  if (!syphonSender) {
+    syphonSender = new SyphonSender('ShaderShow');
+  }
+
+  const success = await syphonSender.start({
+    width: 1920,
+    height: 1080
+  });
+
+  if (success) {
+    syphonEnabled = true;
+    mainWindow.webContents.send('syphon-status', { enabled: true });
+    updateSyphonMenu();
+    console.log('Syphon output started');
+  } else {
+    mainWindow.webContents.send('syphon-status', { enabled: false, error: 'Failed to start Syphon' });
+  }
+}
+
+function stopSyphonOutput() {
+  if (syphonSender) {
+    syphonSender.stop();
+  }
+
+  syphonEnabled = false;
+  mainWindow.webContents.send('syphon-status', { enabled: false });
+  updateSyphonMenu();
+  console.log('Syphon output stopped');
+}
+
+function updateSyphonMenu() {
+  const menu = Menu.getApplicationMenu();
+  const syphonItem = menu.getMenuItemById('syphon-toggle');
+  if (syphonItem) {
+    syphonItem.label = syphonEnabled ? 'Stop Syphon Output' : 'Start Syphon Output';
+  }
+}
+
+async function sendSyphonFrame(frameData) {
+  if (syphonSender && syphonEnabled) {
+    try {
+      const buffer = Buffer.from(frameData.rgbaData, 'base64');
+      await syphonSender.sendFrame(buffer, frameData.width, frameData.height);
+    } catch (e) {
+      console.error('Syphon frame send error:', e.message);
+    }
+  }
+}
+
 async function saveGridPresetsAs() {
   mainWindow.webContents.send('request-grid-state-for-save');
 }
@@ -1076,6 +1153,16 @@ ipcMain.on('preview-resolution', async (event, { width, height }) => {
 // Toggle NDI from toolbar
 ipcMain.on('toggle-ndi', () => {
   toggleNDIOutput();
+});
+
+// Syphon frame receiver (output)
+ipcMain.on('syphon-frame', (event, frameData) => {
+  sendSyphonFrame(frameData);
+});
+
+// Toggle Syphon from toolbar
+ipcMain.on('toggle-syphon', () => {
+  toggleSyphonOutput();
 });
 
 // Open fullscreen on primary display

@@ -8,6 +8,7 @@ import { initShaderGrid } from './shader-grid.js';
 import { initIPC } from './ipc.js';
 import { restoreViewState } from './view-state.js';
 import { sendNDIFrame } from './ndi.js';
+import { sendSyphonFrame } from './syphon.js';
 
 // Initialize application
 document.addEventListener('DOMContentLoaded', async () => {
@@ -59,6 +60,12 @@ function renderLoop() {
       sendNDIFrame();
     }
     state.ndiFrameCounter++;
+
+    // Send frame to Syphon output if enabled (every other frame to reduce load)
+    if (state.syphonEnabled && state.syphonFrameCounter % 2 === 0) {
+      sendSyphonFrame();
+    }
+    state.syphonFrameCounter++;
   } else {
     // Still update time even when preview disabled (for fullscreen sync)
     state.renderer.updateTime();

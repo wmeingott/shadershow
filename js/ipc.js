@@ -134,6 +134,18 @@ export function initIPC() {
     }
   });
 
+  // Syphon status (macOS only)
+  window.electronAPI.onSyphonStatus(({ enabled, error }) => {
+    state.syphonEnabled = enabled;
+    if (enabled) {
+      setStatus('Syphon output started', 'success');
+    } else if (error) {
+      setStatus(`Syphon error: ${error}`, 'error');
+    } else {
+      setStatus('Syphon output stopped', 'success');
+    }
+  });
+
   // Preview resolution request for NDI "Match Preview" option
   window.electronAPI.onRequestPreviewResolution(() => {
     const canvas = document.getElementById('shader-canvas');

@@ -24,6 +24,7 @@
     "grandiose-mac": "^0.0.6"
   },
   "optionalDependencies": {
-    "grandiose": "^0.0.4"
+    "grandiose": "^0.0.4",
+    "node-syphon": "^1.5.0"
   }
 }

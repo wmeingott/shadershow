@@ -61,6 +61,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   toggleNDI: () => ipcRenderer.send('toggle-ndi'),
   openFullscreen: () => ipcRenderer.send('open-fullscreen-primary'),
 
+  // Syphon output (macOS only)
+  onSyphonStatus: (callback) => ipcRenderer.on('syphon-status', (event, data) => callback(data)),
+  sendSyphonFrame: (frameData) => ipcRenderer.send('syphon-frame', frameData),
+  toggleSyphon: () => ipcRenderer.send('toggle-syphon'),
+
   // NDI input (sources as channel textures)
   findNDISources: () => ipcRenderer.invoke('find-ndi-sources'),
   setChannelNDI: (channel, source) => ipcRenderer.send('set-channel-ndi', { channel, source }),

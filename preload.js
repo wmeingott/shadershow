@@ -55,5 +55,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // NDI output
   onNDIStatus: (callback) => ipcRenderer.on('ndi-status', (event, data) => callback(data)),
-  sendNDIFrame: (frameData) => ipcRenderer.send('ndi-frame', frameData)
+  sendNDIFrame: (frameData) => ipcRenderer.send('ndi-frame', frameData),
+  onRequestPreviewResolution: (callback) => ipcRenderer.on('request-preview-resolution', () => callback()),
+  sendPreviewResolution: (data) => ipcRenderer.send('preview-resolution', data),
+  toggleNDI: () => ipcRenderer.send('toggle-ndi'),
+  openFullscreen: () => ipcRenderer.send('open-fullscreen-primary'),
+
+  // Settings
+  getSettings: () => ipcRenderer.invoke('get-settings'),
+  saveSettings: (settings) => ipcRenderer.send('save-settings', settings),
+  onSettingsChanged: (callback) => ipcRenderer.on('settings-changed', (event, data) => callback(data)),
+
+  // Parameter presets
+  savePresets: (presets) => ipcRenderer.send('save-presets', presets),
+  loadPresets: () => ipcRenderer.invoke('load-presets'),
+
+  // View state
+  saveViewState: (viewState) => ipcRenderer.send('save-view-state', viewState),
+  loadViewState: () => ipcRenderer.invoke('load-view-state'),
+
+  // Shader file operations
+  saveShaderToSlot: (slotIndex, shaderCode) => ipcRenderer.invoke('save-shader-to-slot', slotIndex, shaderCode),
+  loadShaderFromSlot: (slotIndex) => ipcRenderer.invoke('load-shader-from-slot', slotIndex),
+  deleteShaderFromSlot: (slotIndex) => ipcRenderer.invoke('delete-shader-from-slot', slotIndex)
 });

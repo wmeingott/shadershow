@@ -5,8 +5,14 @@ let compileTimeout;
 let animationId;
 let previewEnabled = true;
 let gridEnabled = false;
+let editorEnabled = true;
+let paramsEnabled = true;
 let ndiEnabled = false;
 let ndiFrameCounter = 0;
+
+// Mouse assignment for params P0-P4
+let mouseAssignments = { p0: '', p1: '', p2: '', p3: '', p4: '' };
+let mousePosition = { x: 0.5, y: 0.5 };
 
 // Track channel state for fullscreen sync
 let channelState = [null, null, null, null];
@@ -16,12 +22,28 @@ const gridSlots = new Array(16).fill(null); // { shaderCode, filePath, renderer,
 let gridAnimationId = null;
 let activeGridSlot = null; // Track which slot is being edited
 
+// Parameter presets - global and per-shader
+let globalPresets = []; // Array of { params, name } objects - shared across all shaders
+let activeGlobalPresetIndex = null;
+let activeLocalPresetIndex = null;
+
+// Parameter ranges (min, max) for P0-P4
+let paramRanges = {
+  p0: { min: 0, max: 1 },
+  p1: { min: 0, max: 1 },
+  p2: { min: 0, max: 1 },
+  p3: { min: 0, max: 1 },
+  p4: { min: 0, max: 1 }
+};
+
 // Initialize application
 document.addEventListener('DOMContentLoaded', async () => {
   initEditor();
   initRenderer();
   initControls();
   initParams();
+  initMouseAssignment();
+  initPresets();
   initResizer();
   initIPC();
   initShaderGrid();
@@ -30,6 +52,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const defaultShader = await window.electronAPI.getDefaultShader();
   editor.setValue(defaultShader, -1);
   compileShader();
+
+  // Restore saved view state
+  await restoreViewState();
 
   // Start render loop
   renderLoop();
@@ -71,7 +96,15 @@ function initEditor() {
   editor.commands.addCommand({
     name: 'save',
     bindKey: { win: 'Ctrl-S', mac: 'Cmd-S' },
-    exec: () => window.electronAPI.saveContent(editor.getValue())
+    exec: () => {
+      // If a grid slot is active, save to slot file
+      if (activeGridSlot !== null && gridSlots[activeGridSlot]) {
+        saveActiveSlotShader();
+      } else {
+        // Otherwise use standard file save
+        window.electronAPI.saveContent(editor.getValue());
+      }
+    }
   });
 }
 
@@ -101,6 +134,30 @@ function initControls() {
   // Grid toggle button
   const btnGrid = document.getElementById('btn-grid');
   btnGrid.addEventListener('click', toggleGrid);
+
+  // Editor toggle button
+  const btnEditor = document.getElementById('btn-editor');
+  btnEditor.addEventListener('click', toggleEditor);
+
+  // Params toggle button
+  const btnParams = document.getElementById('btn-params');
+  btnParams.addEventListener('click', toggleParams);
+
+  // NDI toggle button
+  const btnNdi = document.getElementById('btn-ndi');
+  btnNdi.addEventListener('click', toggleNDI);
+
+  // Fullscreen button
+  const btnFullscreen = document.getElementById('btn-fullscreen');
+  btnFullscreen.addEventListener('click', openFullscreenPreview);
+
+  // Settings button
+  const btnSettings = document.getElementById('btn-settings');
+  btnSettings.addEventListener('click', showSettingsDialog);
+
+  // Save shader button
+  const btnSaveShader = document.getElementById('btn-save-shader');
+  btnSaveShader.addEventListener('click', saveActiveSlotShader);
 
   // Resolution selector
   const resolutionSelect = document.getElementById('resolution-select');
@@ -190,10 +247,624 @@ function initParams() {
     slider.addEventListener('dblclick', () => {
       slider.value = defaults[name];
       renderer.setParam(name, defaults[name]);
-      valueDisplay.textContent = defaults[name].toFixed(2);
+      if (valueDisplay) valueDisplay.textContent = defaults[name].toFixed(2);
       window.electronAPI.sendParamUpdate({ name, value: defaults[name] });
     });
   });
+
+  // Reset button handler
+  const resetBtn = document.getElementById('btn-reset-params');
+  resetBtn.addEventListener('click', () => resetAllParams(defaults));
+
+  // P0-P4 section reset buttons
+  document.getElementById('btn-params-zero').addEventListener('click', () => resetParamsP0P4(0));
+  document.getElementById('btn-params-full').addEventListener('click', () => resetParamsP0P4(1));
+
+  // Colors section reset buttons
+  document.getElementById('btn-colors-zero').addEventListener('click', () => resetAllColors(0));
+  document.getElementById('btn-colors-full').addEventListener('click', () => resetAllColors(1));
+
+  // Add min/max buttons to color sliders
+  addColorSliderButtons();
+}
+
+function addColorSliderButtons() {
+  // Add 0/1 buttons to each color slider
+  for (let i = 0; i < 10; i++) {
+    ['r', 'g', 'b'].forEach(channel => {
+      const sliderId = `param-${channel}${i}`;
+      const slider = document.getElementById(sliderId);
+      if (!slider) return;
+
+      // Create min button (0)
+      const minBtn = document.createElement('button');
+      minBtn.className = 'color-minmax-btn color-min-btn';
+      minBtn.textContent = '0';
+      minBtn.title = 'Set to 0';
+      minBtn.addEventListener('click', () => setColorParam(sliderId, `${channel}${i}`, 0));
+
+      // Create max button (1)
+      const maxBtn = document.createElement('button');
+      maxBtn.className = 'color-minmax-btn color-max-btn';
+      maxBtn.textContent = '1';
+      maxBtn.title = 'Set to 1';
+      maxBtn.addEventListener('click', () => setColorParam(sliderId, `${channel}${i}`, 1));
+
+      // Insert buttons around the slider
+      slider.parentNode.insertBefore(minBtn, slider);
+      slider.parentNode.insertBefore(maxBtn, slider.nextSibling);
+    });
+  }
+}
+
+function setColorParam(sliderId, paramName, value) {
+  const slider = document.getElementById(sliderId);
+  if (!slider) return;
+
+  slider.value = value;
+  renderer.setParam(paramName, value);
+  window.electronAPI.sendParamUpdate({ name: paramName, value });
+
+  // Update active grid slot
+  if (activeGridSlot !== null && gridSlots[activeGridSlot]) {
+    gridSlots[activeGridSlot].params[paramName] = value;
+    saveGridState();
+  }
+}
+
+function resetParamsP0P4(value) {
+  for (let i = 0; i < 5; i++) {
+    const paramName = `p${i}`;
+    const slider = document.getElementById(`param-p${i}`);
+    const valueDisplay = document.getElementById(`param-p${i}-value`);
+
+    if (!slider) continue;
+
+    // Use the slider's min/max for the value (respects custom ranges from settings)
+    const minVal = parseFloat(slider.min);
+    const maxVal = parseFloat(slider.max);
+    const targetValue = value === 0 ? minVal : maxVal;
+
+    slider.value = targetValue;
+    renderer.setParam(paramName, targetValue);
+    if (valueDisplay) valueDisplay.textContent = targetValue.toFixed(2);
+    window.electronAPI.sendParamUpdate({ name: paramName, value: targetValue });
+
+    // Update active grid slot
+    if (activeGridSlot !== null && gridSlots[activeGridSlot]) {
+      gridSlots[activeGridSlot].params[paramName] = targetValue;
+    }
+  }
+
+  if (activeGridSlot !== null && gridSlots[activeGridSlot]) {
+    saveGridState();
+  }
+
+  setStatus(`P0-P4 set to ${value === 0 ? 'minimum' : 'maximum'}`, 'success');
+}
+
+function resetAllColors(value) {
+  for (let i = 0; i < 10; i++) {
+    ['r', 'g', 'b'].forEach(channel => {
+      const paramName = `${channel}${i}`;
+      const sliderId = `param-${channel}${i}`;
+      const slider = document.getElementById(sliderId);
+
+      if (slider) {
+        slider.value = value;
+        renderer.setParam(paramName, value);
+        window.electronAPI.sendParamUpdate({ name: paramName, value });
+
+        // Update active grid slot
+        if (activeGridSlot !== null && gridSlots[activeGridSlot]) {
+          gridSlots[activeGridSlot].params[paramName] = value;
+        }
+      }
+    });
+  }
+
+  if (activeGridSlot !== null && gridSlots[activeGridSlot]) {
+    saveGridState();
+  }
+
+  setStatus(`All colors set to ${value}`, 'success');
+}
+
+function resetAllParams(defaults) {
+  // Build param mappings
+  const paramMappings = [{ id: 'param-speed', name: 'speed' }];
+  for (let i = 0; i < 5; i++) {
+    paramMappings.push({ id: `param-p${i}`, name: `p${i}` });
+  }
+  for (let i = 0; i < 10; i++) {
+    paramMappings.push({ id: `param-r${i}`, name: `r${i}` });
+    paramMappings.push({ id: `param-g${i}`, name: `g${i}` });
+    paramMappings.push({ id: `param-b${i}`, name: `b${i}` });
+  }
+
+  // Default values if not provided
+  if (!defaults) {
+    defaults = { speed: 1 };
+    for (let i = 0; i < 5; i++) defaults[`p${i}`] = 0.5;
+    for (let i = 0; i < 10; i++) {
+      defaults[`r${i}`] = 1;
+      defaults[`g${i}`] = 1;
+      defaults[`b${i}`] = 1;
+    }
+  }
+
+  paramMappings.forEach(({ id, name }) => {
+    const slider = document.getElementById(id);
+    const valueDisplay = document.getElementById(`${id}-value`);
+    const value = defaults[name];
+
+    if (slider) {
+      slider.value = value;
+      renderer.setParam(name, value);
+      if (valueDisplay) valueDisplay.textContent = value.toFixed(2);
+      window.electronAPI.sendParamUpdate({ name, value });
+    }
+  });
+
+  // Update active grid slot if selected
+  if (activeGridSlot !== null && gridSlots[activeGridSlot]) {
+    gridSlots[activeGridSlot].params = { ...defaults };
+    saveGridState();
+  }
+
+  setStatus('Parameters reset to defaults', 'success');
+}
+
+function initMouseAssignment() {
+  // Setup mouse tracking on canvas
+  const canvas = document.getElementById('shader-canvas');
+  const canvasContainer = document.getElementById('preview-canvas-container');
+
+  canvasContainer.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mousePosition.x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    mousePosition.y = Math.max(0, Math.min(1, 1 - (e.clientY - rect.top) / rect.height)); // Invert Y
+    updateMouseControlledParams();
+  });
+
+  // Setup dropdowns for P0-P4
+  for (let i = 0; i < 5; i++) {
+    const select = document.getElementById(`mouse-p${i}`);
+    const paramRow = select.closest('.param-row');
+
+    select.addEventListener('change', () => {
+      mouseAssignments[`p${i}`] = select.value;
+
+      if (select.value) {
+        paramRow.classList.add('mouse-controlled');
+      } else {
+        paramRow.classList.remove('mouse-controlled');
+      }
+
+      updateMouseControlledParams();
+    });
+  }
+}
+
+function updateMouseControlledParams() {
+  for (let i = 0; i < 5; i++) {
+    const assignment = mouseAssignments[`p${i}`];
+    if (!assignment) continue;
+
+    const value = assignment === 'x' ? mousePosition.x : mousePosition.y;
+    const slider = document.getElementById(`param-p${i}`);
+    const valueDisplay = document.getElementById(`param-p${i}-value`);
+
+    slider.value = value;
+    valueDisplay.textContent = value.toFixed(2);
+    renderer.setParam(`p${i}`, value);
+    window.electronAPI.sendParamUpdate({ name: `p${i}`, value });
+
+    // Update grid slot if active
+    if (activeGridSlot !== null && gridSlots[activeGridSlot]) {
+      gridSlots[activeGridSlot].params[`p${i}`] = value;
+    }
+  }
+}
+
+async function initPresets() {
+  // Local preset add button
+  const addLocalBtn = document.getElementById('btn-add-local-preset');
+  addLocalBtn.addEventListener('click', () => addLocalPreset());
+
+  // Global preset add button
+  const addGlobalBtn = document.getElementById('btn-add-global-preset');
+  addGlobalBtn.addEventListener('click', () => addGlobalPreset());
+
+  // Load saved global presets and param ranges
+  await loadGlobalPresets();
+  await loadParamRanges();
+}
+
+async function loadGlobalPresets() {
+  const savedPresets = await window.electronAPI.loadPresets();
+  if (savedPresets && Array.isArray(savedPresets)) {
+    savedPresets.forEach((preset, index) => {
+      // Handle old format (just params) and new format ({ params, name })
+      if (preset.params) {
+        globalPresets.push(preset);
+      } else {
+        globalPresets.push({ params: preset, name: null });
+      }
+      createGlobalPresetButton(index);
+    });
+  }
+}
+
+async function loadParamRanges() {
+  const settings = await window.electronAPI.getSettings();
+  if (settings && settings.paramRanges) {
+    paramRanges = { ...paramRanges, ...settings.paramRanges };
+    applyParamRanges();
+  }
+}
+
+function applyParamRanges() {
+  for (let i = 0; i < 5; i++) {
+    const slider = document.getElementById(`param-p${i}`);
+    const range = paramRanges[`p${i}`];
+    if (slider && range) {
+      slider.min = range.min;
+      slider.max = range.max;
+      slider.step = (range.max - range.min) / 100;
+    }
+  }
+}
+
+function saveGlobalPresetsToFile() {
+  window.electronAPI.savePresets(globalPresets);
+}
+
+// Update local presets UI when shader selection changes
+function updateLocalPresetsUI() {
+  const localRow = document.getElementById('local-presets-row');
+  const addBtn = document.getElementById('btn-add-local-preset');
+  const hint = document.getElementById('no-shader-hint');
+
+  // Clear existing local preset buttons
+  const existingBtns = localRow.querySelectorAll('.preset-btn.local-preset');
+  existingBtns.forEach(btn => btn.remove());
+
+  if (activeGridSlot === null || !gridSlots[activeGridSlot]) {
+    // No shader selected
+    hint.classList.remove('hidden');
+    addBtn.classList.add('hidden');
+    return;
+  }
+
+  // Shader is selected
+  hint.classList.add('hidden');
+  addBtn.classList.remove('hidden');
+
+  // Ensure presets array exists for this slot
+  if (!gridSlots[activeGridSlot].presets) {
+    gridSlots[activeGridSlot].presets = [];
+  }
+
+  // Create buttons for local presets
+  const presets = gridSlots[activeGridSlot].presets;
+  presets.forEach((preset, index) => {
+    createLocalPresetButton(index);
+  });
+}
+
+function addLocalPreset() {
+  if (activeGridSlot === null || !gridSlots[activeGridSlot]) {
+    setStatus('Select a shader first', 'error');
+    return;
+  }
+
+  const params = renderer.getParams();
+  if (!gridSlots[activeGridSlot].presets) {
+    gridSlots[activeGridSlot].presets = [];
+  }
+
+  const presetIndex = gridSlots[activeGridSlot].presets.length;
+  gridSlots[activeGridSlot].presets.push({ params: { ...params }, name: null });
+
+  createLocalPresetButton(presetIndex);
+  saveGridState();
+  setStatus(`Shader preset ${presetIndex + 1} saved`, 'success');
+}
+
+function addGlobalPreset() {
+  const params = renderer.getParams();
+  const presetIndex = globalPresets.length;
+  globalPresets.push({ params: { ...params }, name: null });
+
+  createGlobalPresetButton(presetIndex);
+  saveGlobalPresetsToFile();
+  setStatus(`Global preset ${presetIndex + 1} saved`, 'success');
+}
+
+function createLocalPresetButton(index) {
+  const localRow = document.getElementById('local-presets-row');
+  const addBtn = document.getElementById('btn-add-local-preset');
+
+  const btn = document.createElement('button');
+  btn.className = 'preset-btn local-preset';
+  updateLocalPresetButtonLabel(btn, index);
+  btn.dataset.presetIndex = index;
+  btn.dataset.presetType = 'local';
+
+  btn.addEventListener('click', () => recallLocalPreset(index));
+  btn.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    showPresetContextMenu(e.clientX, e.clientY, index, btn, 'local');
+  });
+
+  localRow.insertBefore(btn, addBtn);
+}
+
+function createGlobalPresetButton(index) {
+  const globalRow = document.getElementById('global-presets-row');
+  const addBtn = document.getElementById('btn-add-global-preset');
+
+  const btn = document.createElement('button');
+  btn.className = 'preset-btn global-preset';
+  updateGlobalPresetButtonLabel(btn, index);
+  btn.dataset.presetIndex = index;
+  btn.dataset.presetType = 'global';
+
+  btn.addEventListener('click', () => recallGlobalPreset(index));
+  btn.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    showPresetContextMenu(e.clientX, e.clientY, index, btn, 'global');
+  });
+
+  globalRow.insertBefore(btn, addBtn);
+}
+
+function updateLocalPresetButtonLabel(btn, index) {
+  if (activeGridSlot === null || !gridSlots[activeGridSlot]) return;
+  const presets = gridSlots[activeGridSlot].presets || [];
+  const preset = presets[index];
+  const label = preset && preset.name ? preset.name : String(index + 1);
+  btn.textContent = label;
+  btn.title = preset && preset.name
+    ? `${preset.name} (right-click for options)`
+    : `Shader preset ${index + 1} (right-click for options)`;
+}
+
+function updateGlobalPresetButtonLabel(btn, index) {
+  const preset = globalPresets[index];
+  const label = preset && preset.name ? preset.name : String(index + 1);
+  btn.textContent = label;
+  btn.title = preset && preset.name
+    ? `${preset.name} (right-click for options)`
+    : `Global preset ${index + 1} (right-click for options)`;
+}
+
+function showPresetContextMenu(x, y, index, btn, type) {
+  hidePresetContextMenu();
+
+  const menu = document.createElement('div');
+  menu.className = 'context-menu';
+  menu.id = 'preset-context-menu';
+
+  // Rename option
+  const renameItem = document.createElement('div');
+  renameItem.className = 'context-menu-item';
+  renameItem.textContent = 'Rename...';
+  renameItem.addEventListener('click', () => {
+    hidePresetContextMenu();
+    showRenamePresetDialog(index, btn, type);
+  });
+  menu.appendChild(renameItem);
+
+  // Delete option
+  const deleteItem = document.createElement('div');
+  deleteItem.className = 'context-menu-item';
+  deleteItem.textContent = 'Delete';
+  deleteItem.addEventListener('click', () => {
+    hidePresetContextMenu();
+    if (type === 'local') {
+      deleteLocalPreset(index, btn);
+    } else {
+      deleteGlobalPreset(index, btn);
+    }
+  });
+  menu.appendChild(deleteItem);
+
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+  document.body.appendChild(menu);
+
+  // Adjust position if menu goes off screen
+  const rect = menu.getBoundingClientRect();
+  if (rect.right > window.innerWidth) {
+    menu.style.left = `${window.innerWidth - rect.width - 5}px`;
+  }
+  if (rect.bottom > window.innerHeight) {
+    menu.style.top = `${window.innerHeight - rect.height - 5}px`;
+  }
+
+  setTimeout(() => {
+    document.addEventListener('click', hidePresetContextMenu, { once: true });
+  }, 0);
+}
+
+function hidePresetContextMenu() {
+  const menu = document.getElementById('preset-context-menu');
+  if (menu) menu.remove();
+}
+
+function showRenamePresetDialog(index, btn, type) {
+  let preset, defaultName;
+  if (type === 'local') {
+    const presets = gridSlots[activeGridSlot]?.presets || [];
+    preset = presets[index];
+    defaultName = `Preset ${index + 1}`;
+  } else {
+    preset = globalPresets[index];
+    defaultName = `Preset ${index + 1}`;
+  }
+
+  const currentName = preset?.name || defaultName;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'rename-preset-overlay';
+  overlay.className = 'dialog-overlay';
+  overlay.innerHTML = `
+    <div class="rename-dialog">
+      <div class="dialog-header">Rename ${type === 'local' ? 'Shader' : 'Global'} Preset</div>
+      <input type="text" id="preset-name-input" value="${currentName}" maxlength="12" placeholder="Preset name">
+      <div class="dialog-buttons">
+        <button class="btn-secondary" id="rename-cancel">Cancel</button>
+        <button class="btn-primary" id="rename-ok">OK</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const input = document.getElementById('preset-name-input');
+  input.focus();
+  input.select();
+
+  const close = () => overlay.remove();
+
+  document.getElementById('rename-cancel').onclick = close;
+  document.getElementById('rename-ok').onclick = () => {
+    const newName = input.value.trim();
+    if (type === 'local') {
+      if (gridSlots[activeGridSlot]?.presets?.[index]) {
+        gridSlots[activeGridSlot].presets[index].name = newName || null;
+        updateLocalPresetButtonLabel(btn, index);
+        saveGridState();
+      }
+    } else {
+      if (globalPresets[index]) {
+        globalPresets[index].name = newName || null;
+        updateGlobalPresetButtonLabel(btn, index);
+        saveGlobalPresetsToFile();
+      }
+    }
+    close();
+  };
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('rename-ok').click();
+    if (e.key === 'Escape') close();
+  });
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) close();
+  });
+}
+
+function recallLocalPreset(index) {
+  if (activeGridSlot === null || !gridSlots[activeGridSlot]) return;
+  const presets = gridSlots[activeGridSlot].presets || [];
+  if (index >= presets.length) return;
+
+  const preset = presets[index];
+  const params = preset.params || preset;
+  loadParamsToSliders(params);
+
+  // Update active highlighting
+  updateActiveLocalPreset(index);
+  activeGlobalPresetIndex = null;
+  clearGlobalPresetHighlight();
+
+  const name = preset.name || `Preset ${index + 1}`;
+  setStatus(`${name} loaded`, 'success');
+}
+
+function recallGlobalPreset(index) {
+  if (index >= globalPresets.length) return;
+
+  const preset = globalPresets[index];
+  const params = preset.params || preset;
+  loadParamsToSliders(params);
+
+  // Also update the active shader's params if one is selected
+  if (activeGridSlot !== null && gridSlots[activeGridSlot]) {
+    gridSlots[activeGridSlot].params = { ...params };
+    saveGridState();
+  }
+
+  // Update active highlighting
+  updateActiveGlobalPreset(index);
+  activeLocalPresetIndex = null;
+  clearLocalPresetHighlight();
+
+  const name = preset.name || `Global preset ${index + 1}`;
+  setStatus(`${name} loaded`, 'success');
+}
+
+function updateActiveLocalPreset(index) {
+  activeLocalPresetIndex = index;
+  clearLocalPresetHighlight();
+  const btn = document.querySelector(`.preset-btn.local-preset[data-preset-index="${index}"]`);
+  if (btn) btn.classList.add('active');
+}
+
+function updateActiveGlobalPreset(index) {
+  activeGlobalPresetIndex = index;
+  clearGlobalPresetHighlight();
+  const btn = document.querySelector(`.preset-btn.global-preset[data-preset-index="${index}"]`);
+  if (btn) btn.classList.add('active');
+}
+
+function clearLocalPresetHighlight() {
+  document.querySelectorAll('.preset-btn.local-preset').forEach(btn => btn.classList.remove('active'));
+}
+
+function clearGlobalPresetHighlight() {
+  document.querySelectorAll('.preset-btn.global-preset').forEach(btn => btn.classList.remove('active'));
+}
+
+function deleteLocalPreset(index, btnElement) {
+  if (activeGridSlot === null || !gridSlots[activeGridSlot]) return;
+
+  gridSlots[activeGridSlot].presets.splice(index, 1);
+  btnElement.remove();
+
+  // Re-index remaining buttons
+  const localBtns = document.querySelectorAll('.preset-btn.local-preset');
+  localBtns.forEach((btn, i) => {
+    btn.dataset.presetIndex = i;
+    updateLocalPresetButtonLabel(btn, i);
+    btn.onclick = () => recallLocalPreset(i);
+    btn.oncontextmenu = (e) => {
+      e.preventDefault();
+      showPresetContextMenu(e.clientX, e.clientY, i, btn, 'local');
+    };
+  });
+
+  if (activeLocalPresetIndex === index) activeLocalPresetIndex = null;
+  else if (activeLocalPresetIndex > index) activeLocalPresetIndex--;
+
+  saveGridState();
+  setStatus('Shader preset deleted', 'success');
+}
+
+function deleteGlobalPreset(index, btnElement) {
+  globalPresets.splice(index, 1);
+  btnElement.remove();
+
+  // Re-index remaining buttons
+  const globalBtns = document.querySelectorAll('.preset-btn.global-preset');
+  globalBtns.forEach((btn, i) => {
+    btn.dataset.presetIndex = i;
+    updateGlobalPresetButtonLabel(btn, i);
+    btn.onclick = () => recallGlobalPreset(i);
+    btn.oncontextmenu = (e) => {
+      e.preventDefault();
+      showPresetContextMenu(e.clientX, e.clientY, i, btn, 'global');
+    };
+  });
+
+  if (activeGlobalPresetIndex === index) activeGlobalPresetIndex = null;
+  else if (activeGlobalPresetIndex > index) activeGlobalPresetIndex--;
+
+  saveGlobalPresetsToFile();
+  setStatus('Global preset deleted', 'success');
 }
 
 function initResizer() {
@@ -223,8 +894,124 @@ function initResizer() {
     if (isResizing) {
       isResizing = false;
       resizer.classList.remove('dragging');
+      saveViewState(); // Save editor width on resize end
     }
   });
+}
+
+// View State Management
+function saveViewState() {
+  const editorPanel = document.getElementById('editor-panel');
+  const resolutionSelect = document.getElementById('resolution-select');
+  const customWidth = document.getElementById('custom-width');
+  const customHeight = document.getElementById('custom-height');
+
+  const viewState = {
+    editorEnabled,
+    previewEnabled,
+    gridEnabled,
+    paramsEnabled,
+    editorWidth: editorPanel.style.width || '50%',
+    resolution: resolutionSelect.value,
+    customWidth: customWidth.value,
+    customHeight: customHeight.value
+  };
+
+  window.electronAPI.saveViewState(viewState);
+}
+
+async function restoreViewState() {
+  const viewState = await window.electronAPI.loadViewState();
+  if (!viewState) return;
+
+  const editorPanel = document.getElementById('editor-panel');
+  const resizer = document.getElementById('resizer');
+  const rightPanel = document.getElementById('right-panel');
+  const previewPanel = document.getElementById('preview-panel');
+  const gridPanel = document.getElementById('grid-panel');
+  const paramsPanel = document.getElementById('params-panel');
+
+  // Restore editor visibility
+  if (viewState.editorEnabled !== undefined) {
+    editorEnabled = viewState.editorEnabled;
+    if (!editorEnabled) {
+      editorPanel.classList.add('hidden');
+      resizer.classList.add('hidden');
+    }
+    document.getElementById('btn-editor').classList.toggle('active', editorEnabled);
+  }
+
+  // Restore preview visibility
+  if (viewState.previewEnabled !== undefined) {
+    previewEnabled = viewState.previewEnabled;
+    if (!previewEnabled) {
+      previewPanel.classList.add('hidden');
+    }
+    document.getElementById('btn-preview').classList.toggle('active', previewEnabled);
+  }
+
+  // Restore grid visibility
+  if (viewState.gridEnabled !== undefined) {
+    gridEnabled = viewState.gridEnabled;
+    if (gridEnabled) {
+      gridPanel.classList.remove('hidden');
+      startGridAnimation();
+    }
+    document.getElementById('btn-grid').classList.toggle('active', gridEnabled);
+  }
+
+  // Restore params visibility
+  if (viewState.paramsEnabled !== undefined) {
+    paramsEnabled = viewState.paramsEnabled;
+    if (!paramsEnabled) {
+      paramsPanel.classList.add('hidden');
+    }
+    document.getElementById('btn-params').classList.toggle('active', paramsEnabled);
+  }
+
+  // Restore editor width
+  if (viewState.editorWidth) {
+    editorPanel.style.width = viewState.editorWidth;
+  }
+
+  // Restore resolution
+  if (viewState.resolution) {
+    const resolutionSelect = document.getElementById('resolution-select');
+    resolutionSelect.value = viewState.resolution;
+
+    const customWidth = document.getElementById('custom-width');
+    const customHeight = document.getElementById('custom-height');
+    const customX = document.getElementById('custom-x');
+
+    if (viewState.resolution === 'custom') {
+      customWidth.classList.remove('hidden');
+      customHeight.classList.remove('hidden');
+      customX.classList.remove('hidden');
+      if (viewState.customWidth) customWidth.value = viewState.customWidth;
+      if (viewState.customHeight) customHeight.value = viewState.customHeight;
+      const w = parseInt(customWidth.value) || 1280;
+      const h = parseInt(customHeight.value) || 720;
+      renderer.setResolution(w, h);
+    } else {
+      const [w, h] = viewState.resolution.split('x').map(Number);
+      if (w && h) renderer.setResolution(w, h);
+    }
+  }
+
+  // Update layout classes
+  updateLayoutClasses();
+}
+
+function updateLayoutClasses() {
+  const rightPanel = document.getElementById('right-panel');
+  const gridPanel = document.getElementById('grid-panel');
+  const previewPanel = document.getElementById('preview-panel');
+
+  if (!editorEnabled && gridEnabled && previewEnabled) {
+    rightPanel.classList.add('side-by-side');
+  } else {
+    rightPanel.classList.remove('side-by-side');
+  }
 }
 
 function initIPC() {
@@ -342,13 +1129,27 @@ function initIPC() {
   });
 
   // NDI status
-  window.electronAPI.onNDIStatus(({ enabled, port }) => {
+  window.electronAPI.onNDIStatus(({ enabled, width, height }) => {
     ndiEnabled = enabled;
+    const btnNdi = document.getElementById('btn-ndi');
     if (enabled) {
-      setStatus(`NDI output started on port ${port}`, 'success');
+      btnNdi.classList.add('active');
+      btnNdi.title = `NDI Output Active (${width}x${height})`;
+      setStatus(`NDI output started at ${width}x${height}`, 'success');
     } else {
+      btnNdi.classList.remove('active');
+      btnNdi.title = 'Toggle NDI Output';
       setStatus('NDI output stopped', 'success');
     }
+  });
+
+  // Preview resolution request for NDI "Match Preview" option
+  window.electronAPI.onRequestPreviewResolution(() => {
+    const canvas = document.getElementById('shader-canvas');
+    window.electronAPI.sendPreviewResolution({
+      width: canvas.width,
+      height: canvas.height
+    });
   });
 }
 
@@ -423,7 +1224,8 @@ function togglePreview() {
     previewPanel.classList.add('hidden');
   }
 
-  updateRightPanelVisibility();
+  updatePanelVisibility();
+  saveViewState();
 }
 
 function toggleGrid() {
@@ -443,27 +1245,94 @@ function toggleGrid() {
     stopGridAnimation();
   }
 
-  updateRightPanelVisibility();
+  updatePanelVisibility();
+  saveViewState();
 }
 
-function updateRightPanelVisibility() {
+function toggleEditor() {
+  editorEnabled = !editorEnabled;
+  const btnEditor = document.getElementById('btn-editor');
+  const editorPanel = document.getElementById('editor-panel');
+  const resizer = document.getElementById('resizer');
+
+  if (editorEnabled) {
+    btnEditor.classList.add('active');
+    btnEditor.title = 'Hide Editor';
+    editorPanel.classList.remove('hidden');
+  } else {
+    btnEditor.classList.remove('active');
+    btnEditor.title = 'Show Editor';
+    editorPanel.classList.add('hidden');
+  }
+
+  updatePanelVisibility();
+  saveViewState();
+}
+
+function toggleParams() {
+  paramsEnabled = !paramsEnabled;
+  const btnParams = document.getElementById('btn-params');
+  const paramsPanel = document.getElementById('params-panel');
+
+  if (paramsEnabled) {
+    btnParams.classList.add('active');
+    btnParams.title = 'Hide Parameters';
+    paramsPanel.classList.remove('hidden');
+  } else {
+    btnParams.classList.remove('active');
+    btnParams.title = 'Show Parameters';
+    paramsPanel.classList.add('hidden');
+  }
+
+  saveViewState();
+}
+
+function updatePanelVisibility() {
   const rightPanel = document.getElementById('right-panel');
   const resizer = document.getElementById('resizer');
   const editorPanel = document.getElementById('editor-panel');
 
-  if (!previewEnabled && !gridEnabled) {
-    // Both hidden - editor takes full width
+  const rightVisible = previewEnabled || gridEnabled;
+  const leftVisible = editorEnabled;
+
+  // Side-by-side layout when editor hidden and both grid+preview visible
+  const sideBySide = !leftVisible && gridEnabled && previewEnabled;
+  rightPanel.classList.toggle('side-by-side', sideBySide);
+
+  if (!rightVisible && leftVisible) {
+    // Only editor - full width
     rightPanel.classList.add('hidden');
     resizer.classList.add('hidden');
     editorPanel.style.width = '100%';
-  } else {
-    // At least one visible
+  } else if (rightVisible && !leftVisible) {
+    // Only right panel - full width
     rightPanel.classList.remove('hidden');
+    rightPanel.style.width = '100%';
+    resizer.classList.add('hidden');
+    editorPanel.style.width = '';
+  } else if (rightVisible && leftVisible) {
+    // Both visible
+    rightPanel.classList.remove('hidden');
+    rightPanel.style.width = '';
     resizer.classList.remove('hidden');
     editorPanel.style.width = '';
+  } else {
+    // Neither visible - show editor by default
+    editorEnabled = true;
+    const btnEditor = document.getElementById('btn-editor');
+    btnEditor.classList.add('active');
+    editorPanel.classList.remove('hidden');
+    editorPanel.style.width = '100%';
+    rightPanel.classList.add('hidden');
+    resizer.classList.add('hidden');
   }
 
   editor.resize();
+}
+
+// Keep old function name for compatibility
+function updateRightPanelVisibility() {
+  updatePanelVisibility();
 }
 
 async function initShaderGrid() {
@@ -578,7 +1447,7 @@ function assignCurrentShaderToSlot(slotIndex) {
   assignShaderToSlot(slotIndex, shaderCode, null);
 }
 
-function assignShaderToSlot(slotIndex, shaderCode, filePath, skipSave = false, params = null) {
+async function assignShaderToSlot(slotIndex, shaderCode, filePath, skipSave = false, params = null, presets = null) {
   const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`);
   const canvas = slot.querySelector('canvas');
 
@@ -599,12 +1468,15 @@ function assignShaderToSlot(slotIndex, shaderCode, filePath, skipSave = false, p
       shaderCode,
       filePath,
       renderer: miniRenderer,
-      params: { ...slotParams }
+      params: { ...slotParams },
+      presets: presets || []
     };
     slot.classList.add('has-shader');
     slot.title = filePath ? `Slot ${slotIndex + 1}: ${filePath.split('/').pop()}` : `Slot ${slotIndex + 1}: Current shader`;
 
     if (!skipSave) {
+      // Save shader code to individual file
+      await window.electronAPI.saveShaderToSlot(slotIndex, shaderCode);
       setStatus(`Shader assigned to slot ${slotIndex + 1}`, 'success');
       saveGridState();
     }
@@ -616,7 +1488,7 @@ function assignShaderToSlot(slotIndex, shaderCode, filePath, skipSave = false, p
   }
 }
 
-function clearGridSlot(slotIndex) {
+async function clearGridSlot(slotIndex) {
   const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`);
   gridSlots[slotIndex] = null;
   slot.classList.remove('has-shader');
@@ -628,19 +1500,75 @@ function clearGridSlot(slotIndex) {
   if (ctx) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
   }
+
+  // Delete shader file
+  await window.electronAPI.deleteShaderFromSlot(slotIndex);
+
+  // Clear active slot if this was it
+  if (activeGridSlot === slotIndex) {
+    activeGridSlot = null;
+    updateLocalPresetsUI();
+    updateSaveButtonState();
+  }
+
   setStatus(`Cleared slot ${slotIndex + 1}`, 'success');
 
   // Save grid state
   saveGridState();
 }
 
+async function saveActiveSlotShader() {
+  if (activeGridSlot === null) {
+    setStatus('No shader slot selected', 'error');
+    return;
+  }
+
+  if (!gridSlots[activeGridSlot]) {
+    setStatus('No shader in active slot', 'error');
+    return;
+  }
+
+  const shaderCode = editor.getValue();
+
+  // Update the slot's shader code
+  gridSlots[activeGridSlot].shaderCode = shaderCode;
+
+  // Also update the renderer in the slot
+  try {
+    gridSlots[activeGridSlot].renderer.compile(shaderCode);
+  } catch (err) {
+    // Don't fail the save if compilation fails
+    console.warn('Shader compilation warning:', err.message);
+  }
+
+  // Save to file
+  const result = await window.electronAPI.saveShaderToSlot(activeGridSlot, shaderCode);
+  if (result.success) {
+    setStatus(`Shader saved to slot ${activeGridSlot + 1}`, 'success');
+  } else {
+    setStatus(`Failed to save shader: ${result.error}`, 'error');
+  }
+}
+
+function updateSaveButtonState() {
+  const btnSaveShader = document.getElementById('btn-save-shader');
+  if (activeGridSlot !== null && gridSlots[activeGridSlot]) {
+    btnSaveShader.disabled = false;
+    btnSaveShader.title = `Save Shader to Slot ${activeGridSlot + 1} (Ctrl+S)`;
+  } else {
+    btnSaveShader.disabled = true;
+    btnSaveShader.title = 'Save Shader to Active Slot (select a slot first)';
+  }
+}
+
 function saveGridState() {
   const state = gridSlots.map(slot => {
     if (!slot) return null;
+    // Don't include shaderCode - it's saved to individual files
     return {
-      shaderCode: slot.shaderCode,
       filePath: slot.filePath,
-      params: slot.params
+      params: slot.params,
+      presets: slot.presets || []
     };
   });
   window.electronAPI.saveGridState(state);
@@ -654,7 +1582,7 @@ async function loadGridState() {
   for (let i = 0; i < Math.min(state.length, 16); i++) {
     if (state[i] && state[i].shaderCode) {
       try {
-        assignShaderToSlot(i, state[i].shaderCode, state[i].filePath, true, state[i].params);
+        assignShaderToSlot(i, state[i].shaderCode, state[i].filePath, true, state[i].params, state[i].presets);
         loadedCount++;
       } catch (err) {
         console.warn(`Failed to restore shader in slot ${i + 1}:`, err);
@@ -692,7 +1620,7 @@ function loadGridPresetsFromData(state, filePath) {
   for (let i = 0; i < Math.min(state.length, 16); i++) {
     if (state[i] && state[i].shaderCode) {
       try {
-        assignShaderToSlot(i, state[i].shaderCode, state[i].filePath, true, state[i].params);
+        assignShaderToSlot(i, state[i].shaderCode, state[i].filePath, true, state[i].params, state[i].presets);
         loadedCount++;
       } catch (err) {
         console.warn(`Failed to load shader in slot ${i + 1}:`, err);
@@ -734,6 +1662,12 @@ function loadGridShaderToEditor(slotIndex) {
     loadParamsToSliders(slotData.params);
   }
 
+  // Update local presets UI for this shader
+  updateLocalPresetsUI();
+
+  // Update save button state
+  updateSaveButtonState();
+
   const slotName = slotData.filePath ? slotData.filePath.split('/').pop() : `slot ${slotIndex + 1}`;
   setStatus(`Editing ${slotName} (slot ${slotIndex + 1})`, 'success');
 }
@@ -759,9 +1693,11 @@ function loadParamsToSliders(params) {
     if (params[name] !== undefined) {
       const slider = document.getElementById(id);
       const valueDisplay = document.getElementById(`${id}-value`);
-      if (slider && valueDisplay) {
+      if (slider) {
         slider.value = params[name];
-        valueDisplay.textContent = params[name].toFixed(2);
+        if (valueDisplay) {
+          valueDisplay.textContent = params[name].toFixed(2);
+        }
         renderer.setParam(name, params[name]);
       }
     }
@@ -772,10 +1708,27 @@ function playGridShader(slotIndex) {
   const slotData = gridSlots[slotIndex];
   if (!slotData) return;
 
+  // Clear previous active slot highlight
+  if (activeGridSlot !== null) {
+    const prevSlot = document.querySelector(`.grid-slot[data-slot="${activeGridSlot}"]`);
+    if (prevSlot) prevSlot.classList.remove('active');
+  }
+
+  // Set active slot
+  activeGridSlot = slotIndex;
+  const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`);
+  if (slot) slot.classList.add('active');
+
   // Load the slot's params
   if (slotData.params) {
     loadParamsToSliders(slotData.params);
   }
+
+  // Update local presets UI for this shader
+  updateLocalPresetsUI();
+
+  // Update save button state
+  updateSaveButtonState();
 
   // Show in preview if enabled
   if (previewEnabled) {
@@ -817,6 +1770,8 @@ function startGridAnimation() {
   function animateGrid() {
     for (let i = 0; i < 16; i++) {
       if (gridSlots[i] && gridSlots[i].renderer) {
+        // Update params from slot before rendering
+        gridSlots[i].renderer.setParams(gridSlots[i].params);
         gridSlots[i].renderer.render();
       }
     }
@@ -845,8 +1800,13 @@ class MiniShaderRenderer {
     this.program = null;
     this.startTime = performance.now();
     this.uniforms = {};
+    this.params = null; // Will store slot params
 
     this.setupGeometry();
+  }
+
+  setParams(params) {
+    this.params = params;
   }
 
   setupGeometry() {
@@ -932,7 +1892,8 @@ class MiniShaderRenderer {
     if (!this.program) return;
 
     const gl = this.gl;
-    const time = (performance.now() - this.startTime) / 1000;
+    const speed = this.params?.speed ?? 1;
+    const time = (performance.now() - this.startTime) / 1000 * speed;
 
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.useProgram(this.program);
@@ -940,16 +1901,26 @@ class MiniShaderRenderer {
     gl.uniform3f(this.uniforms.iResolution, this.canvas.width, this.canvas.height, 1);
     gl.uniform1f(this.uniforms.iTime, time);
 
-    // Default all 10 colors to white
+    // Use slot params for colors or default to white
     const colorArray = new Float32Array(30);
-    for (let i = 0; i < 30; i++) colorArray[i] = 1.0;
+    for (let i = 0; i < 10; i++) {
+      colorArray[i * 3 + 0] = this.params?.[`r${i}`] ?? 1.0;
+      colorArray[i * 3 + 1] = this.params?.[`g${i}`] ?? 1.0;
+      colorArray[i * 3 + 2] = this.params?.[`b${i}`] ?? 1.0;
+    }
     gl.uniform3fv(this.uniforms.iColorRGB, colorArray);
 
-    // Default all 5 params to 0.5
-    const paramsArray = new Float32Array([0.5, 0.5, 0.5, 0.5, 0.5]);
+    // Use slot params for p0-p4 or default to 0.5
+    const paramsArray = new Float32Array([
+      this.params?.p0 ?? 0.5,
+      this.params?.p1 ?? 0.5,
+      this.params?.p2 ?? 0.5,
+      this.params?.p3 ?? 0.5,
+      this.params?.p4 ?? 0.5
+    ]);
     gl.uniform1fv(this.uniforms.iParams, paramsArray);
 
-    gl.uniform1f(this.uniforms.iSpeed, 1);
+    gl.uniform1f(this.uniforms.iSpeed, speed);
 
     gl.bindVertexArray(this.vao);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -1080,4 +2051,155 @@ function sendNDIFrame() {
   } catch (err) {
     console.warn('Failed to send NDI frame:', err);
   }
+}
+
+function toggleNDI() {
+  window.electronAPI.toggleNDI();
+}
+
+function openFullscreenPreview() {
+  window.electronAPI.openFullscreen();
+}
+
+async function showSettingsDialog() {
+  // Get current settings
+  const settings = await window.electronAPI.getSettings();
+
+  // Build parameter ranges HTML
+  const paramRangesHtml = [0, 1, 2, 3, 4].map(i => {
+    const range = paramRanges[`p${i}`] || { min: 0, max: 1 };
+    return `
+      <div class="param-range-row">
+        <label>P${i}</label>
+        <input type="number" id="settings-p${i}-min" value="${range.min}" step="0.1" placeholder="Min">
+        <span>to</span>
+        <input type="number" id="settings-p${i}-max" value="${range.max}" step="0.1" placeholder="Max">
+      </div>
+    `;
+  }).join('');
+
+  // Create settings dialog overlay
+  const overlay = document.createElement('div');
+  overlay.id = 'settings-overlay';
+  overlay.innerHTML = `
+    <div class="settings-dialog">
+      <div class="settings-header">
+        <h2>Settings</h2>
+        <button class="close-btn" onclick="closeSettingsDialog()">&times;</button>
+      </div>
+      <div class="settings-content">
+        <div class="settings-section">
+          <h3>Parameter Ranges</h3>
+          ${paramRangesHtml}
+        </div>
+
+        <div class="settings-section">
+          <h3>NDI Output</h3>
+          <div class="setting-row">
+            <label>Resolution:</label>
+            <select id="settings-ndi-resolution">
+              ${settings.ndiResolutions.map(res =>
+                `<option value="${res.label}" ${settings.ndiResolution.label === res.label ? 'selected' : ''}>${res.label}</option>`
+              ).join('')}
+            </select>
+          </div>
+          <div class="setting-row custom-res ${settings.ndiResolution.label.includes('Custom') ? '' : 'hidden'}" id="custom-ndi-res">
+            <label>Custom Size:</label>
+            <input type="number" id="settings-ndi-width" value="${settings.ndiResolution.width}" min="128" max="7680" placeholder="Width">
+            <span>x</span>
+            <input type="number" id="settings-ndi-height" value="${settings.ndiResolution.height}" min="128" max="4320" placeholder="Height">
+          </div>
+          <div class="setting-row">
+            <label>Status:</label>
+            <span class="ndi-status ${settings.ndiEnabled ? 'active' : ''}">${settings.ndiEnabled ? 'Active' : 'Inactive'}</span>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Preview</h3>
+          <div class="setting-row">
+            <label>Resolution:</label>
+            <span id="current-preview-res">${document.getElementById('shader-canvas').width}x${document.getElementById('shader-canvas').height}</span>
+          </div>
+        </div>
+      </div>
+      <div class="settings-footer">
+        <button class="btn-secondary" onclick="closeSettingsDialog()">Cancel</button>
+        <button class="btn-primary" onclick="applySettings()">Apply</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  // Handle resolution dropdown change
+  const resSelect = document.getElementById('settings-ndi-resolution');
+  resSelect.addEventListener('change', () => {
+    const customRes = document.getElementById('custom-ndi-res');
+    if (resSelect.value === 'Custom...') {
+      customRes.classList.remove('hidden');
+    } else {
+      customRes.classList.add('hidden');
+    }
+  });
+
+  // Close on overlay click
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeSettingsDialog();
+  });
+
+  // Close on Escape
+  document.addEventListener('keydown', settingsKeyHandler);
+}
+
+function settingsKeyHandler(e) {
+  if (e.key === 'Escape') closeSettingsDialog();
+}
+
+function closeSettingsDialog() {
+  const overlay = document.getElementById('settings-overlay');
+  if (overlay) {
+    overlay.remove();
+    document.removeEventListener('keydown', settingsKeyHandler);
+  }
+}
+
+function applySettings() {
+  const resSelect = document.getElementById('settings-ndi-resolution');
+  const selectedLabel = resSelect.value;
+
+  let ndiResolution;
+  if (selectedLabel === 'Custom...') {
+    const width = parseInt(document.getElementById('settings-ndi-width').value) || 1920;
+    const height = parseInt(document.getElementById('settings-ndi-height').value) || 1080;
+    ndiResolution = { width, height, label: `${width}x${height} (Custom)` };
+  } else {
+    // Parse from label
+    const match = selectedLabel.match(/(\d+)x(\d+)/);
+    if (match) {
+      ndiResolution = {
+        width: parseInt(match[1]),
+        height: parseInt(match[2]),
+        label: selectedLabel
+      };
+    }
+  }
+
+  // Collect parameter ranges
+  const newParamRanges = {};
+  for (let i = 0; i < 5; i++) {
+    const min = parseFloat(document.getElementById(`settings-p${i}-min`).value) || 0;
+    const max = parseFloat(document.getElementById(`settings-p${i}-max`).value) || 1;
+    newParamRanges[`p${i}`] = { min, max };
+  }
+
+  // Update local param ranges and apply to sliders
+  paramRanges = newParamRanges;
+  applyParamRanges();
+
+  // Save to file
+  window.electronAPI.saveSettings({ ndiResolution, paramRanges: newParamRanges });
+
+  closeSettingsDialog();
+  setStatus('Settings saved', 'success');
 }

@@ -24,6 +24,26 @@
         <button id="btn-grid" title="Toggle Shader Grid">
           <span class="icon">&#9638;</span>
         </button>
+        <button id="btn-editor" title="Toggle Editor" class="active">
+          <span class="icon">&lt;/&gt;</span>
+        </button>
+        <button id="btn-save-shader" title="Save Shader to Active Slot (Ctrl+S)" disabled>
+          <span class="icon">&#128190;</span>
+        </button>
+        <button id="btn-params" title="Toggle Parameters" class="active">
+          <span class="icon">P</span>
+        </button>
+        <div class="toolbar-separator"></div>
+        <button id="btn-ndi" title="Toggle NDI Output">
+          <span class="icon">NDI</span>
+        </button>
+        <button id="btn-fullscreen" title="Fullscreen Preview (Cmd+F)">
+          <span class="icon">&#9974;</span>
+        </button>
+        <div class="toolbar-separator"></div>
+        <button id="btn-settings" title="Settings">
+          <span class="icon">&#9881;</span>
+        </button>
       </div>
 
       <div class="toolbar-group">
@@ -53,97 +73,6 @@
         <span id="time-display">Time: 0.00s</span>
         <span id="frame-display">Frame: 0</span>
       </div>
-    </div>
-
-    <!-- Parameters Bar - Controls -->
-    <div id="params-bar">
-      <div class="param-group">
-        <label for="param-speed">Speed</label>
-        <input type="range" id="param-speed" min="0" max="5" step="0.01" value="1">
-        <span class="param-value" id="param-speed-value">1.00</span>
-      </div>
-      <div class="param-divider"></div>
-      <div class="param-group">
-        <label for="param-p0">P0</label>
-        <input type="range" id="param-p0" min="0" max="1" step="0.01" value="0.5">
-        <span class="param-value" id="param-p0-value">0.50</span>
-      </div>
-      <div class="param-group">
-        <label for="param-p1">P1</label>
-        <input type="range" id="param-p1" min="0" max="1" step="0.01" value="0.5">
-        <span class="param-value" id="param-p1-value">0.50</span>
-      </div>
-      <div class="param-group">
-        <label for="param-p2">P2</label>
-        <input type="range" id="param-p2" min="0" max="1" step="0.01" value="0.5">
-        <span class="param-value" id="param-p2-value">0.50</span>
-      </div>
-      <div class="param-group">
-        <label for="param-p3">P3</label>
-        <input type="range" id="param-p3" min="0" max="1" step="0.01" value="0.5">
-        <span class="param-value" id="param-p3-value">0.50</span>
-      </div>
-      <div class="param-group">
-        <label for="param-p4">P4</label>
-        <input type="range" id="param-p4" min="0" max="1" step="0.01" value="0.5">
-        <span class="param-value" id="param-p4-value">0.50</span>
-      </div>
-    </div>
-
-    <!-- Color Sliders Row 1 (Colors 0-4) -->
-    <div id="color-bar-1" class="color-bar">
-      <span class="param-label">C0:</span>
-      <div class="param-group"><label class="color-red">R</label><input type="range" id="param-r0" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-r0-value">1.00</span></div>
-      <div class="param-group"><label class="color-green">G</label><input type="range" id="param-g0" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-g0-value">1.00</span></div>
-      <div class="param-group"><label class="color-blue">B</label><input type="range" id="param-b0" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-b0-value">1.00</span></div>
-      <div class="param-divider"></div>
-      <span class="param-label">C1:</span>
-      <div class="param-group"><label class="color-red">R</label><input type="range" id="param-r1" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-r1-value">1.00</span></div>
-      <div class="param-group"><label class="color-green">G</label><input type="range" id="param-g1" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-g1-value">1.00</span></div>
-      <div class="param-group"><label class="color-blue">B</label><input type="range" id="param-b1" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-b1-value">1.00</span></div>
-      <div class="param-divider"></div>
-      <span class="param-label">C2:</span>
-      <div class="param-group"><label class="color-red">R</label><input type="range" id="param-r2" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-r2-value">1.00</span></div>
-      <div class="param-group"><label class="color-green">G</label><input type="range" id="param-g2" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-g2-value">1.00</span></div>
-      <div class="param-group"><label class="color-blue">B</label><input type="range" id="param-b2" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-b2-value">1.00</span></div>
-      <div class="param-divider"></div>
-      <span class="param-label">C3:</span>
-      <div class="param-group"><label class="color-red">R</label><input type="range" id="param-r3" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-r3-value">1.00</span></div>
-      <div class="param-group"><label class="color-green">G</label><input type="range" id="param-g3" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-g3-value">1.00</span></div>
-      <div class="param-group"><label class="color-blue">B</label><input type="range" id="param-b3" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-b3-value">1.00</span></div>
-      <div class="param-divider"></div>
-      <span class="param-label">C4:</span>
-      <div class="param-group"><label class="color-red">R</label><input type="range" id="param-r4" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-r4-value">1.00</span></div>
-      <div class="param-group"><label class="color-green">G</label><input type="range" id="param-g4" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-g4-value">1.00</span></div>
-      <div class="param-group"><label class="color-blue">B</label><input type="range" id="param-b4" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-b4-value">1.00</span></div>
-    </div>
-
-    <!-- Color Sliders Row 2 (Colors 5-9) -->
-    <div id="color-bar-2" class="color-bar">
-      <span class="param-label">C5:</span>
-      <div class="param-group"><label class="color-red">R</label><input type="range" id="param-r5" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-r5-value">1.00</span></div>
-      <div class="param-group"><label class="color-green">G</label><input type="range" id="param-g5" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-g5-value">1.00</span></div>
-      <div class="param-group"><label class="color-blue">B</label><input type="range" id="param-b5" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-b5-value">1.00</span></div>
-      <div class="param-divider"></div>
-      <span class="param-label">C6:</span>
-      <div class="param-group"><label class="color-red">R</label><input type="range" id="param-r6" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-r6-value">1.00</span></div>
-      <div class="param-group"><label class="color-green">G</label><input type="range" id="param-g6" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-g6-value">1.00</span></div>
-      <div class="param-group"><label class="color-blue">B</label><input type="range" id="param-b6" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-b6-value">1.00</span></div>
-      <div class="param-divider"></div>
-      <span class="param-label">C7:</span>
-      <div class="param-group"><label class="color-red">R</label><input type="range" id="param-r7" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-r7-value">1.00</span></div>
-      <div class="param-group"><label class="color-green">G</label><input type="range" id="param-g7" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-g7-value">1.00</span></div>
-      <div class="param-group"><label class="color-blue">B</label><input type="range" id="param-b7" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-b7-value">1.00</span></div>
-      <div class="param-divider"></div>
-      <span class="param-label">C8:</span>
-      <div class="param-group"><label class="color-red">R</label><input type="range" id="param-r8" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-r8-value">1.00</span></div>
-      <div class="param-group"><label class="color-green">G</label><input type="range" id="param-g8" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-g8-value">1.00</span></div>
-      <div class="param-group"><label class="color-blue">B</label><input type="range" id="param-b8" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-b8-value">1.00</span></div>
-      <div class="param-divider"></div>
-      <span class="param-label">C9:</span>
-      <div class="param-group"><label class="color-red">R</label><input type="range" id="param-r9" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-r9-value">1.00</span></div>
-      <div class="param-group"><label class="color-green">G</label><input type="range" id="param-g9" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-g9-value">1.00</span></div>
-      <div class="param-group"><label class="color-blue">B</label><input type="range" id="param-b9" min="0" max="1" step="0.01" value="1"><span class="param-value" id="param-b9-value">1.00</span></div>
     </div>
 
     <!-- Main Content -->
@@ -182,7 +111,106 @@
 
         <!-- Preview Panel -->
         <div id="preview-panel">
-          <canvas id="shader-canvas"></canvas>
+          <div id="preview-canvas-container">
+            <canvas id="shader-canvas"></canvas>
+          </div>
+          <!-- Parameters Side Panel -->
+          <div id="params-panel">
+            <div class="params-section">
+              <div class="params-section-title">Controls <button id="btn-reset-params" class="reset-params-btn" title="Reset all parameters to defaults">Reset</button></div>
+              <div class="param-row">
+                <label>Speed</label>
+                <input type="range" id="param-speed" min="0" max="5" step="0.01" value="1">
+                <span class="param-value" id="param-speed-value">1.00</span>
+              </div>
+              <div class="param-row">
+                <label>P0</label>
+                <input type="range" id="param-p0" min="0" max="1" step="0.01" value="0.5">
+                <span class="param-value" id="param-p0-value">0.50</span>
+                <select class="mouse-assign" id="mouse-p0" title="Assign to mouse">
+                  <option value="">-</option>
+                  <option value="x">X</option>
+                  <option value="y">Y</option>
+                </select>
+              </div>
+              <div class="param-row">
+                <label>P1</label>
+                <input type="range" id="param-p1" min="0" max="1" step="0.01" value="0.5">
+                <span class="param-value" id="param-p1-value">0.50</span>
+                <select class="mouse-assign" id="mouse-p1" title="Assign to mouse">
+                  <option value="">-</option>
+                  <option value="x">X</option>
+                  <option value="y">Y</option>
+                </select>
+              </div>
+              <div class="param-row">
+                <label>P2</label>
+                <input type="range" id="param-p2" min="0" max="1" step="0.01" value="0.5">
+                <span class="param-value" id="param-p2-value">0.50</span>
+                <select class="mouse-assign" id="mouse-p2" title="Assign to mouse">
+                  <option value="">-</option>
+                  <option value="x">X</option>
+                  <option value="y">Y</option>
+                </select>
+              </div>
+              <div class="param-row">
+                <label>P3</label>
+                <input type="range" id="param-p3" min="0" max="1" step="0.01" value="0.5">
+                <span class="param-value" id="param-p3-value">0.50</span>
+                <select class="mouse-assign" id="mouse-p3" title="Assign to mouse">
+                  <option value="">-</option>
+                  <option value="x">X</option>
+                  <option value="y">Y</option>
+                </select>
+              </div>
+              <div class="param-row">
+                <label>P4</label>
+                <input type="range" id="param-p4" min="0" max="1" step="0.01" value="0.5">
+                <span class="param-value" id="param-p4-value">0.50</span>
+                <select class="mouse-assign" id="mouse-p4" title="Assign to mouse">
+                  <option value="">-</option>
+                  <option value="x">X</option>
+                  <option value="y">Y</option>
+                </select>
+              </div>
+              <div class="section-reset-row">
+                <span>P0-P4:</span>
+                <button id="btn-params-zero" class="section-reset-btn" title="Set all P0-P4 to minimum">All 0</button>
+                <button id="btn-params-full" class="section-reset-btn" title="Set all P0-P4 to maximum">All 1</button>
+              </div>
+            </div>
+            <div class="params-section">
+              <div class="params-section-title">Colors
+                <span class="section-reset-btns">
+                  <button id="btn-colors-zero" class="section-reset-btn" title="Set all colors to 0">All 0</button>
+                  <button id="btn-colors-full" class="section-reset-btn" title="Set all colors to 1">All 1</button>
+                </span>
+              </div>
+              <div class="color-row" data-color="0"><span class="color-label">C0</span><label class="color-red">R</label><input type="range" id="param-r0" min="0" max="1" step="0.01" value="1"><label class="color-green">G</label><input type="range" id="param-g0" min="0" max="1" step="0.01" value="1"><label class="color-blue">B</label><input type="range" id="param-b0" min="0" max="1" step="0.01" value="1"></div>
+              <div class="color-row" data-color="1"><span class="color-label">C1</span><label class="color-red">R</label><input type="range" id="param-r1" min="0" max="1" step="0.01" value="1"><label class="color-green">G</label><input type="range" id="param-g1" min="0" max="1" step="0.01" value="1"><label class="color-blue">B</label><input type="range" id="param-b1" min="0" max="1" step="0.01" value="1"></div>
+              <div class="color-row" data-color="2"><span class="color-label">C2</span><label class="color-red">R</label><input type="range" id="param-r2" min="0" max="1" step="0.01" value="1"><label class="color-green">G</label><input type="range" id="param-g2" min="0" max="1" step="0.01" value="1"><label class="color-blue">B</label><input type="range" id="param-b2" min="0" max="1" step="0.01" value="1"></div>
+              <div class="color-row" data-color="3"><span class="color-label">C3</span><label class="color-red">R</label><input type="range" id="param-r3" min="0" max="1" step="0.01" value="1"><label class="color-green">G</label><input type="range" id="param-g3" min="0" max="1" step="0.01" value="1"><label class="color-blue">B</label><input type="range" id="param-b3" min="0" max="1" step="0.01" value="1"></div>
+              <div class="color-row" data-color="4"><span class="color-label">C4</span><label class="color-red">R</label><input type="range" id="param-r4" min="0" max="1" step="0.01" value="1"><label class="color-green">G</label><input type="range" id="param-g4" min="0" max="1" step="0.01" value="1"><label class="color-blue">B</label><input type="range" id="param-b4" min="0" max="1" step="0.01" value="1"></div>
+              <div class="color-row" data-color="5"><span class="color-label">C5</span><label class="color-red">R</label><input type="range" id="param-r5" min="0" max="1" step="0.01" value="1"><label class="color-green">G</label><input type="range" id="param-g5" min="0" max="1" step="0.01" value="1"><label class="color-blue">B</label><input type="range" id="param-b5" min="0" max="1" step="0.01" value="1"></div>
+              <div class="color-row" data-color="6"><span class="color-label">C6</span><label class="color-red">R</label><input type="range" id="param-r6" min="0" max="1" step="0.01" value="1"><label class="color-green">G</label><input type="range" id="param-g6" min="0" max="1" step="0.01" value="1"><label class="color-blue">B</label><input type="range" id="param-b6" min="0" max="1" step="0.01" value="1"></div>
+              <div class="color-row" data-color="7"><span class="color-label">C7</span><label class="color-red">R</label><input type="range" id="param-r7" min="0" max="1" step="0.01" value="1"><label class="color-green">G</label><input type="range" id="param-g7" min="0" max="1" step="0.01" value="1"><label class="color-blue">B</label><input type="range" id="param-b7" min="0" max="1" step="0.01" value="1"></div>
+              <div class="color-row" data-color="8"><span class="color-label">C8</span><label class="color-red">R</label><input type="range" id="param-r8" min="0" max="1" step="0.01" value="1"><label class="color-green">G</label><input type="range" id="param-g8" min="0" max="1" step="0.01" value="1"><label class="color-blue">B</label><input type="range" id="param-b8" min="0" max="1" step="0.01" value="1"></div>
+              <div class="color-row" data-color="9"><span class="color-label">C9</span><label class="color-red">R</label><input type="range" id="param-r9" min="0" max="1" step="0.01" value="1"><label class="color-green">G</label><input type="range" id="param-g9" min="0" max="1" step="0.01" value="1"><label class="color-blue">B</label><input type="range" id="param-b9" min="0" max="1" step="0.01" value="1"></div>
+            </div>
+            <div class="params-section presets-section">
+              <div class="params-section-title">Shader Presets</div>
+              <div class="presets-row" id="local-presets-row">
+                <span class="no-shader-hint" id="no-shader-hint">Select a shader</span>
+                <button id="btn-add-local-preset" class="preset-btn add-preset hidden" title="Save preset for current shader">+</button>
+              </div>
+            </div>
+            <div class="params-section presets-section">
+              <div class="params-section-title">Global Presets</div>
+              <div class="presets-row" id="global-presets-row">
+                <button id="btn-add-global-preset" class="preset-btn add-preset" title="Save as global preset">+</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

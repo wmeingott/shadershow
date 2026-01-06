@@ -8,9 +8,53 @@ let fullscreenWindow = null;
 let currentFilePath = null;
 let ndiEnabled = false;
 let ndiSender = null;
+let ndiResolution = { width: 1920, height: 1080, label: '1920x1080 (1080p)' };
 
-// Grid state file path
-const gridStateFile = path.join(app.getPath('userData'), 'grid-state.json');
+// NDI resolution presets
+const ndiResolutions = [
+  { width: 640, height: 360, label: '640x360 (360p)' },
+  { width: 854, height: 480, label: '854x480 (480p)' },
+  { width: 1280, height: 720, label: '1280x720 (720p)' },
+  { width: 1920, height: 1080, label: '1920x1080 (1080p)' },
+  { width: 2560, height: 1440, label: '2560x1440 (1440p)' },
+  { width: 3840, height: 2160, label: '3840x2160 (4K)' },
+  { width: 0, height: 0, label: 'Match Preview' },
+  { width: -1, height: -1, label: 'Custom...' }
+];
+
+// Data directory in app folder
+const dataDir = path.join(__dirname, 'data');
+const shadersDir = path.join(dataDir, 'shaders');
+const gridStateFile = path.join(dataDir, 'grid-state.json');
+const presetsFile = path.join(dataDir, 'presets.json');
+const settingsFile = path.join(dataDir, 'settings.json');
+const viewStateFile = path.join(dataDir, 'view-state.json');
+
+// Ensure data directory exists and migrate old data
+function ensureDataDir() {
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+  if (!fs.existsSync(shadersDir)) {
+    fs.mkdirSync(shadersDir, { recursive: true });
+  }
+
+  // Migrate old grid state from userData if exists
+  const oldGridStateFile = path.join(app.getPath('userData'), 'grid-state.json');
+  if (fs.existsSync(oldGridStateFile) && !fs.existsSync(gridStateFile)) {
+    try {
+      fs.copyFileSync(oldGridStateFile, gridStateFile);
+      console.log('Migrated grid-state.json from userData to data directory');
+    } catch (err) {
+      console.error('Failed to migrate grid state:', err);
+    }
+  }
+}
+
+// Get shader file path for a slot
+function getShaderFilePath(slotIndex) {
+  return path.join(shadersDir, `button${slotIndex + 1}.glsl`);
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -233,6 +277,11 @@ function createMenu() {
           label: 'Start NDI Output',
           id: 'ndi-toggle',
           click: () => toggleNDIOutput()
+        },
+        {
+          label: 'NDI Resolution',
+          id: 'ndi-resolution-menu',
+          submenu: buildNDIResolutionSubmenu()
         }
       ]
     }
@@ -249,6 +298,152 @@ function buildFullscreenSubmenu() {
     accelerator: index === 0 ? 'CmdOrCtrl+F' : undefined,
     click: () => openFullscreen(display)
   }));
+}
+
+function buildNDIResolutionSubmenu() {
+  return ndiResolutions.map((res) => ({
+    label: res.label,
+    type: 'radio',
+    checked: ndiResolution.label === res.label,
+    click: () => setNDIResolution(res)
+  }));
+}
+
+async function setNDIResolution(res) {
+  if (res.width === -1) {
+    // Custom resolution - show dialog
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: 'question',
+      title: 'Custom NDI Resolution',
+      message: 'Enter custom resolution',
+      detail: 'Format: WIDTHxHEIGHT (e.g., 1280x720)',
+      buttons: ['Cancel', 'OK'],
+      defaultId: 1,
+      cancelId: 0,
+      inputPlaceholder: '1920x1080'
+    });
+
+    // Electron's showMessageBox doesn't support input, use a prompt window
+    showCustomResolutionDialog();
+    return;
+  }
+
+  if (res.width === 0) {
+    // Match preview - get from renderer
+    mainWindow.webContents.send('request-preview-resolution');
+    return;
+  }
+
+  ndiResolution = res;
+  console.log(`NDI resolution set to ${res.label}`);
+
+  // If NDI is running, restart with new resolution
+  if (ndiEnabled) {
+    await restartNDIWithNewResolution();
+  }
+
+  // Rebuild menu to update radio buttons
+  createMenu();
+}
+
+async function showCustomResolutionDialog() {
+  // Create a simple dialog window for custom resolution
+  const dialogWindow = new BrowserWindow({
+    width: 300,
+    height: 180,
+    parent: mainWindow,
+    modal: true,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    },
+    backgroundColor: '#1e1e1e',
+    title: 'Custom NDI Resolution'
+  });
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          background: #1e1e1e;
+          color: #fff;
+          padding: 20px;
+          margin: 0;
+        }
+        .row { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; }
+        label { width: 60px; }
+        input {
+          flex: 1;
+          padding: 8px;
+          background: #333;
+          border: 1px solid #555;
+          color: #fff;
+          border-radius: 3px;
+          font-size: 14px;
+        }
+        input:focus { outline: none; border-color: #0078d4; }
+        .buttons { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+        button {
+          padding: 8px 20px;
+          border: none;
+          border-radius: 3px;
+          cursor: pointer;
+          font-size: 14px;
+        }
+        .ok { background: #0078d4; color: #fff; }
+        .ok:hover { background: #1084d8; }
+        .cancel { background: #444; color: #fff; }
+        .cancel:hover { background: #555; }
+      </style>
+    </head>
+    <body>
+      <div class="row">
+        <label>Width:</label>
+        <input type="number" id="width" value="1920" min="128" max="7680">
+      </div>
+      <div class="row">
+        <label>Height:</label>
+        <input type="number" id="height" value="1080" min="128" max="4320">
+      </div>
+      <div class="buttons">
+        <button class="cancel" onclick="window.close()">Cancel</button>
+        <button class="ok" onclick="submit()">OK</button>
+      </div>
+      <script>
+        const { ipcRenderer } = require('electron');
+        function submit() {
+          const w = parseInt(document.getElementById('width').value);
+          const h = parseInt(document.getElementById('height').value);
+          if (w >= 128 && h >= 128) {
+            ipcRenderer.send('custom-ndi-resolution', { width: w, height: h });
+          }
+          window.close();
+        }
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') submit();
+          if (e.key === 'Escape') window.close();
+        });
+        document.getElementById('width').focus();
+        document.getElementById('width').select();
+      </script>
+    </body>
+    </html>
+  `;
+
+  dialogWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+}
+
+async function restartNDIWithNewResolution() {
+  if (ndiSender) {
+    ndiSender.stop();
+  }
+  await startNDIOutput();
 }
 
 function openFullscreen(display) {
@@ -429,19 +624,22 @@ async function startNDIOutput() {
     ndiSender = new NDISender('ShaderShow');
   }
 
-  // Get current resolution from renderer
-  const resolution = { width: 1920, height: 1080 };
-
+  // Use selected NDI resolution
   const success = await ndiSender.start({
-    width: resolution.width,
-    height: resolution.height,
+    width: ndiResolution.width,
+    height: ndiResolution.height,
     frameRateN: 60,
     frameRateD: 1
   });
 
   if (success) {
     ndiEnabled = true;
-    mainWindow.webContents.send('ndi-status', { enabled: true, native: true });
+    mainWindow.webContents.send('ndi-status', {
+      enabled: true,
+      native: true,
+      width: ndiResolution.width,
+      height: ndiResolution.height
+    });
     updateNDIMenu();
     console.log('Native NDI output started');
   } else {
@@ -600,21 +798,87 @@ ipcMain.on('open-fullscreen-with-shader', (event, shaderState) => {
   createFullscreenWindow(display, shaderState);
 });
 
-// Save grid state
+// Save grid state (metadata only - shader code saved separately)
 ipcMain.on('save-grid-state', (event, gridState) => {
+  ensureDataDir();
   try {
-    fs.writeFileSync(gridStateFile, JSON.stringify(gridState, null, 2), 'utf-8');
+    // Save metadata without shader code (shader code is in individual files)
+    const metadata = gridState.map((slot, index) => {
+      if (!slot) return null;
+      return {
+        filePath: slot.filePath,
+        params: slot.params,
+        presets: slot.presets || []
+      };
+    });
+    fs.writeFileSync(gridStateFile, JSON.stringify(metadata, null, 2), 'utf-8');
   } catch (err) {
     console.error('Failed to save grid state:', err);
   }
 });
 
-// Load grid state
+// Load grid state (loads metadata and shader code from files)
 ipcMain.handle('load-grid-state', async () => {
   try {
     if (fs.existsSync(gridStateFile)) {
       const data = fs.readFileSync(gridStateFile, 'utf-8');
-      return JSON.parse(data);
+      const metadata = JSON.parse(data);
+
+      // Load shader code from individual files
+      const state = metadata.map((slot, index) => {
+        if (!slot) {
+          // Check if shader file exists even without metadata
+          const shaderFile = getShaderFilePath(index);
+          if (fs.existsSync(shaderFile)) {
+            try {
+              const shaderCode = fs.readFileSync(shaderFile, 'utf-8');
+              return { shaderCode, filePath: null, params: {}, presets: [] };
+            } catch (err) {
+              return null;
+            }
+          }
+          return null;
+        }
+
+        // Load shader code from file
+        const shaderFile = getShaderFilePath(index);
+        let shaderCode = null;
+        if (fs.existsSync(shaderFile)) {
+          try {
+            shaderCode = fs.readFileSync(shaderFile, 'utf-8');
+          } catch (err) {
+            console.error(`Failed to load shader from ${shaderFile}:`, err);
+          }
+        }
+
+        if (!shaderCode) return null;
+
+        return {
+          shaderCode,
+          filePath: slot.filePath,
+          params: slot.params || {},
+          presets: slot.presets || []
+        };
+      });
+
+      return state;
+    } else {
+      // No metadata file - check for shader files
+      const state = [];
+      for (let i = 0; i < 16; i++) {
+        const shaderFile = getShaderFilePath(i);
+        if (fs.existsSync(shaderFile)) {
+          try {
+            const shaderCode = fs.readFileSync(shaderFile, 'utf-8');
+            state[i] = { shaderCode, filePath: null, params: {}, presets: [] };
+          } catch (err) {
+            state[i] = null;
+          }
+        } else {
+          state[i] = null;
+        }
+      }
+      return state;
     }
   } catch (err) {
     console.error('Failed to load grid state:', err);
@@ -622,9 +886,122 @@ ipcMain.handle('load-grid-state', async () => {
   return null;
 });
 
+// Save parameter presets
+ipcMain.on('save-presets', (event, presets) => {
+  ensureDataDir();
+  try {
+    fs.writeFileSync(presetsFile, JSON.stringify(presets, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to save presets:', err);
+  }
+});
+
+// Load parameter presets
+ipcMain.handle('load-presets', async () => {
+  try {
+    if (fs.existsSync(presetsFile)) {
+      const data = fs.readFileSync(presetsFile, 'utf-8');
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error('Failed to load presets:', err);
+  }
+  return [];
+});
+
 // NDI frame receiver
 ipcMain.on('ndi-frame', (event, frameData) => {
   sendNDIFrame(frameData);
+});
+
+// Custom NDI resolution from dialog
+ipcMain.on('custom-ndi-resolution', async (event, { width, height }) => {
+  ndiResolution = {
+    width,
+    height,
+    label: `${width}x${height} (Custom)`
+  };
+  console.log(`NDI resolution set to ${ndiResolution.label}`);
+
+  if (ndiEnabled) {
+    await restartNDIWithNewResolution();
+  }
+
+  createMenu();
+});
+
+// Preview resolution for "Match Preview" option
+ipcMain.on('preview-resolution', async (event, { width, height }) => {
+  ndiResolution = {
+    width,
+    height,
+    label: `${width}x${height} (Match Preview)`
+  };
+  console.log(`NDI resolution set to ${ndiResolution.label}`);
+
+  if (ndiEnabled) {
+    await restartNDIWithNewResolution();
+  }
+
+  createMenu();
+});
+
+// Toggle NDI from toolbar
+ipcMain.on('toggle-ndi', () => {
+  toggleNDIOutput();
+});
+
+// Open fullscreen on primary display
+ipcMain.on('open-fullscreen-primary', () => {
+  const displays = screen.getAllDisplays();
+  const primaryDisplay = displays.find(d => d.bounds.x === 0 && d.bounds.y === 0) || displays[0];
+  openFullscreen(primaryDisplay);
+});
+
+// Get settings
+ipcMain.handle('get-settings', () => {
+  // Load param ranges from settings file
+  let paramRanges = null;
+  try {
+    if (fs.existsSync(settingsFile)) {
+      const data = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
+      paramRanges = data.paramRanges || null;
+    }
+  } catch (err) {
+    console.error('Failed to load param ranges:', err);
+  }
+
+  return {
+    ndiResolution: ndiResolution,
+    ndiResolutions: ndiResolutions,
+    ndiEnabled: ndiEnabled,
+    paramRanges: paramRanges
+  };
+});
+
+// Save settings
+ipcMain.on('save-settings', async (event, settings) => {
+  if (settings.ndiResolution) {
+    const res = ndiResolutions.find(r => r.label === settings.ndiResolution.label);
+    if (res) {
+      await setNDIResolution(res);
+    } else if (settings.ndiResolution.width > 0) {
+      ndiResolution = settings.ndiResolution;
+      if (ndiEnabled) {
+        await restartNDIWithNewResolution();
+      }
+      createMenu();
+    }
+  }
+
+  // Save all settings including param ranges
+  const additionalData = {};
+  if (settings.paramRanges) {
+    additionalData.paramRanges = settings.paramRanges;
+  }
+  saveSettingsToFile(additionalData);
+
+  mainWindow.webContents.send('settings-changed', settings);
 });
 
 // Save grid presets to custom file
@@ -648,6 +1025,8 @@ ipcMain.on('save-grid-presets-to-file', async (event, gridState) => {
 });
 
 app.whenReady().then(() => {
+  ensureDataDir();
+  loadSettings();
   createWindow();
 
   app.on('activate', () => {
@@ -655,6 +1034,106 @@ app.whenReady().then(() => {
       createWindow();
     }
   });
+});
+
+// Load saved settings on startup
+function loadSettings() {
+  try {
+    if (fs.existsSync(settingsFile)) {
+      const data = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
+      if (data.ndiResolution) {
+        ndiResolution = data.ndiResolution;
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load settings:', err);
+  }
+}
+
+// Save settings to file
+function saveSettingsToFile(additionalData = {}) {
+  ensureDataDir();
+  try {
+    // Load existing settings to preserve other data
+    let existingData = {};
+    if (fs.existsSync(settingsFile)) {
+      existingData = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
+    }
+
+    const data = {
+      ...existingData,
+      ndiResolution: ndiResolution,
+      ...additionalData
+    };
+    fs.writeFileSync(settingsFile, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to save settings:', err);
+  }
+}
+
+// Save shader to slot file
+ipcMain.handle('save-shader-to-slot', async (event, slotIndex, shaderCode) => {
+  ensureDataDir();
+  try {
+    const shaderFile = getShaderFilePath(slotIndex);
+    fs.writeFileSync(shaderFile, shaderCode, 'utf-8');
+    return { success: true, path: shaderFile };
+  } catch (err) {
+    console.error(`Failed to save shader to slot ${slotIndex}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Load shader from slot file
+ipcMain.handle('load-shader-from-slot', async (event, slotIndex) => {
+  try {
+    const shaderFile = getShaderFilePath(slotIndex);
+    if (fs.existsSync(shaderFile)) {
+      const shaderCode = fs.readFileSync(shaderFile, 'utf-8');
+      return { success: true, shaderCode };
+    }
+    return { success: false, error: 'File not found' };
+  } catch (err) {
+    console.error(`Failed to load shader from slot ${slotIndex}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Delete shader from slot file
+ipcMain.handle('delete-shader-from-slot', async (event, slotIndex) => {
+  try {
+    const shaderFile = getShaderFilePath(slotIndex);
+    if (fs.existsSync(shaderFile)) {
+      fs.unlinkSync(shaderFile);
+    }
+    return { success: true };
+  } catch (err) {
+    console.error(`Failed to delete shader from slot ${slotIndex}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Save view state
+ipcMain.on('save-view-state', (event, viewState) => {
+  ensureDataDir();
+  try {
+    fs.writeFileSync(viewStateFile, JSON.stringify(viewState, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to save view state:', err);
+  }
+});
+
+// Load view state
+ipcMain.handle('load-view-state', async () => {
+  try {
+    if (fs.existsSync(viewStateFile)) {
+      const data = fs.readFileSync(viewStateFile, 'utf-8');
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error('Failed to load view state:', err);
+  }
+  return null;
 });
 
 app.on('window-all-closed', () => {

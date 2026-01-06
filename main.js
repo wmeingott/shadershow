@@ -2,6 +2,7 @@ const { app, BrowserWindow, Menu, dialog, ipcMain, screen } = require('electron'
 const path = require('path');
 const fs = require('fs');
 const NDISender = require('./ndi-sender');
+const NDIReceiver = require('./ndi-receiver');
 
 let mainWindow;
 let fullscreenWindow = null;
@@ -9,6 +10,10 @@ let currentFilePath = null;
 let ndiEnabled = false;
 let ndiSender = null;
 let ndiResolution = { width: 1920, height: 1080, label: '1920x1080 (1080p)' };
+
+// NDI input receivers for channels (one per channel 0-3)
+let ndiReceivers = [null, null, null, null];
+let ndiSourceCache = []; // Cached NDI sources for menu
 
 // NDI resolution presets
 const ndiResolutions = [
@@ -193,6 +198,23 @@ function createMenu() {
         },
         { type: 'separator' },
         {
+          label: 'NDI Source for Channel 0',
+          submenu: buildNDISourceSubmenu(0)
+        },
+        {
+          label: 'NDI Source for Channel 1',
+          submenu: buildNDISourceSubmenu(1)
+        },
+        {
+          label: 'NDI Source for Channel 2',
+          submenu: buildNDISourceSubmenu(2)
+        },
+        {
+          label: 'NDI Source for Channel 3',
+          submenu: buildNDISourceSubmenu(3)
+        },
+        { type: 'separator' },
+        {
           label: 'Clear Channel 0',
           click: () => clearChannel(0)
         },
@@ -307,6 +329,38 @@ function buildNDIResolutionSubmenu() {
     checked: ndiResolution.label === res.label,
     click: () => setNDIResolution(res)
   }));
+}
+
+function buildNDISourceSubmenu(channel) {
+  const items = [
+    {
+      label: 'Refresh Sources...',
+      click: async () => {
+        await refreshNDISources();
+        createMenu(); // Rebuild menu with new sources
+      }
+    },
+    { type: 'separator' }
+  ];
+
+  if (ndiSourceCache.length === 0) {
+    items.push({
+      label: '(No sources found)',
+      enabled: false
+    });
+  } else {
+    const currentSource = ndiReceivers[channel]?.getSource();
+    ndiSourceCache.forEach(source => {
+      items.push({
+        label: source.name,
+        type: 'radio',
+        checked: currentSource && currentSource.name === source.name,
+        click: () => useNDISource(channel, source)
+      });
+    });
+  }
+
+  return items;
 }
 
 async function setNDIResolution(res) {
@@ -608,7 +662,61 @@ function useAudio(channel) {
 }
 
 function clearChannel(channel) {
+  // Also disconnect any NDI receiver on this channel
+  if (ndiReceivers[channel]) {
+    ndiReceivers[channel].disconnect();
+    ndiReceivers[channel] = null;
+  }
   mainWindow.webContents.send('channel-cleared', { channel });
+}
+
+// NDI Source functions
+async function refreshNDISources() {
+  console.log('Searching for NDI sources...');
+  ndiSourceCache = await NDIReceiver.findSources(3000);
+  console.log(`Found ${ndiSourceCache.length} NDI sources:`, ndiSourceCache.map(s => s.name));
+  return ndiSourceCache;
+}
+
+async function useNDISource(channel, source) {
+  console.log(`Connecting channel ${channel} to NDI source "${source.name}"...`);
+
+  // Disconnect existing receiver on this channel
+  if (ndiReceivers[channel]) {
+    await ndiReceivers[channel].disconnect();
+  }
+
+  // Create new receiver
+  const receiver = new NDIReceiver(channel);
+
+  // Set up frame callback to forward frames to renderer
+  receiver.onFrame = (ch, frame) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      // Convert buffer to base64 for IPC transfer
+      const base64Data = frame.data.toString('base64');
+      mainWindow.webContents.send('ndi-input-frame', {
+        channel: ch,
+        width: frame.width,
+        height: frame.height,
+        data: base64Data
+      });
+    }
+  };
+
+  const success = await receiver.connect(source);
+
+  if (success) {
+    ndiReceivers[channel] = receiver;
+    mainWindow.webContents.send('ndi-source-set', {
+      channel,
+      source: source.name,
+      width: receiver.lastFrame?.width || 0,
+      height: receiver.lastFrame?.height || 0
+    });
+    createMenu(); // Update menu to show checked state
+  } else {
+    console.error(`Failed to connect to NDI source "${source.name}"`);
+  }
 }
 
 function toggleNDIOutput() {
@@ -909,9 +1017,28 @@ ipcMain.handle('load-presets', async () => {
   return [];
 });
 
-// NDI frame receiver
+// NDI frame receiver (output)
 ipcMain.on('ndi-frame', (event, frameData) => {
   sendNDIFrame(frameData);
+});
+
+// NDI source discovery (input)
+ipcMain.handle('find-ndi-sources', async () => {
+  return await refreshNDISources();
+});
+
+// Set channel to NDI source
+ipcMain.on('set-channel-ndi', async (event, { channel, source }) => {
+  await useNDISource(channel, source);
+});
+
+// Clear NDI from channel
+ipcMain.on('clear-channel-ndi', (event, { channel }) => {
+  if (ndiReceivers[channel]) {
+    ndiReceivers[channel].disconnect();
+    ndiReceivers[channel] = null;
+    createMenu();
+  }
 });
 
 // Custom NDI resolution from dialog

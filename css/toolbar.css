@@ -172,6 +172,13 @@
   font-weight: bold;
 }
 
+.channel-slot.has-ndi {
+  background-color: #5a4a27;
+  border-color: #c9a64e;
+  color: #c9a64e;
+  font-weight: bold;
+}
+
 /* Stats */
 .stats {
   gap: 16px;

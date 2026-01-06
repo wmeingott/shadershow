@@ -61,6 +61,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   toggleNDI: () => ipcRenderer.send('toggle-ndi'),
   openFullscreen: () => ipcRenderer.send('open-fullscreen-primary'),
 
+  // NDI input (sources as channel textures)
+  findNDISources: () => ipcRenderer.invoke('find-ndi-sources'),
+  setChannelNDI: (channel, source) => ipcRenderer.send('set-channel-ndi', { channel, source }),
+  clearChannelNDI: (channel) => ipcRenderer.send('clear-channel-ndi', { channel }),
+  onNDIInputFrame: (callback) => ipcRenderer.on('ndi-input-frame', (event, data) => callback(data)),
+  onNDISourceSet: (callback) => ipcRenderer.on('ndi-source-set', (event, data) => callback(data)),
+
   // Settings
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings) => ipcRenderer.send('save-settings', settings),

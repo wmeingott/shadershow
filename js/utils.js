@@ -22,7 +22,7 @@ export function updateChannelSlot(channel, type, source = '', width = 0, height 
   const slot = document.getElementById(`channel-${channel}`);
 
   // Reset classes
-  slot.classList.remove('has-texture', 'has-video', 'has-camera', 'has-audio');
+  slot.classList.remove('has-texture', 'has-video', 'has-camera', 'has-audio', 'has-ndi');
   slot.style.backgroundImage = '';
 
   const fileName = source ? source.split('/').pop().split('\\').pop() : '';
@@ -50,6 +50,11 @@ export function updateChannelSlot(channel, type, source = '', width = 0, height 
       slot.classList.add('has-audio');
       slot.title = `iChannel${channel}: Audio FFT (${width}x${height}) [Audio]\nRow 0: Frequency spectrum, Row 1: Waveform`;
       slot.textContent = 'A';
+      break;
+    case 'ndi':
+      slot.classList.add('has-ndi');
+      slot.title = `iChannel${channel}: ${source} (${width}x${height}) [NDI]`;
+      slot.textContent = 'N';
       break;
     default:
       slot.title = `iChannel${channel} - Click File > Load Texture/Video/Camera`;

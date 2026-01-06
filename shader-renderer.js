@@ -33,10 +33,13 @@ class ShaderRenderer {
 
     // Video/Camera sources for channels (HTMLVideoElement)
     this.channelVideoSources = [null, null, null, null];
-    this.channelTypes = ['empty', 'empty', 'empty', 'empty']; // 'empty', 'image', 'video', 'camera', 'audio'
+    this.channelTypes = ['empty', 'empty', 'empty', 'empty']; // 'empty', 'image', 'video', 'camera', 'audio', 'ndi'
 
     // Audio sources for channels
     this.channelAudioSources = [null, null, null, null]; // { audioContext, analyser, stream, frequencyData, timeDomainData }
+
+    // NDI sources for channels
+    this.channelNDIData = [null, null, null, null]; // { width, height, data (Uint8Array) }
 
     // Custom parameters (sliders)
     this.params = {
@@ -335,6 +338,11 @@ class ShaderRenderer {
       this.channelAudioSources[channel] = null;
     }
 
+    // Cleanup NDI source
+    if (this.channelNDIData[channel]) {
+      this.channelNDIData[channel] = null;
+    }
+
     // Reset to default black texture
     if (this.channelTextures[channel]) {
       gl.deleteTexture(this.channelTextures[channel]);
@@ -357,6 +365,53 @@ class ShaderRenderer {
   clearChannel(channel) {
     this.cleanupChannel(channel);
     return { type: 'empty' };
+  }
+
+  // Initialize channel for NDI source
+  initNDIChannel(channel, sourceName) {
+    const gl = this.gl;
+
+    // Cleanup any existing source on this channel
+    this.cleanupChannel(channel);
+
+    // Create texture for NDI
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    // Initialize with 1x1 black texture until first frame arrives
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
+
+    this.channelTextures[channel] = texture;
+    this.channelResolutions[channel] = [1, 1, 1];
+    this.channelTypes[channel] = 'ndi';
+    this.channelNDIData[channel] = { width: 1, height: 1, data: null, needsUpdate: false, sourceName };
+
+    return { type: 'ndi', source: sourceName };
+  }
+
+  // Update NDI frame data for a channel
+  setNDIFrame(channel, width, height, rgbaData) {
+    if (this.channelTypes[channel] !== 'ndi') {
+      return;
+    }
+
+    // Update resolution if changed
+    if (this.channelResolutions[channel][0] !== width || this.channelResolutions[channel][1] !== height) {
+      this.channelResolutions[channel] = [width, height, 1];
+    }
+
+    // Store frame data for texture update in render loop
+    this.channelNDIData[channel] = {
+      ...this.channelNDIData[channel],
+      width,
+      height,
+      data: rgbaData,
+      needsUpdate: true
+    };
   }
 
   updateVideoTextures() {
@@ -388,6 +443,14 @@ class ShaderRenderer {
         // Update texture
         gl.bindTexture(gl.TEXTURE_2D, this.channelTextures[i]);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, 512, 2, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, combinedData);
+      }
+
+      // Update NDI textures
+      if (this.channelNDIData[i] && this.channelNDIData[i].needsUpdate) {
+        const ndi = this.channelNDIData[i];
+        gl.bindTexture(gl.TEXTURE_2D, this.channelTextures[i]);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, ndi.width, ndi.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, ndi.data);
+        ndi.needsUpdate = false;
       }
     }
   }

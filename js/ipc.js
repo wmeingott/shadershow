@@ -142,4 +142,26 @@ export function initIPC() {
       height: canvas.height
     });
   });
+
+  // NDI input source set
+  window.electronAPI.onNDISourceSet(({ channel, source, width, height }) => {
+    state.renderer.initNDIChannel(channel, source);
+    state.channelState[channel] = { type: 'ndi', source };
+    updateChannelSlot(channel, 'ndi', source, width || 0, height || 0);
+    setStatus(`NDI source "${source}" connected to iChannel${channel}`, 'success');
+  });
+
+  // NDI input frame received
+  window.electronAPI.onNDIInputFrame(({ channel, width, height, data }) => {
+    if (state.channelState[channel]?.type === 'ndi') {
+      // Convert base64 to Uint8Array
+      const binaryString = atob(data);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      state.renderer.setNDIFrame(channel, width, height, bytes);
+    }
+  });
 }

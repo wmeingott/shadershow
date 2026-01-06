@@ -67,7 +67,7 @@ export function initParams() {
 
   // Reset button handler
   const resetBtn = document.getElementById('btn-reset-params');
-  resetBtn.addEventListener('click', () => resetAllParams(defaults));
+  resetBtn.addEventListener('click', () => resetParamsP0P4ToDefault());
 
   // P0-P4 section reset buttons
   document.getElementById('btn-params-zero').addEventListener('click', () => resetParamsP0P4(0));
@@ -154,6 +154,32 @@ function resetParamsP0P4(value) {
   }
 
   setStatus(`P0-P4 set to ${value === 0 ? 'minimum' : 'maximum'}`, 'success');
+}
+
+function resetParamsP0P4ToDefault() {
+  const defaultValue = 0.5;
+  for (let i = 0; i < 5; i++) {
+    const paramName = `p${i}`;
+    const slider = document.getElementById(`param-p${i}`);
+    const valueDisplay = document.getElementById(`param-p${i}-value`);
+
+    if (!slider) continue;
+
+    slider.value = defaultValue;
+    state.renderer.setParam(paramName, defaultValue);
+    if (valueDisplay) valueDisplay.textContent = defaultValue.toFixed(2);
+    window.electronAPI.sendParamUpdate({ name: paramName, value: defaultValue });
+
+    if (state.activeGridSlot !== null && state.gridSlots[state.activeGridSlot]) {
+      state.gridSlots[state.activeGridSlot].params[paramName] = defaultValue;
+    }
+  }
+
+  if (state.activeGridSlot !== null && state.gridSlots[state.activeGridSlot]) {
+    saveGridState();
+  }
+
+  setStatus('P0-P4 reset to default', 'success');
 }
 
 function resetAllColors(value) {

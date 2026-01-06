@@ -1,0 +1,142 @@
+/* Shader Grid Panel */
+#grid-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-primary);
+  padding: 12px;
+  overflow: hidden;
+  min-height: 100px;
+  border-bottom: 1px solid var(--border-color);
+  gap: 12px;
+}
+
+.shader-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(4, 1fr);
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  max-width: 600px;
+  max-height: 400px;
+}
+
+.grid-slot {
+  position: relative;
+  background-color: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 0.15s, transform 0.1s;
+}
+
+.grid-slot:hover {
+  border-color: var(--accent-color);
+  transform: scale(1.02);
+}
+
+.grid-slot.has-shader {
+  border-color: var(--success-color);
+}
+
+.grid-slot.has-shader:hover {
+  border-color: var(--accent-hover);
+}
+
+.grid-slot.active {
+  border-color: var(--warning-color);
+  box-shadow: 0 0 8px var(--warning-color);
+}
+
+.grid-slot.active .slot-number {
+  color: var(--warning-color);
+}
+
+.grid-slot canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.grid-slot .slot-number {
+  position: absolute;
+  bottom: 4px;
+  right: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  opacity: 0.7;
+  pointer-events: none;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+}
+
+.grid-slot.has-shader .slot-number {
+  color: var(--success-color);
+}
+
+/* Context menu */
+.context-menu {
+  position: fixed;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 4px 0;
+  min-width: 150px;
+  z-index: 1000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.context-menu-item {
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.context-menu-item:hover {
+  background-color: var(--accent-color);
+}
+
+.context-menu-item.disabled {
+  color: var(--text-secondary);
+  cursor: default;
+}
+
+.context-menu-item.disabled:hover {
+  background-color: transparent;
+}
+
+/* Shader Presets Section in Grid Panel */
+.grid-presets-section {
+  width: 100%;
+  max-width: 600px;
+  padding: 8px 12px;
+  background-color: var(--bg-secondary);
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.grid-presets-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.grid-presets-section .presets-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.grid-presets-section .no-shader-hint {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-style: italic;
+}

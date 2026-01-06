@@ -5,7 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' file: blob:;">
   <title>ShaderShow</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/toolbar.css">
+  <link rel="stylesheet" href="css/params.css">
+  <link rel="stylesheet" href="css/grid.css">
+  <link rel="stylesheet" href="css/dialogs.css">
 </head>
 <body>
   <div id="app">
@@ -89,25 +93,32 @@
       <div id="right-panel">
         <!-- Shader Grid Panel -->
         <div id="grid-panel" class="hidden">
-        <div class="shader-grid">
-          <div class="grid-slot" data-slot="0"><canvas></canvas><span class="slot-number">1</span></div>
-          <div class="grid-slot" data-slot="1"><canvas></canvas><span class="slot-number">2</span></div>
-          <div class="grid-slot" data-slot="2"><canvas></canvas><span class="slot-number">3</span></div>
-          <div class="grid-slot" data-slot="3"><canvas></canvas><span class="slot-number">4</span></div>
-          <div class="grid-slot" data-slot="4"><canvas></canvas><span class="slot-number">5</span></div>
-          <div class="grid-slot" data-slot="5"><canvas></canvas><span class="slot-number">6</span></div>
-          <div class="grid-slot" data-slot="6"><canvas></canvas><span class="slot-number">7</span></div>
-          <div class="grid-slot" data-slot="7"><canvas></canvas><span class="slot-number">8</span></div>
-          <div class="grid-slot" data-slot="8"><canvas></canvas><span class="slot-number">9</span></div>
-          <div class="grid-slot" data-slot="9"><canvas></canvas><span class="slot-number">10</span></div>
-          <div class="grid-slot" data-slot="10"><canvas></canvas><span class="slot-number">11</span></div>
-          <div class="grid-slot" data-slot="11"><canvas></canvas><span class="slot-number">12</span></div>
-          <div class="grid-slot" data-slot="12"><canvas></canvas><span class="slot-number">13</span></div>
-          <div class="grid-slot" data-slot="13"><canvas></canvas><span class="slot-number">14</span></div>
-          <div class="grid-slot" data-slot="14"><canvas></canvas><span class="slot-number">15</span></div>
-          <div class="grid-slot" data-slot="15"><canvas></canvas><span class="slot-number">16</span></div>
+          <div class="shader-grid">
+            <div class="grid-slot" data-slot="0"><canvas></canvas><span class="slot-number">1</span></div>
+            <div class="grid-slot" data-slot="1"><canvas></canvas><span class="slot-number">2</span></div>
+            <div class="grid-slot" data-slot="2"><canvas></canvas><span class="slot-number">3</span></div>
+            <div class="grid-slot" data-slot="3"><canvas></canvas><span class="slot-number">4</span></div>
+            <div class="grid-slot" data-slot="4"><canvas></canvas><span class="slot-number">5</span></div>
+            <div class="grid-slot" data-slot="5"><canvas></canvas><span class="slot-number">6</span></div>
+            <div class="grid-slot" data-slot="6"><canvas></canvas><span class="slot-number">7</span></div>
+            <div class="grid-slot" data-slot="7"><canvas></canvas><span class="slot-number">8</span></div>
+            <div class="grid-slot" data-slot="8"><canvas></canvas><span class="slot-number">9</span></div>
+            <div class="grid-slot" data-slot="9"><canvas></canvas><span class="slot-number">10</span></div>
+            <div class="grid-slot" data-slot="10"><canvas></canvas><span class="slot-number">11</span></div>
+            <div class="grid-slot" data-slot="11"><canvas></canvas><span class="slot-number">12</span></div>
+            <div class="grid-slot" data-slot="12"><canvas></canvas><span class="slot-number">13</span></div>
+            <div class="grid-slot" data-slot="13"><canvas></canvas><span class="slot-number">14</span></div>
+            <div class="grid-slot" data-slot="14"><canvas></canvas><span class="slot-number">15</span></div>
+            <div class="grid-slot" data-slot="15"><canvas></canvas><span class="slot-number">16</span></div>
+          </div>
+          <div class="grid-presets-section">
+            <div class="grid-presets-title">Shader Presets</div>
+            <div class="presets-row" id="local-presets-row">
+              <span class="no-shader-hint" id="no-shader-hint">Select a shader</span>
+              <button id="btn-add-local-preset" class="preset-btn add-preset hidden" title="Save preset for current shader">+</button>
+            </div>
+          </div>
         </div>
-      </div>
 
         <!-- Preview Panel -->
         <div id="preview-panel">
@@ -198,13 +209,6 @@
               <div class="color-row" data-color="9"><span class="color-label">C9</span><label class="color-red">R</label><input type="range" id="param-r9" min="0" max="1" step="0.01" value="1"><label class="color-green">G</label><input type="range" id="param-g9" min="0" max="1" step="0.01" value="1"><label class="color-blue">B</label><input type="range" id="param-b9" min="0" max="1" step="0.01" value="1"></div>
             </div>
             <div class="params-section presets-section">
-              <div class="params-section-title">Shader Presets</div>
-              <div class="presets-row" id="local-presets-row">
-                <span class="no-shader-hint" id="no-shader-hint">Select a shader</span>
-                <button id="btn-add-local-preset" class="preset-btn add-preset hidden" title="Save preset for current shader">+</button>
-              </div>
-            </div>
-            <div class="params-section presets-section">
               <div class="params-section-title">Global Presets</div>
               <div class="presets-row" id="global-presets-row">
                 <button id="btn-add-global-preset" class="preset-btn add-preset" title="Save as global preset">+</button>
@@ -228,6 +232,6 @@
   <script src="node_modules/ace-builds/src-min-noconflict/theme-monokai.js"></script>
 
   <script src="shader-renderer.js"></script>
-  <script src="renderer.js"></script>
+  <script type="module" src="js/renderer.js"></script>
 </body>
 </html>

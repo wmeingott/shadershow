@@ -1,0 +1,181 @@
+/* Base styles, variables, and app layout */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg-primary: #1e1e1e;
+  --bg-secondary: #252526;
+  --bg-tertiary: #2d2d2d;
+  --bg-hover: #3e3e3e;
+  --border-color: #3e3e3e;
+  --text-primary: #cccccc;
+  --text-secondary: #858585;
+  --accent-color: #0e639c;
+  --accent-hover: #1177bb;
+  --success-color: #4ec9b0;
+  --error-color: #f14c4c;
+  --warning-color: #cca700;
+}
+
+html, body {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  font-size: 13px;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* Main Content */
+#main-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Editor Panel */
+#editor-panel {
+  width: 50%;
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-primary);
+}
+
+#editor {
+  flex: 1;
+  font-size: 14px;
+}
+
+/* Ace editor customization */
+.ace_editor {
+  font-family: 'SF Mono', Monaco, 'Fira Code', 'Courier New', monospace !important;
+}
+
+.ace_gutter {
+  background-color: var(--bg-secondary) !important;
+}
+
+/* Resizer */
+#resizer {
+  width: 4px;
+  background-color: var(--border-color);
+  cursor: col-resize;
+  transition: background-color 0.15s;
+}
+
+#resizer:hover,
+#resizer.dragging {
+  background-color: var(--accent-color);
+}
+
+/* Right Panel Container */
+#right-panel {
+  flex: 1;
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#right-panel.side-by-side {
+  flex-direction: row;
+}
+
+#right-panel.side-by-side #grid-panel {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 50%;
+  border-right: 1px solid var(--border-color);
+}
+
+#right-panel.side-by-side #preview-panel {
+  flex: 1;
+}
+
+/* Preview Panel */
+#preview-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  background-color: #000;
+  overflow: hidden;
+}
+
+#preview-canvas-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #000;
+  overflow: hidden;
+  min-height: 100px;
+}
+
+#shader-canvas {
+  max-width: 100%;
+  max-height: 100%;
+  image-rendering: pixelated;
+}
+
+/* Status Bar */
+#status-bar {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 12px;
+  background-color: var(--accent-color);
+  color: white;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+#status-bar.error {
+  background-color: var(--error-color);
+}
+
+#status-bar.success {
+  background-color: var(--success-color);
+}
+
+#cursor-position {
+  font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+}
+
+/* Error annotations */
+.ace_error-marker {
+  position: absolute;
+  background-color: rgba(241, 76, 76, 0.3);
+  border-bottom: 2px solid var(--error-color);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bg-hover);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}

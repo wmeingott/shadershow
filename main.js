@@ -949,6 +949,33 @@ ipcMain.on('param-update', (event, data) => {
   }
 });
 
+// Blackout fullscreen
+ipcMain.on('blackout', (event, enabled) => {
+  if (fullscreenWindow && !fullscreenWindow.isDestroyed()) {
+    fullscreenWindow.webContents.send('blackout', enabled);
+  }
+});
+
+// Get display refresh rate for fullscreen window
+ipcMain.handle('get-display-refresh-rate', (event) => {
+  const { screen } = require('electron');
+  // Get the display where the fullscreen window is located
+  if (fullscreenWindow && !fullscreenWindow.isDestroyed()) {
+    const display = screen.getDisplayMatching(fullscreenWindow.getBounds());
+    return display.displayFrequency || 60;
+  }
+  // Default to primary display
+  const primaryDisplay = screen.getPrimaryDisplay();
+  return primaryDisplay.displayFrequency || 60;
+});
+
+// Forward fullscreen FPS to main window
+ipcMain.on('fullscreen-fps', (event, fps) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('fullscreen-fps', fps);
+  }
+});
+
 // Bidirectional preset sync between main and fullscreen windows
 ipcMain.on('preset-sync', (event, data) => {
   const senderId = event.sender.id;

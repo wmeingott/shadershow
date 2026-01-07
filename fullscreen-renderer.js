@@ -6,8 +6,17 @@ let globalPresets = [];
 let activeLocalPresetIndex = null;
 let activeGlobalPresetIndex = null;
 let presetBarTimeout = null;
+let blackoutEnabled = false;
 
-document.addEventListener('DOMContentLoaded', () => {
+// FPS tracking
+let frameCount = 0;
+let lastFpsTime = performance.now();
+let currentFps = 0;
+let targetRefreshRate = 60;
+let lastFrameTime = 0;
+let minFrameInterval = 0; // Will be set based on refresh rate
+
+document.addEventListener('DOMContentLoaded', async () => {
   const canvas = document.getElementById('shader-canvas');
 
   // Set canvas to full window size
@@ -15,6 +24,19 @@ document.addEventListener('DOMContentLoaded', () => {
   canvas.height = window.innerHeight;
 
   renderer = new ShaderRenderer(canvas);
+
+  // Get display refresh rate and set frame interval limit
+  try {
+    const refreshRate = await window.electronAPI.getDisplayRefreshRate();
+    if (refreshRate && refreshRate > 0) {
+      targetRefreshRate = refreshRate;
+      // Allow slightly faster than refresh rate to avoid frame drops
+      minFrameInterval = (1000 / targetRefreshRate) * 0.95;
+    }
+  } catch (err) {
+    console.warn('Could not get display refresh rate, using 60Hz default');
+    minFrameInterval = (1000 / 60) * 0.95;
+  }
 
   // Handle window resize
   window.addEventListener('resize', () => {
@@ -154,9 +176,38 @@ function createPresetButtons() {
   });
 }
 
-function renderLoop() {
-  renderer.render();
+function renderLoop(currentTime) {
   animationId = requestAnimationFrame(renderLoop);
+
+  // Frame rate limiting - skip frame if too soon
+  if (minFrameInterval > 0 && currentTime - lastFrameTime < minFrameInterval) {
+    return;
+  }
+  lastFrameTime = currentTime;
+
+  // FPS calculation
+  frameCount++;
+  const elapsed = currentTime - lastFpsTime;
+  if (elapsed >= 1000) {
+    currentFps = Math.round((frameCount * 1000) / elapsed);
+    frameCount = 0;
+    lastFpsTime = currentTime;
+
+    // Send FPS to main window
+    window.electronAPI.sendFullscreenFps(currentFps);
+  }
+
+  if (blackoutEnabled) {
+    // Clear to black when blackout is enabled
+    const canvas = document.getElementById('shader-canvas');
+    const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+    if (gl) {
+      gl.clearColor(0, 0, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    }
+  } else {
+    renderer.render();
+  }
 }
 
 // Initialize with shader state from main window
@@ -260,6 +311,11 @@ window.electronAPI.onPresetSync((data) => {
     activeLocalPresetIndex = null;
   }
   updatePresetHighlights();
+});
+
+// Handle blackout from main window
+window.electronAPI.onBlackout((enabled) => {
+  blackoutEnabled = enabled;
 });
 
 async function loadChannel(index, channel) {

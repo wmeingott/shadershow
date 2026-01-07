@@ -3,6 +3,13 @@ import { state } from './state.js';
 import { setStatus } from './utils.js';
 import { saveGridState } from './shader-grid.js';
 
+// Default parameter names
+const defaultParamNames = {
+  p0: 'P0', p1: 'P1', p2: 'P2', p3: 'P3', p4: 'P4',
+  c0: 'C0', c1: 'C1', c2: 'C2', c3: 'C3', c4: 'C4',
+  c5: 'C5', c6: 'C6', c7: 'C7', c8: 'C8', c9: 'C9'
+};
+
 export function initParams() {
   // Build params array for speed + 5 params + 10 RGB colors
   const params = [
@@ -79,6 +86,9 @@ export function initParams() {
 
   // Add min/max buttons to color sliders
   addColorSliderButtons();
+
+  // Init parameter label editing
+  initParamLabelEditing();
 }
 
 function addColorSliderButtons() {
@@ -348,4 +358,113 @@ export function applyParamRanges() {
       slider.step = (range.max - range.min) / 100;
     }
   }
+}
+
+function initParamLabelEditing() {
+  // P0-P4 labels
+  for (let i = 0; i < 5; i++) {
+    const label = document.getElementById(`label-p${i}`);
+    if (label) {
+      label.addEventListener('dblclick', () => startLabelEdit(label, `p${i}`));
+    }
+  }
+
+  // C0-C9 labels
+  for (let i = 0; i < 10; i++) {
+    const label = document.getElementById(`label-c${i}`);
+    if (label) {
+      label.addEventListener('dblclick', () => startLabelEdit(label, `c${i}`));
+    }
+  }
+}
+
+function startLabelEdit(label, paramKey) {
+  // Only allow editing when a grid slot is active
+  if (state.activeGridSlot === null || !state.gridSlots[state.activeGridSlot]) {
+    setStatus('Select a shader slot first to customize parameter names', 'info');
+    return;
+  }
+
+  const slot = state.gridSlots[state.activeGridSlot];
+  const currentName = label.textContent;
+
+  // Create input element
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'param-name-input';
+  input.value = currentName;
+  input.maxLength = 8;
+
+  // Replace label content with input
+  label.textContent = '';
+  label.appendChild(input);
+  label.classList.add('editing');
+
+  // Focus and select all text
+  input.focus();
+  input.select();
+
+  const finishEdit = (save) => {
+    const newName = input.value.trim() || defaultParamNames[paramKey];
+    label.classList.remove('editing');
+    label.textContent = newName;
+
+    if (save && newName !== defaultParamNames[paramKey]) {
+      // Save custom name to slot
+      if (!slot.paramNames) slot.paramNames = {};
+      slot.paramNames[paramKey] = newName;
+      label.classList.add('custom-name');
+      saveGridState();
+      setStatus(`Renamed ${paramKey.toUpperCase()} to "${newName}"`, 'success');
+    } else if (save && newName === defaultParamNames[paramKey]) {
+      // Revert to default
+      if (slot.paramNames) delete slot.paramNames[paramKey];
+      label.classList.remove('custom-name');
+      saveGridState();
+    } else {
+      // Cancelled - restore previous name
+      label.textContent = currentName;
+      if (slot.paramNames && slot.paramNames[paramKey]) {
+        label.classList.add('custom-name');
+      }
+    }
+  };
+
+  input.addEventListener('blur', () => finishEdit(true));
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      finishEdit(true);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      finishEdit(false);
+    }
+  });
+}
+
+export function updateParamLabels(paramNames) {
+  // Update P0-P4 labels
+  for (let i = 0; i < 5; i++) {
+    const label = document.getElementById(`label-p${i}`);
+    if (label) {
+      const customName = paramNames && paramNames[`p${i}`];
+      label.textContent = customName || defaultParamNames[`p${i}`];
+      label.classList.toggle('custom-name', !!customName);
+    }
+  }
+
+  // Update C0-C9 labels
+  for (let i = 0; i < 10; i++) {
+    const label = document.getElementById(`label-c${i}`);
+    if (label) {
+      const customName = paramNames && paramNames[`c${i}`];
+      label.textContent = customName || defaultParamNames[`c${i}`];
+      label.classList.toggle('custom-name', !!customName);
+    }
+  }
+}
+
+export function resetParamLabels() {
+  // Reset all labels to defaults
+  updateParamLabels(null);
 }

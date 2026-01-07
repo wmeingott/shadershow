@@ -14,6 +14,7 @@ export const state = {
   syphonEnabled: false,
   syphonFrameCounter: 0,
   syphonFrameSkip: 4,  // Send every Nth frame
+  blackoutEnabled: false,
 
   // Mouse assignment for params P0-P4
   mouseAssignments: { p0: '', p1: '', p2: '', p3: '', p4: '' },

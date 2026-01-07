@@ -37,6 +37,10 @@ export function initControls() {
   const btnFullscreen = document.getElementById('btn-fullscreen');
   btnFullscreen.addEventListener('click', openFullscreenPreview);
 
+  // Blackout button
+  const btnBlackout = document.getElementById('btn-blackout');
+  btnBlackout.addEventListener('click', toggleBlackout);
+
   // Settings button
   const btnSettings = document.getElementById('btn-settings');
   btnSettings.addEventListener('click', showSettingsDialog);
@@ -262,4 +266,19 @@ export function toggleNDI() {
 
 export function openFullscreenPreview() {
   window.electronAPI.openFullscreen();
+}
+
+export function toggleBlackout() {
+  state.blackoutEnabled = !state.blackoutEnabled;
+  const btnBlackout = document.getElementById('btn-blackout');
+
+  if (state.blackoutEnabled) {
+    btnBlackout.classList.add('active');
+    btnBlackout.title = 'Disable Blackout (B)';
+  } else {
+    btnBlackout.classList.remove('active');
+    btnBlackout.title = 'Blackout Fullscreen (B)';
+  }
+
+  window.electronAPI.sendBlackout(state.blackoutEnabled);
 }

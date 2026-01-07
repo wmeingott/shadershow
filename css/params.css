@@ -144,6 +144,47 @@
   min-width: 24px;
 }
 
+/* Editable parameter labels */
+.param-label.editable,
+.color-label.editable {
+  cursor: pointer;
+  border-radius: 2px;
+  padding: 1px 3px;
+  margin: -1px -3px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.param-label.editable:hover,
+.color-label.editable:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.param-label.editing,
+.color-label.editing {
+  background: var(--bg-primary);
+  padding: 0;
+  margin: 0;
+}
+
+.param-label.custom-name,
+.color-label.custom-name {
+  color: var(--accent-color);
+  font-weight: 600;
+}
+
+.param-name-input {
+  width: 48px;
+  padding: 1px 3px;
+  font-size: inherit;
+  font-family: inherit;
+  background: var(--bg-primary);
+  border: 1px solid var(--accent-color);
+  color: var(--text-primary);
+  border-radius: 2px;
+  outline: none;
+}
+
 .color-row label {
   font-size: 10px;
   min-width: 12px;

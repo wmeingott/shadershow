@@ -1,7 +1,7 @@
 // Shader Grid module
 import { state } from './state.js';
 import { setStatus } from './utils.js';
-import { loadParamsToSliders } from './params.js';
+import { loadParamsToSliders, updateParamLabels, resetParamLabels } from './params.js';
 import { updateLocalPresetsUI } from './presets.js';
 
 export async function initShaderGrid() {
@@ -116,7 +116,7 @@ function assignCurrentShaderToSlot(slotIndex) {
   assignShaderToSlot(slotIndex, shaderCode, null);
 }
 
-export async function assignShaderToSlot(slotIndex, shaderCode, filePath, skipSave = false, params = null, presets = null) {
+export async function assignShaderToSlot(slotIndex, shaderCode, filePath, skipSave = false, params = null, presets = null, paramNames = null) {
   const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`);
   const canvas = slot.querySelector('canvas');
 
@@ -138,7 +138,8 @@ export async function assignShaderToSlot(slotIndex, shaderCode, filePath, skipSa
       filePath,
       renderer: miniRenderer,
       params: { ...slotParams },
-      presets: presets || []
+      presets: presets || [],
+      paramNames: paramNames || {}
     };
     slot.classList.add('has-shader');
     slot.title = filePath ? `Slot ${slotIndex + 1}: ${filePath.split('/').pop().split('\\').pop()}` : `Slot ${slotIndex + 1}: Current shader`;
@@ -178,6 +179,7 @@ async function clearGridSlot(slotIndex) {
     state.activeGridSlot = null;
     updateLocalPresetsUI();
     updateSaveButtonState();
+    resetParamLabels();
   }
 
   setStatus(`Cleared slot ${slotIndex + 1}`, 'success');
@@ -237,7 +239,8 @@ export function saveGridState() {
     return {
       filePath: slot.filePath,
       params: slot.params,
-      presets: slot.presets || []
+      presets: slot.presets || [],
+      paramNames: slot.paramNames || {}
     };
   });
   window.electronAPI.saveGridState(gridState);
@@ -251,7 +254,7 @@ export async function loadGridState() {
   for (let i = 0; i < Math.min(gridState.length, 16); i++) {
     if (gridState[i] && gridState[i].shaderCode) {
       try {
-        await assignShaderToSlot(i, gridState[i].shaderCode, gridState[i].filePath, true, gridState[i].params, gridState[i].presets);
+        await assignShaderToSlot(i, gridState[i].shaderCode, gridState[i].filePath, true, gridState[i].params, gridState[i].presets, gridState[i].paramNames);
         loadedCount++;
       } catch (err) {
         console.warn(`Failed to restore shader in slot ${i + 1}:`, err);
@@ -289,7 +292,7 @@ export function loadGridPresetsFromData(gridState, filePath) {
   for (let i = 0; i < Math.min(gridState.length, 16); i++) {
     if (gridState[i] && gridState[i].shaderCode) {
       try {
-        assignShaderToSlot(i, gridState[i].shaderCode, gridState[i].filePath, true, gridState[i].params, gridState[i].presets);
+        assignShaderToSlot(i, gridState[i].shaderCode, gridState[i].filePath, true, gridState[i].params, gridState[i].presets, gridState[i].paramNames);
         loadedCount++;
       } catch (err) {
         console.warn(`Failed to load shader in slot ${i + 1}:`, err);
@@ -335,6 +338,9 @@ export function loadGridShaderToEditor(slotIndex) {
     loadParamsToSliders(slotData.params);
   }
 
+  // Update parameter labels with custom names
+  updateParamLabels(slotData.paramNames);
+
   // Update local presets UI for this shader
   updateLocalPresetsUI();
 
@@ -364,6 +370,9 @@ export function playGridShader(slotIndex) {
   if (slotData.params) {
     loadParamsToSliders(slotData.params);
   }
+
+  // Update parameter labels with custom names
+  updateParamLabels(slotData.paramNames);
 
   // Update local presets UI for this shader
   updateLocalPresetsUI();

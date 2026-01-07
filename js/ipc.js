@@ -220,4 +220,20 @@ export function initIPC() {
       state.renderer.setNDIFrame(channel, width, height, bytes);
     }
   });
+
+  // Fullscreen FPS display
+  window.electronAPI.onFullscreenFps((fps) => {
+    const fpsDisplay = document.getElementById('fullscreen-fps');
+    if (fpsDisplay) {
+      fpsDisplay.textContent = `${fps} fps`;
+      fpsDisplay.classList.remove('active', 'low', 'very-low');
+      if (fps >= 50) {
+        fpsDisplay.classList.add('active');
+      } else if (fps >= 30) {
+        fpsDisplay.classList.add('low');
+      } else {
+        fpsDisplay.classList.add('very-low');
+      }
+    }
+  });
 }

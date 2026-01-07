@@ -42,6 +42,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onParamUpdate: (callback) => ipcRenderer.on('param-update', (event, data) => callback(data)),
   onPresetSync: (callback) => ipcRenderer.on('preset-sync', (event, data) => callback(data)),
   sendPresetSync: (data) => ipcRenderer.send('preset-sync', data),
+  onBlackout: (callback) => ipcRenderer.on('blackout', (event, data) => callback(data)),
+  sendBlackout: (enabled) => ipcRenderer.send('blackout', enabled),
+  getDisplayRefreshRate: () => ipcRenderer.invoke('get-display-refresh-rate'),
+  sendFullscreenFps: (fps) => ipcRenderer.send('fullscreen-fps', fps),
+  onFullscreenFps: (callback) => ipcRenderer.on('fullscreen-fps', (event, data) => callback(data)),
 
   // Grid operations
   loadShaderForGrid: () => ipcRenderer.invoke('load-shader-for-grid'),

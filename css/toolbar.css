@@ -186,3 +186,31 @@
   font-family: 'SF Mono', Monaco, 'Courier New', monospace;
   font-size: 11px;
 }
+
+/* FPS Display */
+.fps-display {
+  background: var(--bg-tertiary);
+  padding: 4px 10px;
+  border-radius: 3px;
+  border: 1px solid var(--border-color);
+}
+
+#fullscreen-fps {
+  font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+  min-width: 50px;
+  text-align: center;
+}
+
+#fullscreen-fps.active {
+  color: var(--success-color);
+}
+
+#fullscreen-fps.low {
+  color: #e67e22;
+}
+
+#fullscreen-fps.very-low {
+  color: #e74c3c;
+}

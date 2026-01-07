@@ -82,28 +82,13 @@ html, body {
   background-color: var(--accent-color);
 }
 
-/* Right Panel Container */
+/* Right Panel Container - always horizontal layout */
 #right-panel {
   flex: 1;
   min-width: 300px;
   display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-#right-panel.side-by-side {
   flex-direction: row;
-}
-
-#right-panel.side-by-side #grid-panel {
-  flex: 0 0 auto;
-  width: auto;
-  max-width: 50%;
-  border-right: 1px solid var(--border-color);
-}
-
-#right-panel.side-by-side #preview-panel {
-  flex: 1;
+  overflow: hidden;
 }
 
 /* Preview Panel */

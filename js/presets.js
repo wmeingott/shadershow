@@ -282,7 +282,7 @@ function showRenamePresetDialog(index, btn, type) {
   });
 }
 
-function recallLocalPreset(index) {
+export function recallLocalPreset(index, fromSync = false) {
   if (state.activeGridSlot === null || !state.gridSlots[state.activeGridSlot]) return;
   const presets = state.gridSlots[state.activeGridSlot].presets || [];
   if (index >= presets.length) return;
@@ -296,11 +296,20 @@ function recallLocalPreset(index) {
   state.activeGlobalPresetIndex = null;
   clearGlobalPresetHighlight();
 
+  // Sync to fullscreen (unless this call came from sync)
+  if (!fromSync) {
+    window.electronAPI.sendPresetSync({
+      type: 'local',
+      index: index,
+      params: params
+    });
+  }
+
   const name = preset.name || `Preset ${index + 1}`;
   setStatus(`${name} loaded`, 'success');
 }
 
-function recallGlobalPreset(index) {
+export function recallGlobalPreset(index, fromSync = false) {
   if (index >= state.globalPresets.length) return;
 
   const preset = state.globalPresets[index];
@@ -317,6 +326,15 @@ function recallGlobalPreset(index) {
   updateActiveGlobalPreset(index);
   state.activeLocalPresetIndex = null;
   clearLocalPresetHighlight();
+
+  // Sync to fullscreen (unless this call came from sync)
+  if (!fromSync) {
+    window.electronAPI.sendPresetSync({
+      type: 'global',
+      index: index,
+      params: params
+    });
+  }
 
   const name = preset.name || `Global preset ${index + 1}`;
   setStatus(`${name} loaded`, 'success');

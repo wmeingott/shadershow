@@ -4,6 +4,8 @@ import { setStatus, updateChannelSlot } from './utils.js';
 import { compileShader } from './editor.js';
 import { togglePlayback, resetTime } from './controls.js';
 import { loadGridPresetsFromData, saveGridState } from './shader-grid.js';
+import { recallLocalPreset, recallGlobalPreset } from './presets.js';
+import { loadParamsToSliders } from './params.js';
 
 export function initIPC() {
   // File operations
@@ -87,13 +89,26 @@ export function initIPC() {
   // Fullscreen state request
   window.electronAPI.onRequestFullscreenState(() => {
     const stats = state.renderer.getStats();
+
+    // Get shader code from active grid slot if selected, otherwise from editor
+    let shaderCode = state.editor.getValue();
+    let localPresets = [];
+    if (state.activeGridSlot !== null && state.gridSlots[state.activeGridSlot]) {
+      shaderCode = state.gridSlots[state.activeGridSlot].shaderCode || shaderCode;
+      localPresets = state.gridSlots[state.activeGridSlot].presets || [];
+    }
+
     const fullscreenState = {
-      shaderCode: state.editor.getValue(),
+      shaderCode: shaderCode,
       time: stats.time,
       frame: stats.frame,
       isPlaying: stats.isPlaying,
       channels: state.channelState,
-      params: state.renderer.getParams()
+      params: state.renderer.getParams(),
+      localPresets: localPresets,
+      globalPresets: state.globalPresets,
+      activeLocalPresetIndex: state.activeLocalPresetIndex,
+      activeGlobalPresetIndex: state.activeGlobalPresetIndex
     };
     window.electronAPI.sendFullscreenState(fullscreenState);
   });
@@ -143,6 +158,35 @@ export function initIPC() {
       setStatus(`Syphon error: ${error}`, 'error');
     } else {
       setStatus('Syphon output stopped', 'success');
+    }
+  });
+
+  // Preset sync from fullscreen window
+  window.electronAPI.onPresetSync((data) => {
+    // Apply params directly from sync message to renderer and sliders
+    if (data.params) {
+      loadParamsToSliders(data.params);
+    }
+
+    // Update highlighting without triggering another sync
+    if (data.type === 'local') {
+      state.activeLocalPresetIndex = data.index;
+      state.activeGlobalPresetIndex = null;
+      document.querySelectorAll('.preset-btn.local-preset').forEach((btn, i) => {
+        btn.classList.toggle('active', i === data.index);
+      });
+      document.querySelectorAll('.preset-btn.global-preset').forEach(btn => {
+        btn.classList.remove('active');
+      });
+    } else if (data.type === 'global') {
+      state.activeGlobalPresetIndex = data.index;
+      state.activeLocalPresetIndex = null;
+      document.querySelectorAll('.preset-btn.global-preset').forEach((btn, i) => {
+        btn.classList.toggle('active', i === data.index);
+      });
+      document.querySelectorAll('.preset-btn.local-preset').forEach(btn => {
+        btn.classList.remove('active');
+      });
     }
   });
 

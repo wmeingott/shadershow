@@ -405,10 +405,22 @@ export function playGridShader(slotIndex) {
   setStatus(`Playing ${slotName}`, 'success');
 }
 
+// Grid animation frame rate limiting (10fps = 100ms interval)
+const GRID_FRAME_INTERVAL = 100;
+let lastGridFrameTime = 0;
+
 export function startGridAnimation() {
   if (state.gridAnimationId) return;
 
-  function animateGrid() {
+  function animateGrid(currentTime) {
+    state.gridAnimationId = requestAnimationFrame(animateGrid);
+
+    // Limit to 10fps to save CPU/GPU
+    if (currentTime - lastGridFrameTime < GRID_FRAME_INTERVAL) {
+      return;
+    }
+    lastGridFrameTime = currentTime;
+
     for (let i = 0; i < 16; i++) {
       if (state.gridSlots[i] && state.gridSlots[i].renderer) {
         // Update params from slot before rendering
@@ -416,9 +428,8 @@ export function startGridAnimation() {
         state.gridSlots[i].renderer.render();
       }
     }
-    state.gridAnimationId = requestAnimationFrame(animateGrid);
   }
-  animateGrid();
+  animateGrid(performance.now());
 }
 
 export function stopGridAnimation() {

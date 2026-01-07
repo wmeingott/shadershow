@@ -10,8 +10,10 @@ export const state = {
   paramsEnabled: true,
   ndiEnabled: false,
   ndiFrameCounter: 0,
+  ndiFrameSkip: 4,  // Send every Nth frame (4 = 15fps at 60fps render)
   syphonEnabled: false,
   syphonFrameCounter: 0,
+  syphonFrameSkip: 4,  // Send every Nth frame
 
   // Mouse assignment for params P0-P4
   mouseAssignments: { p0: '', p1: '', p2: '', p3: '', p4: '' },

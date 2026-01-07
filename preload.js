@@ -40,6 +40,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onShaderUpdate: (callback) => ipcRenderer.on('shader-update', (event, data) => callback(data)),
   onTimeSync: (callback) => ipcRenderer.on('time-sync', (event, data) => callback(data)),
   onParamUpdate: (callback) => ipcRenderer.on('param-update', (event, data) => callback(data)),
+  onPresetSync: (callback) => ipcRenderer.on('preset-sync', (event, data) => callback(data)),
+  sendPresetSync: (data) => ipcRenderer.send('preset-sync', data),
 
   // Grid operations
   loadShaderForGrid: () => ipcRenderer.invoke('load-shader-for-grid'),

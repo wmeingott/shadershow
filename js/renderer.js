@@ -45,27 +45,29 @@ function initRenderer() {
 }
 
 function renderLoop() {
-  // Only render if preview is enabled
-  if (state.previewEnabled) {
+  // Render if preview is enabled OR if NDI/Syphon needs frames
+  const needsRender = state.previewEnabled || state.ndiEnabled || state.syphonEnabled;
+
+  if (needsRender) {
     const stats = state.renderer.render();
 
-    if (stats) {
+    if (stats && state.previewEnabled) {
       document.getElementById('fps-display').textContent = `FPS: ${stats.fps}`;
       document.getElementById('time-display').textContent = `Time: ${stats.time.toFixed(2)}s`;
       document.getElementById('frame-display').textContent = `Frame: ${stats.frame}`;
     }
 
-    // Send frame to NDI output if enabled (every other frame to reduce load)
-    if (state.ndiEnabled && state.ndiFrameCounter % 2 === 0) {
+    // Send frame to NDI output if enabled (skip frames to reduce load)
+    if (state.ndiEnabled && state.ndiFrameCounter % state.ndiFrameSkip === 0) {
       sendNDIFrame();
     }
-    state.ndiFrameCounter++;
+    if (state.ndiEnabled) state.ndiFrameCounter++;
 
-    // Send frame to Syphon output if enabled (every other frame to reduce load)
-    if (state.syphonEnabled && state.syphonFrameCounter % 2 === 0) {
+    // Send frame to Syphon output if enabled (skip frames to reduce load)
+    if (state.syphonEnabled && state.syphonFrameCounter % state.syphonFrameSkip === 0) {
       sendSyphonFrame();
     }
-    state.syphonFrameCounter++;
+    if (state.syphonEnabled) state.syphonFrameCounter++;
   } else {
     // Still update time even when preview disabled (for fullscreen sync)
     state.renderer.updateTime();

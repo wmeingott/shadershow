@@ -822,12 +822,47 @@ function updateNDIMenu() {
   }
 }
 
+// Pre-allocated buffers for NDI frame flipping (avoid allocation per frame)
+let ndiFlipBuffer = null;
+let ndiLastWidth = 0;
+let ndiLastHeight = 0;
+
 async function sendNDIFrame(frameData) {
   if (ndiSender && ndiEnabled) {
     try {
-      // frameData is { rgbaData: base64, width, height }
-      const buffer = Buffer.from(frameData.rgbaData, 'base64');
-      await ndiSender.sendFrame(buffer, frameData.width, frameData.height);
+      const { data, width, height } = frameData;
+
+      // Handle both raw Uint8Array and legacy base64 format
+      let sourceBuffer;
+      if (data instanceof Uint8Array || Buffer.isBuffer(data)) {
+        sourceBuffer = Buffer.from(data);
+      } else if (frameData.rgbaData) {
+        // Legacy base64 format fallback
+        sourceBuffer = Buffer.from(frameData.rgbaData, 'base64');
+      } else {
+        console.error('NDI frame: invalid data format');
+        return;
+      }
+
+      const rowSize = width * 4;
+      const bufferSize = width * height * 4;
+
+      // Reallocate flip buffer only if resolution changed
+      if (width !== ndiLastWidth || height !== ndiLastHeight) {
+        ndiFlipBuffer = Buffer.allocUnsafe(bufferSize);
+        ndiLastWidth = width;
+        ndiLastHeight = height;
+      }
+
+      // Flip vertically using Buffer.copy (native, much faster than JS loops)
+      // WebGL readPixels gives bottom-to-top, NDI expects top-to-bottom
+      for (let y = 0; y < height; y++) {
+        const srcOffset = (height - 1 - y) * rowSize;
+        const dstOffset = y * rowSize;
+        sourceBuffer.copy(ndiFlipBuffer, dstOffset, srcOffset, srcOffset + rowSize);
+      }
+
+      await ndiSender.sendFrame(ndiFlipBuffer, width, height);
     } catch (e) {
       console.error('NDI frame send error:', e.message);
     }
@@ -887,11 +922,46 @@ function updateSyphonMenu() {
   }
 }
 
+// Pre-allocated buffers for Syphon frame flipping
+let syphonFlipBuffer = null;
+let syphonLastWidth = 0;
+let syphonLastHeight = 0;
+
 async function sendSyphonFrame(frameData) {
   if (syphonSender && syphonEnabled) {
     try {
-      const buffer = Buffer.from(frameData.rgbaData, 'base64');
-      await syphonSender.sendFrame(buffer, frameData.width, frameData.height);
+      const { data, width, height } = frameData;
+
+      // Handle both raw Uint8Array and legacy base64 format
+      let sourceBuffer;
+      if (data instanceof Uint8Array || Buffer.isBuffer(data)) {
+        sourceBuffer = Buffer.from(data);
+      } else if (frameData.rgbaData) {
+        // Legacy base64 format fallback
+        sourceBuffer = Buffer.from(frameData.rgbaData, 'base64');
+      } else {
+        console.error('Syphon frame: invalid data format');
+        return;
+      }
+
+      const rowSize = width * 4;
+      const bufferSize = width * height * 4;
+
+      // Reallocate flip buffer only if resolution changed
+      if (width !== syphonLastWidth || height !== syphonLastHeight) {
+        syphonFlipBuffer = Buffer.allocUnsafe(bufferSize);
+        syphonLastWidth = width;
+        syphonLastHeight = height;
+      }
+
+      // Flip vertically using Buffer.copy (native, much faster than JS loops)
+      for (let y = 0; y < height; y++) {
+        const srcOffset = (height - 1 - y) * rowSize;
+        const dstOffset = y * rowSize;
+        sourceBuffer.copy(syphonFlipBuffer, dstOffset, srcOffset, srcOffset + rowSize);
+      }
+
+      await syphonSender.sendFrame(syphonFlipBuffer, width, height);
     } catch (e) {
       console.error('Syphon frame send error:', e.message);
     }

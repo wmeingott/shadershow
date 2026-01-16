@@ -603,8 +603,38 @@ export function playGridShader(slotIndex) {
 const GRID_FRAME_INTERVAL = 100;
 let lastGridFrameTime = 0;
 
+// Track which slots are visible using IntersectionObserver
+const visibleSlots = new Set();
+let gridIntersectionObserver = null;
+
+function initGridVisibilityObserver() {
+  if (gridIntersectionObserver) return;
+
+  gridIntersectionObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      const slotIndex = parseInt(entry.target.dataset.slot, 10);
+      if (entry.isIntersecting) {
+        visibleSlots.add(slotIndex);
+      } else {
+        visibleSlots.delete(slotIndex);
+      }
+    });
+  }, {
+    root: document.getElementById('grid-panel'),
+    threshold: 0.1 // Consider visible if at least 10% is showing
+  });
+
+  // Observe all grid slots
+  document.querySelectorAll('.grid-slot').forEach(slot => {
+    gridIntersectionObserver.observe(slot);
+  });
+}
+
 export function startGridAnimation() {
   if (state.gridAnimationId) return;
+
+  // Initialize visibility observer if not already done
+  initGridVisibilityObserver();
 
   function animateGrid(currentTime) {
     state.gridAnimationId = requestAnimationFrame(animateGrid);
@@ -615,11 +645,12 @@ export function startGridAnimation() {
     }
     lastGridFrameTime = currentTime;
 
-    for (let i = 0; i < 32; i++) {
-      if (state.gridSlots[i] && state.gridSlots[i].renderer) {
-        // Update params from slot before rendering
-        state.gridSlots[i].renderer.setParams(state.gridSlots[i].params);
-        state.gridSlots[i].renderer.render();
+    // Only render slots that are currently visible
+    for (const slotIndex of visibleSlots) {
+      const slot = state.gridSlots[slotIndex];
+      if (slot && slot.renderer) {
+        slot.renderer.setParams(slot.params);
+        slot.renderer.render();
       }
     }
   }
@@ -647,6 +678,10 @@ class MiniShaderRenderer {
     this.startTime = performance.now();
     this.uniforms = {};
     this.params = null; // Will store slot params
+
+    // Pre-allocated buffers to avoid GC pressure during render
+    this._colorArray = new Float32Array(30);  // 10 colors * 3 components
+    this._paramsArray = new Float32Array(5);  // 5 custom params
 
     this.setupGeometry();
   }
@@ -747,24 +782,21 @@ class MiniShaderRenderer {
     gl.uniform3f(this.uniforms.iResolution, this.canvas.width, this.canvas.height, 1);
     gl.uniform1f(this.uniforms.iTime, time);
 
-    // Use slot params for colors or default to white
-    const colorArray = new Float32Array(30);
+    // Use pre-allocated color array
     for (let i = 0; i < 10; i++) {
-      colorArray[i * 3 + 0] = this.params?.[`r${i}`] ?? 1.0;
-      colorArray[i * 3 + 1] = this.params?.[`g${i}`] ?? 1.0;
-      colorArray[i * 3 + 2] = this.params?.[`b${i}`] ?? 1.0;
+      this._colorArray[i * 3 + 0] = this.params?.[`r${i}`] ?? 1.0;
+      this._colorArray[i * 3 + 1] = this.params?.[`g${i}`] ?? 1.0;
+      this._colorArray[i * 3 + 2] = this.params?.[`b${i}`] ?? 1.0;
     }
-    gl.uniform3fv(this.uniforms.iColorRGB, colorArray);
+    gl.uniform3fv(this.uniforms.iColorRGB, this._colorArray);
 
-    // Use slot params for p0-p4 or default to 0.5
-    const paramsArray = new Float32Array([
-      this.params?.p0 ?? 0.5,
-      this.params?.p1 ?? 0.5,
-      this.params?.p2 ?? 0.5,
-      this.params?.p3 ?? 0.5,
-      this.params?.p4 ?? 0.5
-    ]);
-    gl.uniform1fv(this.uniforms.iParams, paramsArray);
+    // Use pre-allocated params array
+    this._paramsArray[0] = this.params?.p0 ?? 0.5;
+    this._paramsArray[1] = this.params?.p1 ?? 0.5;
+    this._paramsArray[2] = this.params?.p2 ?? 0.5;
+    this._paramsArray[3] = this.params?.p3 ?? 0.5;
+    this._paramsArray[4] = this.params?.p4 ?? 0.5;
+    gl.uniform1fv(this.uniforms.iParams, this._paramsArray);
 
     gl.uniform1f(this.uniforms.iSpeed, speed);
 

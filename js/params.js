@@ -3,6 +3,25 @@ import { state } from './state.js';
 import { setStatus } from './utils.js';
 import { saveGridState } from './shader-grid.js';
 
+// Throttling state for mousemove handlers
+let lastMouseUpdate = 0;
+const MOUSE_THROTTLE_MS = 16; // ~60fps max
+let cachedCanvasRect = null;
+let rectCacheTime = 0;
+const RECT_CACHE_TTL = 100; // Invalidate rect cache after 100ms
+
+// Debounced grid state save for mouse-controlled params
+let saveGridStateTimeout = null;
+const SAVE_DEBOUNCE_MS = 500;
+
+function debouncedSaveGridState() {
+  if (saveGridStateTimeout) clearTimeout(saveGridStateTimeout);
+  saveGridStateTimeout = setTimeout(() => {
+    saveGridState();
+    saveGridStateTimeout = null;
+  }, SAVE_DEBOUNCE_MS);
+}
+
 // Default parameter names
 const defaultParamNames = {
   p0: 'P0', p1: 'P1', p2: 'P2', p3: 'P3', p4: 'P4',
@@ -269,10 +288,25 @@ export function initMouseAssignment() {
   const canvas = document.getElementById('shader-canvas');
   const canvasContainer = document.getElementById('preview-canvas-container');
 
+  // Invalidate rect cache on resize
+  window.addEventListener('resize', () => {
+    cachedCanvasRect = null;
+  });
+
   canvasContainer.addEventListener('mousemove', (e) => {
-    const rect = canvas.getBoundingClientRect();
-    state.mousePosition.x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    state.mousePosition.y = Math.max(0, Math.min(1, 1 - (e.clientY - rect.top) / rect.height)); // Invert Y
+    // Throttle to ~60fps max
+    const now = performance.now();
+    if (now - lastMouseUpdate < MOUSE_THROTTLE_MS) return;
+    lastMouseUpdate = now;
+
+    // Cache getBoundingClientRect to avoid layout thrashing
+    if (!cachedCanvasRect || now - rectCacheTime > RECT_CACHE_TTL) {
+      cachedCanvasRect = canvas.getBoundingClientRect();
+      rectCacheTime = now;
+    }
+
+    state.mousePosition.x = Math.max(0, Math.min(1, (e.clientX - cachedCanvasRect.left) / cachedCanvasRect.width));
+    state.mousePosition.y = Math.max(0, Math.min(1, 1 - (e.clientY - cachedCanvasRect.top) / cachedCanvasRect.height)); // Invert Y
     updateMouseControlledParams();
   });
 
@@ -296,10 +330,13 @@ export function initMouseAssignment() {
 }
 
 function updateMouseControlledParams() {
+  let hasActiveAssignment = false;
+
   for (let i = 0; i < 5; i++) {
     const assignment = state.mouseAssignments[`p${i}`];
     if (!assignment) continue;
 
+    hasActiveAssignment = true;
     const value = assignment === 'x' ? state.mousePosition.x : state.mousePosition.y;
     const slider = document.getElementById(`param-p${i}`);
     const valueDisplay = document.getElementById(`param-p${i}-value`);
@@ -309,10 +346,15 @@ function updateMouseControlledParams() {
     state.renderer.setParam(`p${i}`, value);
     window.electronAPI.sendParamUpdate({ name: `p${i}`, value });
 
-    // Update grid slot if active
+    // Update grid slot if active (value only, save is debounced)
     if (state.activeGridSlot !== null && state.gridSlots[state.activeGridSlot]) {
       state.gridSlots[state.activeGridSlot].params[`p${i}`] = value;
     }
+  }
+
+  // Debounce grid state save when mouse-controlled params are active
+  if (hasActiveAssignment && state.activeGridSlot !== null && state.gridSlots[state.activeGridSlot]) {
+    debouncedSaveGridState();
   }
 }
 

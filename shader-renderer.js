@@ -61,6 +61,12 @@ class ShaderRenderer {
     // Uniform locations cache
     this.uniforms = {};
 
+    // Pre-allocated buffers for render loop (avoid GC pressure)
+    this._colorArray = new Float32Array(30);      // 10 colors * 3 components
+    this._paramsArray = new Float32Array(5);      // 5 custom params
+    this._resolutionsArray = new Float32Array(12); // 4 channels * 3 components
+    this._audioBuffer = new Uint8Array(512 * 2);  // Audio FFT + waveform
+
     // Setup
     this.setupGeometry();
     this.setupMouseEvents();
@@ -439,14 +445,13 @@ class ShaderRenderer {
         // Get time domain data (waveform)
         audio.analyser.getByteTimeDomainData(audio.timeDomainData);
 
-        // Combine into a single buffer (2 rows: FFT on row 0, waveform on row 1)
-        const combinedData = new Uint8Array(512 * 2);
-        combinedData.set(audio.frequencyData, 0);      // Row 0: FFT
-        combinedData.set(audio.timeDomainData, 512);   // Row 1: Waveform
+        // Combine into pre-allocated buffer (2 rows: FFT on row 0, waveform on row 1)
+        this._audioBuffer.set(audio.frequencyData, 0);      // Row 0: FFT
+        this._audioBuffer.set(audio.timeDomainData, 512);   // Row 1: Waveform
 
         // Update texture
         gl.bindTexture(gl.TEXTURE_2D, this.channelTextures[i]);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, 512, 2, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, combinedData);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, 512, 2, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, this._audioBuffer);
       }
 
       // Update NDI textures
@@ -651,21 +656,19 @@ class ShaderRenderer {
     gl.uniform1i(this.uniforms.iFrame, this.frameCount);
     gl.uniform4f(this.uniforms.iDate, dateValues[0], dateValues[1], dateValues[2], dateValues[3]);
 
-    // Custom parameters - build color array
-    const colorArray = new Float32Array(30); // 10 colors * 3 components
+    // Custom parameters - use pre-allocated color array
     for (let i = 0; i < 10; i++) {
-      colorArray[i * 3] = this.params[`r${i}`];
-      colorArray[i * 3 + 1] = this.params[`g${i}`];
-      colorArray[i * 3 + 2] = this.params[`b${i}`];
+      this._colorArray[i * 3] = this.params[`r${i}`];
+      this._colorArray[i * 3 + 1] = this.params[`g${i}`];
+      this._colorArray[i * 3 + 2] = this.params[`b${i}`];
     }
-    gl.uniform3fv(this.uniforms.iColorRGB, colorArray);
+    gl.uniform3fv(this.uniforms.iColorRGB, this._colorArray);
 
-    // Build params array
-    const paramsArray = new Float32Array(5);
+    // Use pre-allocated params array
     for (let i = 0; i < 5; i++) {
-      paramsArray[i] = this.params[`p${i}`];
+      this._paramsArray[i] = this.params[`p${i}`];
     }
-    gl.uniform1fv(this.uniforms.iParams, paramsArray);
+    gl.uniform1fv(this.uniforms.iParams, this._paramsArray);
     gl.uniform1f(this.uniforms.iSpeed, this.params.speed);
 
     // Mouse: xy = current pos, zw = click pos (z negative if not pressed)
@@ -680,14 +683,13 @@ class ShaderRenderer {
       gl.uniform1i(this.uniforms[`iChannel${i}`], i);
     }
 
-    // Set channel resolutions
-    const resolutions = new Float32Array(12);
+    // Set channel resolutions (use pre-allocated array)
     for (let i = 0; i < 4; i++) {
-      resolutions[i * 3] = this.channelResolutions[i][0];
-      resolutions[i * 3 + 1] = this.channelResolutions[i][1];
-      resolutions[i * 3 + 2] = this.channelResolutions[i][2];
+      this._resolutionsArray[i * 3] = this.channelResolutions[i][0];
+      this._resolutionsArray[i * 3 + 1] = this.channelResolutions[i][1];
+      this._resolutionsArray[i * 3 + 2] = this.channelResolutions[i][2];
     }
-    gl.uniform3fv(this.uniforms.iChannelResolution, resolutions);
+    gl.uniform3fv(this.uniforms.iChannelResolution, this._resolutionsArray);
 
     // Draw
     gl.bindVertexArray(this.vao);

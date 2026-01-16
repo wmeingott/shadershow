@@ -1,6 +1,7 @@
 const { app, BrowserWindow, Menu, dialog, ipcMain, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const fsPromises = fs.promises;
 const NDISender = require('./ndi-sender');
 const NDIReceiver = require('./ndi-receiver');
 const SyphonSender = require('./syphon-sender');
@@ -565,11 +566,43 @@ function createFullscreenWindow(display, shaderState) {
   });
 
   fullscreenWindow.on('closed', () => {
+    // Notify main window that fullscreen closed (for adaptive preview framerate)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('fullscreen-closed');
+    }
     fullscreenWindow = null;
   });
 }
 
 async function newFile() {
+  // Ask the renderer if there are unsaved changes
+  const hasChanges = await new Promise((resolve) => {
+    ipcMain.once('editor-has-changes-response', (event, result) => {
+      resolve(result);
+    });
+    mainWindow.webContents.send('check-editor-changes');
+  });
+
+  if (hasChanges) {
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: 'question',
+      buttons: ['Save', "Don't Save", 'Cancel'],
+      defaultId: 0,
+      cancelId: 2,
+      title: 'Unsaved Changes',
+      message: 'Do you want to save changes to the current shader?'
+    });
+
+    if (result.response === 0) {
+      // Save
+      await saveFile();
+    } else if (result.response === 2) {
+      // Cancel
+      return;
+    }
+    // Don't Save continues to new file
+  }
+
   currentFilePath = null;
   mainWindow.webContents.send('new-file');
   updateTitle();
@@ -896,10 +929,10 @@ function updateTitle() {
 }
 
 // IPC Handlers
-ipcMain.on('save-content', (event, content) => {
+ipcMain.on('save-content', async (event, content) => {
   if (currentFilePath) {
     try {
-      fs.writeFileSync(currentFilePath, content, 'utf-8');
+      await fsPromises.writeFile(currentFilePath, content, 'utf-8');
     } catch (err) {
       dialog.showErrorBox('Error', `Failed to save file: ${err.message}`);
     }
@@ -907,17 +940,30 @@ ipcMain.on('save-content', (event, content) => {
 });
 
 ipcMain.handle('get-default-shader', async () => {
-  const defaultPath = path.join(__dirname, 'examples', 'default.frag');
-  try {
-    return fs.readFileSync(defaultPath, 'utf-8');
-  } catch (err) {
-    // Return a basic shader if default doesn't exist
-    return `void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+  // Return a new shader with prologue comment listing all uniforms
+  return `/*
+ * ShaderShow - Available Uniforms
+ * ================================
+ * vec3  iResolution      - Viewport resolution (width, height, 1.0)
+ * float iTime            - Playback time in seconds (affected by iSpeed)
+ * float iTimeDelta       - Time since last frame in seconds
+ * int   iFrame           - Current frame number
+ * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)
+ * vec4  iDate            - (year, month, day, time in seconds)
+ *
+ * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)
+ * vec3  iChannelResolution[4] - Resolution of each channel
+ *
+ * float iParams[5]       - Custom parameters P0-P4 (0.0-1.0, sliders)
+ * vec3  iColorRGB[10]    - Custom colors C0-C9 (RGB, 0.0-1.0 each)
+ * float iSpeed           - Speed multiplier for iTime
+ */
+
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     vec2 uv = fragCoord / iResolution.xy;
     vec3 col = 0.5 + 0.5 * cos(iTime + uv.xyx + vec3(0, 2, 4));
     fragColor = vec4(col, 1.0);
 }`;
-  }
 });
 
 // Fullscreen state handler
@@ -1032,7 +1078,7 @@ ipcMain.on('open-fullscreen-with-shader', (event, shaderState) => {
 });
 
 // Save grid state (metadata only - shader code saved separately)
-ipcMain.on('save-grid-state', (event, gridState) => {
+ipcMain.on('save-grid-state', async (event, gridState) => {
   ensureDataDir();
   try {
     // Save metadata without shader code (shader code is in individual files)
@@ -1044,7 +1090,7 @@ ipcMain.on('save-grid-state', (event, gridState) => {
         presets: slot.presets || []
       };
     });
-    fs.writeFileSync(gridStateFile, JSON.stringify(metadata, null, 2), 'utf-8');
+    await fsPromises.writeFile(gridStateFile, JSON.stringify(metadata, null, 2), 'utf-8');
   } catch (err) {
     console.error('Failed to save grid state:', err);
   }
@@ -1098,7 +1144,7 @@ ipcMain.handle('load-grid-state', async () => {
     } else {
       // No metadata file - check for shader files
       const state = [];
-      for (let i = 0; i < 16; i++) {
+      for (let i = 0; i < 32; i++) {
         const shaderFile = getShaderFilePath(i);
         if (fs.existsSync(shaderFile)) {
           try {
@@ -1120,10 +1166,10 @@ ipcMain.handle('load-grid-state', async () => {
 });
 
 // Save parameter presets
-ipcMain.on('save-presets', (event, presets) => {
+ipcMain.on('save-presets', async (event, presets) => {
   ensureDataDir();
   try {
-    fs.writeFileSync(presetsFile, JSON.stringify(presets, null, 2), 'utf-8');
+    await fsPromises.writeFile(presetsFile, JSON.stringify(presets, null, 2), 'utf-8');
   } catch (err) {
     console.error('Failed to save presets:', err);
   }
@@ -1278,7 +1324,7 @@ ipcMain.on('save-grid-presets-to-file', async (event, gridState) => {
 
   if (!result.canceled && result.filePath) {
     try {
-      fs.writeFileSync(result.filePath, JSON.stringify(gridState, null, 2), 'utf-8');
+      await fsPromises.writeFile(result.filePath, JSON.stringify(gridState, null, 2), 'utf-8');
       mainWindow.webContents.send('grid-presets-saved', { filePath: result.filePath });
     } catch (err) {
       dialog.showErrorBox('Error', `Failed to save grid presets: ${err.message}`);
@@ -1312,14 +1358,15 @@ function loadSettings() {
   }
 }
 
-// Save settings to file
-function saveSettingsToFile(additionalData = {}) {
+// Save settings to file (async, non-blocking)
+async function saveSettingsToFile(additionalData = {}) {
   ensureDataDir();
   try {
     // Load existing settings to preserve other data
     let existingData = {};
     if (fs.existsSync(settingsFile)) {
-      existingData = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
+      const fileContent = await fsPromises.readFile(settingsFile, 'utf-8');
+      existingData = JSON.parse(fileContent);
     }
 
     const data = {
@@ -1327,7 +1374,7 @@ function saveSettingsToFile(additionalData = {}) {
       ndiResolution: ndiResolution,
       ...additionalData
     };
-    fs.writeFileSync(settingsFile, JSON.stringify(data, null, 2), 'utf-8');
+    await fsPromises.writeFile(settingsFile, JSON.stringify(data, null, 2), 'utf-8');
   } catch (err) {
     console.error('Failed to save settings:', err);
   }
@@ -1338,7 +1385,7 @@ ipcMain.handle('save-shader-to-slot', async (event, slotIndex, shaderCode) => {
   ensureDataDir();
   try {
     const shaderFile = getShaderFilePath(slotIndex);
-    fs.writeFileSync(shaderFile, shaderCode, 'utf-8');
+    await fsPromises.writeFile(shaderFile, shaderCode, 'utf-8');
     return { success: true, path: shaderFile };
   } catch (err) {
     console.error(`Failed to save shader to slot ${slotIndex}:`, err);
@@ -1376,10 +1423,10 @@ ipcMain.handle('delete-shader-from-slot', async (event, slotIndex) => {
 });
 
 // Save view state
-ipcMain.on('save-view-state', (event, viewState) => {
+ipcMain.on('save-view-state', async (event, viewState) => {
   ensureDataDir();
   try {
-    fs.writeFileSync(viewStateFile, JSON.stringify(viewState, null, 2), 'utf-8');
+    await fsPromises.writeFile(viewStateFile, JSON.stringify(viewState, null, 2), 'utf-8');
   } catch (err) {
     console.error('Failed to save view state:', err);
   }

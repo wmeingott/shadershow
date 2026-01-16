@@ -11,7 +11,7 @@ float hash(float n) {
 }
 
 // Schnellerer Noise - weniger Operationen
-float noise(vec3 x) {
+float noise2(vec3 x) {
     vec3 p = floor(x);
     vec3 f = fract(x);
     f = f * f * (3.0 - 2.0 * f);
@@ -30,6 +30,9 @@ float noise(vec3 x) {
                mix(mix(e, f1, f.x), mix(g, h, f.x), f.y), f.z);
 }
 
+float noise(vec3 x){
+  return 1.0;
+}
 // Vorberechnete Lichtdaten
 struct Light {
     vec3 pos;
@@ -47,7 +50,7 @@ void setupLights(out Light lights[NUM_LIGHTS]) {
         float swing = sin(iTime * 0.5 + phase) * 0.3;
         float tilt = cos(iTime * 0.7 + phase * 1.5) * 0.2;
         
-        lights[j].pos = vec3(-3.5 + lightIndex * 1.0, 3.0, -2.0);
+        lights[j].pos = vec3(-3.5 + lightIndex * 1.0, 3.0 * iParams[1] + 3.0, 10.0 * iParams[2] -10.0);
         lights[j].dir = normalize(vec3(swing, -0.8 + tilt, 1.0));
         lights[j].angle = 0.3 + 0.1 * sin(iTime + phase);
         
@@ -129,14 +132,16 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     vec3 color = vec3(0.02, 0.02, 0.05) * (1.0 - uv.y * 0.5);
     
     // Ground
-    float groundT = groundPlane(ro, rd);
+    float groundT = 0.0;
+    if(iParams[0] >= 0.5){
+    groundT = groundPlane(ro, rd);
     if (groundT > 0.0) {
         vec3 groundPos = ro + rd * groundT;
         vec2 checker = floor(groundPos.xz * 2.0);
         float pattern = mod(checker.x + checker.y, 2.0);
         color = mix(color, mix(vec3(0.05), vec3(0.1), pattern), exp(-groundT * 0.1));
     }
-    
+    }
     // Volumetric lighting
     color += volumetricLighting(ro, rd, groundT > 0.0 ? groundT : 10.0, lights);
     

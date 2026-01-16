@@ -82,13 +82,50 @@ html, body {
   background-color: var(--accent-color);
 }
 
-/* Right Panel Container - always horizontal layout */
+/* Right Panel Container - vertical layout with preview on top */
 #right-panel {
   flex: 1;
   min-width: 300px;
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   overflow: hidden;
+}
+
+/* Vertical Resizer between preview and bottom row */
+#resizer-vertical {
+  height: 4px;
+  background-color: var(--border-color);
+  cursor: row-resize;
+  transition: background-color 0.15s;
+  flex-shrink: 0;
+}
+
+#resizer-vertical:hover,
+#resizer-vertical.dragging {
+  background-color: var(--accent-color);
+}
+
+/* Bottom row container for grid and params side by side */
+#bottom-row {
+  display: flex;
+  flex-direction: row;
+  flex-shrink: 0;
+  overflow: hidden;
+  min-height: 200px;
+}
+
+/* Horizontal Resizer between grid and params in bottom row */
+#resizer-bottom {
+  width: 4px;
+  background-color: var(--border-color);
+  cursor: col-resize;
+  transition: background-color 0.15s;
+  flex-shrink: 0;
+}
+
+#resizer-bottom:hover,
+#resizer-bottom.dragging {
+  background-color: var(--accent-color);
 }
 
 /* Preview Panel */

@@ -44,34 +44,63 @@ function initRenderer() {
   state.renderer.setResolution(width, height);
 }
 
-function renderLoop() {
+// Preview frame rate limiting
+let lastPreviewFrameTime = 0;
+
+function renderLoop(currentTime) {
+  state.animationId = requestAnimationFrame(renderLoop);
+
   // Render if preview is enabled OR if NDI/Syphon needs frames
   const needsRender = state.previewEnabled || state.ndiEnabled || state.syphonEnabled;
 
-  if (needsRender) {
-    const stats = state.renderer.render();
-
-    if (stats && state.previewEnabled) {
-      document.getElementById('fps-display').textContent = `FPS: ${stats.fps}`;
-      document.getElementById('time-display').textContent = `Time: ${stats.time.toFixed(2)}s`;
-      document.getElementById('frame-display').textContent = `Frame: ${stats.frame}`;
-    }
-
-    // Send frame to NDI output if enabled (skip frames to reduce load)
-    if (state.ndiEnabled && state.ndiFrameCounter % state.ndiFrameSkip === 0) {
-      sendNDIFrame();
-    }
-    if (state.ndiEnabled) state.ndiFrameCounter++;
-
-    // Send frame to Syphon output if enabled (skip frames to reduce load)
-    if (state.syphonEnabled && state.syphonFrameCounter % state.syphonFrameSkip === 0) {
-      sendSyphonFrame();
-    }
-    if (state.syphonEnabled) state.syphonFrameCounter++;
-  } else {
+  if (!needsRender) {
     // Still update time even when preview disabled (for fullscreen sync)
     state.renderer.updateTime();
+    return;
   }
 
-  state.animationId = requestAnimationFrame(renderLoop);
+  // Apply frame rate limiting when fullscreen is active
+  if (state.fullscreenActive && state.previewFrameInterval > 0) {
+    if (currentTime - lastPreviewFrameTime < state.previewFrameInterval) {
+      return;
+    }
+    lastPreviewFrameTime = currentTime;
+  }
+
+  const stats = state.renderer.render();
+
+  if (stats && state.previewEnabled) {
+    document.getElementById('fps-display').textContent = `FPS: ${stats.fps}`;
+    document.getElementById('time-display').textContent = `Time: ${stats.time.toFixed(2)}s`;
+    document.getElementById('frame-display').textContent = `Frame: ${stats.frame}`;
+  }
+
+  // Send frame to NDI output if enabled (skip frames to reduce load)
+  if (state.ndiEnabled && state.ndiFrameCounter % state.ndiFrameSkip === 0) {
+    sendNDIFrame();
+  }
+  if (state.ndiEnabled) state.ndiFrameCounter++;
+
+  // Send frame to Syphon output if enabled (skip frames to reduce load)
+  if (state.syphonEnabled && state.syphonFrameCounter % state.syphonFrameSkip === 0) {
+    sendSyphonFrame();
+  }
+  if (state.syphonEnabled) state.syphonFrameCounter++;
+}
+
+// Update preview frame rate limiting based on fullscreen FPS
+export function updatePreviewFrameLimit() {
+  if (!state.fullscreenActive) {
+    state.previewFrameInterval = 0;  // No limiting when fullscreen inactive
+    return;
+  }
+
+  // If fullscreen is reaching target refresh rate, allow 60fps preview
+  // Otherwise limit to 30fps to reduce GPU load
+  const threshold = state.fullscreenTargetFps * 0.95;  // 95% of target
+  if (state.fullscreenFps >= threshold) {
+    state.previewFrameInterval = 1000 / 60;  // ~16.67ms for 60fps
+  } else {
+    state.previewFrameInterval = 1000 / 30;  // ~33.33ms for 30fps
+  }
 }

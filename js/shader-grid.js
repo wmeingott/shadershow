@@ -4,6 +4,9 @@ import { setStatus } from './utils.js';
 import { loadParamsToSliders, updateParamLabels, resetParamLabels } from './params.js';
 import { updateLocalPresetsUI } from './presets.js';
 
+// Track drag state
+let dragSourceIndex = null;
+
 export async function initShaderGrid() {
   const slots = document.querySelectorAll('.grid-slot');
 
@@ -11,6 +14,59 @@ export async function initShaderGrid() {
     const canvas = slot.querySelector('canvas');
     canvas.width = 160;
     canvas.height = 90;
+
+    // Enable dragging
+    slot.setAttribute('draggable', 'true');
+
+    // Drag start - store source index
+    slot.addEventListener('dragstart', (e) => {
+      dragSourceIndex = index;
+      slot.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', index.toString());
+    });
+
+    // Drag end - cleanup
+    slot.addEventListener('dragend', () => {
+      slot.classList.remove('dragging');
+      dragSourceIndex = null;
+      // Remove drag-over from all slots
+      document.querySelectorAll('.grid-slot.drag-over').forEach(s => {
+        s.classList.remove('drag-over');
+      });
+    });
+
+    // Drag over - allow drop
+    slot.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+    });
+
+    // Drag enter - visual feedback
+    slot.addEventListener('dragenter', (e) => {
+      e.preventDefault();
+      if (dragSourceIndex !== null && dragSourceIndex !== index) {
+        slot.classList.add('drag-over');
+      }
+    });
+
+    // Drag leave - remove visual feedback
+    slot.addEventListener('dragleave', (e) => {
+      // Only remove if actually leaving the slot (not entering a child)
+      if (!slot.contains(e.relatedTarget)) {
+        slot.classList.remove('drag-over');
+      }
+    });
+
+    // Drop - swap slots
+    slot.addEventListener('drop', (e) => {
+      e.preventDefault();
+      slot.classList.remove('drag-over');
+      const fromIndex = parseInt(e.dataTransfer.getData('text/plain'), 10);
+      if (!isNaN(fromIndex) && fromIndex !== index) {
+        swapGridSlots(fromIndex, index);
+      }
+    });
 
     // Left click - play shader in preview and/or fullscreen
     slot.addEventListener('click', () => {
@@ -69,6 +125,18 @@ function showGridContextMenu(x, y, slotIndex) {
   });
   menu.appendChild(assignItem);
 
+  // Set current params as default option (only if has shader)
+  const setParamsItem = document.createElement('div');
+  setParamsItem.className = `context-menu-item${hasShader ? '' : ' disabled'}`;
+  setParamsItem.textContent = 'Set Current Params as Default';
+  if (hasShader) {
+    setParamsItem.addEventListener('click', () => {
+      hideContextMenu();
+      setCurrentParamsAsDefault(slotIndex);
+    });
+  }
+  menu.appendChild(setParamsItem);
+
   // Clear option (only if has shader)
   const clearItem = document.createElement('div');
   clearItem.className = `context-menu-item${hasShader ? '' : ' disabled'}`;
@@ -99,6 +167,123 @@ function hideContextMenu() {
   const menu = document.getElementById('grid-context-menu');
   if (menu) {
     menu.remove();
+  }
+}
+
+// Set current parameters as default for a shader slot
+function setCurrentParamsAsDefault(slotIndex) {
+  const slotData = state.gridSlots[slotIndex];
+  if (!slotData) return;
+
+  // Get current params from the main renderer
+  const currentParams = state.renderer.getParams();
+
+  // Update the slot's params
+  slotData.params = { ...currentParams };
+
+  // Save grid state
+  saveGridState();
+
+  setStatus(`Saved current params as default for slot ${slotIndex + 1}`, 'success');
+}
+
+// Swap two grid slots
+async function swapGridSlots(fromIndex, toIndex) {
+  const fromSlot = document.querySelector(`.grid-slot[data-slot="${fromIndex}"]`);
+  const toSlot = document.querySelector(`.grid-slot[data-slot="${toIndex}"]`);
+  const fromCanvas = fromSlot.querySelector('canvas');
+  const toCanvas = toSlot.querySelector('canvas');
+
+  // Swap data in state
+  const fromData = state.gridSlots[fromIndex];
+  const toData = state.gridSlots[toIndex];
+  state.gridSlots[fromIndex] = toData;
+  state.gridSlots[toIndex] = fromData;
+
+  // Update active slot reference if needed
+  if (state.activeGridSlot === fromIndex) {
+    state.activeGridSlot = toIndex;
+  } else if (state.activeGridSlot === toIndex) {
+    state.activeGridSlot = fromIndex;
+  }
+
+  // Recreate renderers for swapped slots (they need new canvas references)
+  if (state.gridSlots[fromIndex]) {
+    const data = state.gridSlots[fromIndex];
+    const newRenderer = new MiniShaderRenderer(fromCanvas);
+    try {
+      newRenderer.compile(data.shaderCode);
+      data.renderer = newRenderer;
+    } catch (err) {
+      console.warn(`Failed to recompile shader for slot ${fromIndex + 1}:`, err);
+    }
+  }
+
+  if (state.gridSlots[toIndex]) {
+    const data = state.gridSlots[toIndex];
+    const newRenderer = new MiniShaderRenderer(toCanvas);
+    try {
+      newRenderer.compile(data.shaderCode);
+      data.renderer = newRenderer;
+    } catch (err) {
+      console.warn(`Failed to recompile shader for slot ${toIndex + 1}:`, err);
+    }
+  }
+
+  // Update visual state for fromSlot
+  updateSlotVisualState(fromIndex, fromSlot);
+
+  // Update visual state for toSlot
+  updateSlotVisualState(toIndex, toSlot);
+
+  // Clear canvases for empty slots
+  if (!state.gridSlots[fromIndex]) {
+    const ctx = fromCanvas.getContext('2d');
+    if (ctx) ctx.clearRect(0, 0, fromCanvas.width, fromCanvas.height);
+  }
+  if (!state.gridSlots[toIndex]) {
+    const ctx = toCanvas.getContext('2d');
+    if (ctx) ctx.clearRect(0, 0, toCanvas.width, toCanvas.height);
+  }
+
+  // Save shader files to new locations
+  if (state.gridSlots[fromIndex]) {
+    await window.electronAPI.saveShaderToSlot(fromIndex, state.gridSlots[fromIndex].shaderCode);
+  } else {
+    await window.electronAPI.deleteShaderFromSlot(fromIndex);
+  }
+
+  if (state.gridSlots[toIndex]) {
+    await window.electronAPI.saveShaderToSlot(toIndex, state.gridSlots[toIndex].shaderCode);
+  } else {
+    await window.electronAPI.deleteShaderFromSlot(toIndex);
+  }
+
+  // Save grid state
+  saveGridState();
+
+  setStatus(`Swapped slot ${fromIndex + 1} with slot ${toIndex + 1}`, 'success');
+}
+
+// Update visual state of a slot based on its data
+function updateSlotVisualState(index, slot) {
+  const data = state.gridSlots[index];
+
+  if (data) {
+    slot.classList.add('has-shader');
+    slot.title = data.filePath
+      ? `Slot ${index + 1}: ${data.filePath.split('/').pop().split('\\').pop()}`
+      : `Slot ${index + 1}: Current shader`;
+  } else {
+    slot.classList.remove('has-shader');
+    slot.title = `Slot ${index + 1} - Right-click to assign shader`;
+  }
+
+  // Update active state
+  if (state.activeGridSlot === index) {
+    slot.classList.add('active');
+  } else {
+    slot.classList.remove('active');
   }
 }
 
@@ -251,7 +436,7 @@ export async function loadGridState() {
   if (!gridState || !Array.isArray(gridState)) return;
 
   let loadedCount = 0;
-  for (let i = 0; i < Math.min(gridState.length, 16); i++) {
+  for (let i = 0; i < Math.min(gridState.length, 32); i++) {
     if (gridState[i] && gridState[i].shaderCode) {
       try {
         await assignShaderToSlot(i, gridState[i].shaderCode, gridState[i].filePath, true, gridState[i].params, gridState[i].presets, gridState[i].paramNames);
@@ -274,7 +459,7 @@ export function loadGridPresetsFromData(gridState, filePath) {
   }
 
   // Clear all existing slots first
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i < 32; i++) {
     if (state.gridSlots[i]) {
       const slot = document.querySelector(`.grid-slot[data-slot="${i}"]`);
       state.gridSlots[i] = null;
@@ -289,7 +474,7 @@ export function loadGridPresetsFromData(gridState, filePath) {
 
   // Load new presets
   let loadedCount = 0;
-  for (let i = 0; i < Math.min(gridState.length, 16); i++) {
+  for (let i = 0; i < Math.min(gridState.length, 32); i++) {
     if (gridState[i] && gridState[i].shaderCode) {
       try {
         assignShaderToSlot(i, gridState[i].shaderCode, gridState[i].filePath, true, gridState[i].params, gridState[i].presets, gridState[i].paramNames);
@@ -430,7 +615,7 @@ export function startGridAnimation() {
     }
     lastGridFrameTime = currentTime;
 
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < 32; i++) {
       if (state.gridSlots[i] && state.gridSlots[i].renderer) {
         // Update params from slot before rendering
         state.gridSlots[i].renderer.setParams(state.gridSlots[i].params);

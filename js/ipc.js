@@ -6,23 +6,38 @@ import { togglePlayback, resetTime } from './controls.js';
 import { loadGridPresetsFromData, saveGridState } from './shader-grid.js';
 import { recallLocalPreset, recallGlobalPreset } from './presets.js';
 import { loadParamsToSliders } from './params.js';
+import { updatePreviewFrameLimit } from './renderer.js';
+
+// Track the last saved content to detect changes
+let lastSavedContent = '';
 
 export function initIPC() {
   // File operations
   window.electronAPI.onFileOpened(({ content, filePath }) => {
     state.editor.setValue(content, -1);
+    lastSavedContent = content;
     compileShader();
   });
 
   window.electronAPI.onNewFile(() => {
     window.electronAPI.getDefaultShader().then(defaultShader => {
       state.editor.setValue(defaultShader, -1);
+      lastSavedContent = defaultShader;
       compileShader();
     });
   });
 
   window.electronAPI.onRequestContentForSave(() => {
-    window.electronAPI.saveContent(state.editor.getValue());
+    const content = state.editor.getValue();
+    lastSavedContent = content;
+    window.electronAPI.saveContent(content);
+  });
+
+  // Check if editor has unsaved changes
+  window.electronAPI.onCheckEditorChanges(() => {
+    const currentContent = state.editor.getValue();
+    const hasChanges = currentContent !== lastSavedContent;
+    window.electronAPI.sendEditorHasChanges(hasChanges);
   });
 
   // Texture loading
@@ -221,8 +236,14 @@ export function initIPC() {
     }
   });
 
-  // Fullscreen FPS display
+  // Fullscreen FPS display and adaptive preview framerate
   window.electronAPI.onFullscreenFps((fps) => {
+    // Update state for adaptive preview framerate
+    state.fullscreenFps = fps;
+    state.fullscreenActive = true;
+    updatePreviewFrameLimit();
+
+    // Update UI display
     const fpsDisplay = document.getElementById('fullscreen-fps');
     if (fpsDisplay) {
       fpsDisplay.textContent = `${fps} fps`;
@@ -234,6 +255,20 @@ export function initIPC() {
       } else {
         fpsDisplay.classList.add('very-low');
       }
+    }
+  });
+
+  // Track fullscreen window closed
+  window.electronAPI.onFullscreenClosed(() => {
+    state.fullscreenActive = false;
+    state.fullscreenFps = 0;
+    state.previewFrameInterval = 0;  // Remove frame limiting
+
+    // Reset FPS display
+    const fpsDisplay = document.getElementById('fullscreen-fps');
+    if (fpsDisplay) {
+      fpsDisplay.textContent = '-- fps';
+      fpsDisplay.classList.remove('active', 'low', 'very-low');
     }
   });
 }

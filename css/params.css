@@ -1,13 +1,11 @@
 /* Parameters Side Panel */
 #params-panel {
-  width: 380px;
-  min-width: 380px;
+  flex: 1;
+  min-width: 200px;
   max-height: 100%;
   background-color: var(--bg-secondary);
-  border-left: 1px solid var(--border-color);
   overflow-y: auto;
   overflow-x: hidden;
-  flex-shrink: 0;
 }
 
 #params-panel.hidden {

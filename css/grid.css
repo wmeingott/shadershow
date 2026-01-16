@@ -1,27 +1,23 @@
 /* Shader Grid Panel */
 #grid-panel {
-  flex: 0 0 auto;
-  width: auto;
-  max-width: 400px;
+  flex: 1 1 auto;
+  min-width: 200px;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   justify-content: flex-start;
   background-color: var(--bg-primary);
   padding: 12px;
   overflow-y: auto;
   overflow-x: hidden;
-  border-right: 1px solid var(--border-color);
   gap: 12px;
 }
 
 .shader-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  grid-template-rows: repeat(4, 1fr);
-  gap: 6px;
-  width: 320px;
-  height: 240px;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+  width: 100%;
   flex-shrink: 0;
 }
 
@@ -33,6 +29,7 @@
   cursor: pointer;
   overflow: hidden;
   transition: border-color 0.15s, transform 0.1s;
+  aspect-ratio: 16 / 9;
 }
 
 .grid-slot:hover {
@@ -55,6 +52,20 @@
 
 .grid-slot.active .slot-number {
   color: var(--warning-color);
+}
+
+/* Drag and drop states */
+.grid-slot.dragging {
+  opacity: 0.5;
+  border-color: var(--accent-color);
+  transform: scale(0.95);
+}
+
+.grid-slot.drag-over {
+  border-color: var(--accent-hover);
+  box-shadow: 0 0 12px var(--accent-color);
+  transform: scale(1.05);
+  background-color: rgba(0, 120, 212, 0.2);
 }
 
 .grid-slot canvas {
@@ -112,7 +123,7 @@
 
 /* Shader Presets Section in Grid Panel */
 .grid-presets-section {
-  width: 320px;
+  width: 100%;
   padding: 8px 12px;
   background-color: var(--bg-secondary);
   border-radius: 4px;

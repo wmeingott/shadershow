@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onRequestContentForSave: (callback) => ipcRenderer.on('request-content-for-save', () => callback()),
   saveContent: (content) => ipcRenderer.send('save-content', content),
   getDefaultShader: () => ipcRenderer.invoke('get-default-shader'),
+  onCheckEditorChanges: (callback) => ipcRenderer.on('check-editor-changes', () => callback()),
+  sendEditorHasChanges: (hasChanges) => ipcRenderer.send('editor-has-changes-response', hasChanges),
 
   // Texture operations
   onTextureLoaded: (callback) => ipcRenderer.on('texture-loaded', (event, data) => callback(data)),
@@ -47,6 +49,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getDisplayRefreshRate: () => ipcRenderer.invoke('get-display-refresh-rate'),
   sendFullscreenFps: (fps) => ipcRenderer.send('fullscreen-fps', fps),
   onFullscreenFps: (callback) => ipcRenderer.on('fullscreen-fps', (event, data) => callback(data)),
+  onFullscreenClosed: (callback) => ipcRenderer.on('fullscreen-closed', () => callback()),
 
   // Grid operations
   loadShaderForGrid: () => ipcRenderer.invoke('load-shader-for-grid'),

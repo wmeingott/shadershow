@@ -16,6 +16,12 @@ export const state = {
   syphonFrameSkip: 4,  // Send every Nth frame
   blackoutEnabled: false,
 
+  // Fullscreen tracking for adaptive preview framerate
+  fullscreenActive: false,
+  fullscreenFps: 0,
+  fullscreenTargetFps: 60,  // Display refresh rate
+  previewFrameInterval: 0,  // 0 = no limiting, otherwise ms between frames
+
   // Mouse assignment for params P0-P4
   mouseAssignments: { p0: '', p1: '', p2: '', p3: '', p4: '' },
   mousePosition: { x: 0.5, y: 0.5 },
@@ -24,7 +30,7 @@ export const state = {
   channelState: [null, null, null, null],
 
   // Shader grid state
-  gridSlots: new Array(16).fill(null),
+  gridSlots: new Array(32).fill(null),
   gridAnimationId: null,
   activeGridSlot: null,
 

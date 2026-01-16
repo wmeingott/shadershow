@@ -102,44 +102,68 @@
 
       <!-- Right Panel Container -->
       <div id="right-panel">
-        <!-- Shader Grid Panel -->
-        <div id="grid-panel" class="hidden">
-          <div class="shader-grid">
-            <div class="grid-slot" data-slot="0"><canvas></canvas><span class="slot-number">1</span></div>
-            <div class="grid-slot" data-slot="1"><canvas></canvas><span class="slot-number">2</span></div>
-            <div class="grid-slot" data-slot="2"><canvas></canvas><span class="slot-number">3</span></div>
-            <div class="grid-slot" data-slot="3"><canvas></canvas><span class="slot-number">4</span></div>
-            <div class="grid-slot" data-slot="4"><canvas></canvas><span class="slot-number">5</span></div>
-            <div class="grid-slot" data-slot="5"><canvas></canvas><span class="slot-number">6</span></div>
-            <div class="grid-slot" data-slot="6"><canvas></canvas><span class="slot-number">7</span></div>
-            <div class="grid-slot" data-slot="7"><canvas></canvas><span class="slot-number">8</span></div>
-            <div class="grid-slot" data-slot="8"><canvas></canvas><span class="slot-number">9</span></div>
-            <div class="grid-slot" data-slot="9"><canvas></canvas><span class="slot-number">10</span></div>
-            <div class="grid-slot" data-slot="10"><canvas></canvas><span class="slot-number">11</span></div>
-            <div class="grid-slot" data-slot="11"><canvas></canvas><span class="slot-number">12</span></div>
-            <div class="grid-slot" data-slot="12"><canvas></canvas><span class="slot-number">13</span></div>
-            <div class="grid-slot" data-slot="13"><canvas></canvas><span class="slot-number">14</span></div>
-            <div class="grid-slot" data-slot="14"><canvas></canvas><span class="slot-number">15</span></div>
-            <div class="grid-slot" data-slot="15"><canvas></canvas><span class="slot-number">16</span></div>
-          </div>
-          <div class="grid-presets-section">
-            <div class="grid-presets-title">Shader Presets</div>
-            <div class="presets-row" id="local-presets-row">
-              <span class="no-shader-hint" id="no-shader-hint">Select a shader</span>
-              <button id="btn-add-local-preset" class="preset-btn add-preset hidden" title="Save preset for current shader">+</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Preview Panel -->
+        <!-- Preview Panel (on top) -->
         <div id="preview-panel">
           <div id="preview-canvas-container">
             <canvas id="shader-canvas"></canvas>
           </div>
         </div>
 
-        <!-- Parameters Side Panel (independent of preview) -->
-        <div id="params-panel">
+        <!-- Vertical Resizer between preview and bottom row -->
+        <div id="resizer-vertical"></div>
+
+        <!-- Bottom Row: Grid and Params side by side -->
+        <div id="bottom-row">
+          <!-- Shader Grid Panel -->
+          <div id="grid-panel" class="hidden">
+            <div class="shader-grid">
+              <div class="grid-slot" data-slot="0"><canvas></canvas><span class="slot-number">1</span></div>
+              <div class="grid-slot" data-slot="1"><canvas></canvas><span class="slot-number">2</span></div>
+              <div class="grid-slot" data-slot="2"><canvas></canvas><span class="slot-number">3</span></div>
+              <div class="grid-slot" data-slot="3"><canvas></canvas><span class="slot-number">4</span></div>
+              <div class="grid-slot" data-slot="4"><canvas></canvas><span class="slot-number">5</span></div>
+              <div class="grid-slot" data-slot="5"><canvas></canvas><span class="slot-number">6</span></div>
+              <div class="grid-slot" data-slot="6"><canvas></canvas><span class="slot-number">7</span></div>
+              <div class="grid-slot" data-slot="7"><canvas></canvas><span class="slot-number">8</span></div>
+              <div class="grid-slot" data-slot="8"><canvas></canvas><span class="slot-number">9</span></div>
+              <div class="grid-slot" data-slot="9"><canvas></canvas><span class="slot-number">10</span></div>
+              <div class="grid-slot" data-slot="10"><canvas></canvas><span class="slot-number">11</span></div>
+              <div class="grid-slot" data-slot="11"><canvas></canvas><span class="slot-number">12</span></div>
+              <div class="grid-slot" data-slot="12"><canvas></canvas><span class="slot-number">13</span></div>
+              <div class="grid-slot" data-slot="13"><canvas></canvas><span class="slot-number">14</span></div>
+              <div class="grid-slot" data-slot="14"><canvas></canvas><span class="slot-number">15</span></div>
+              <div class="grid-slot" data-slot="15"><canvas></canvas><span class="slot-number">16</span></div>
+              <div class="grid-slot" data-slot="16"><canvas></canvas><span class="slot-number">17</span></div>
+              <div class="grid-slot" data-slot="17"><canvas></canvas><span class="slot-number">18</span></div>
+              <div class="grid-slot" data-slot="18"><canvas></canvas><span class="slot-number">19</span></div>
+              <div class="grid-slot" data-slot="19"><canvas></canvas><span class="slot-number">20</span></div>
+              <div class="grid-slot" data-slot="20"><canvas></canvas><span class="slot-number">21</span></div>
+              <div class="grid-slot" data-slot="21"><canvas></canvas><span class="slot-number">22</span></div>
+              <div class="grid-slot" data-slot="22"><canvas></canvas><span class="slot-number">23</span></div>
+              <div class="grid-slot" data-slot="23"><canvas></canvas><span class="slot-number">24</span></div>
+              <div class="grid-slot" data-slot="24"><canvas></canvas><span class="slot-number">25</span></div>
+              <div class="grid-slot" data-slot="25"><canvas></canvas><span class="slot-number">26</span></div>
+              <div class="grid-slot" data-slot="26"><canvas></canvas><span class="slot-number">27</span></div>
+              <div class="grid-slot" data-slot="27"><canvas></canvas><span class="slot-number">28</span></div>
+              <div class="grid-slot" data-slot="28"><canvas></canvas><span class="slot-number">29</span></div>
+              <div class="grid-slot" data-slot="29"><canvas></canvas><span class="slot-number">30</span></div>
+              <div class="grid-slot" data-slot="30"><canvas></canvas><span class="slot-number">31</span></div>
+              <div class="grid-slot" data-slot="31"><canvas></canvas><span class="slot-number">32</span></div>
+            </div>
+            <div class="grid-presets-section">
+              <div class="grid-presets-title">Shader Presets</div>
+              <div class="presets-row" id="local-presets-row">
+                <span class="no-shader-hint" id="no-shader-hint">Select a shader</span>
+                <button id="btn-add-local-preset" class="preset-btn add-preset hidden" title="Save preset for current shader">+</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Horizontal Resizer between grid and params -->
+          <div id="resizer-bottom"></div>
+
+          <!-- Parameters Side Panel -->
+          <div id="params-panel">
             <div class="params-section">
               <div class="params-section-title">Controls <button id="btn-reset-params" class="reset-params-btn" title="Reset all parameters to defaults">Reset</button></div>
               <div class="param-row">
@@ -228,6 +252,7 @@
               </div>
             </div>
           </div>
+        </div>
       </div>
     </div>
 

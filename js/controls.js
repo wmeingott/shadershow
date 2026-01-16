@@ -82,32 +82,80 @@ export function initControls() {
 
 export function initResizer() {
   const resizer = document.getElementById('resizer');
+  const resizerVertical = document.getElementById('resizer-vertical');
+  const resizerBottom = document.getElementById('resizer-bottom');
   const editorPanel = document.getElementById('editor-panel');
-  let isResizing = false;
+  const previewPanel = document.getElementById('preview-panel');
+  const bottomRow = document.getElementById('bottom-row');
+  const gridPanel = document.getElementById('grid-panel');
+  const paramsPanel = document.getElementById('params-panel');
+  const rightPanel = document.getElementById('right-panel');
 
+  let activeResizer = null;
+
+  // Editor/Right panel horizontal resizer
   resizer.addEventListener('mousedown', (e) => {
-    isResizing = true;
+    activeResizer = 'editor';
     resizer.classList.add('dragging');
     e.preventDefault();
   });
 
+  // Preview/Bottom row vertical resizer
+  resizerVertical.addEventListener('mousedown', (e) => {
+    activeResizer = 'vertical';
+    resizerVertical.classList.add('dragging');
+    e.preventDefault();
+  });
+
+  // Grid/Params horizontal resizer
+  resizerBottom.addEventListener('mousedown', (e) => {
+    activeResizer = 'bottom';
+    resizerBottom.classList.add('dragging');
+    e.preventDefault();
+  });
+
   document.addEventListener('mousemove', (e) => {
-    if (!isResizing) return;
+    if (!activeResizer) return;
 
-    const containerWidth = document.getElementById('main-content').offsetWidth;
-    const newWidth = (e.clientX / containerWidth) * 100;
+    if (activeResizer === 'editor') {
+      const containerWidth = document.getElementById('main-content').offsetWidth;
+      const newWidth = (e.clientX / containerWidth) * 100;
+      if (newWidth >= 20 && newWidth <= 80) {
+        editorPanel.style.width = `${newWidth}%`;
+        state.editor.resize();
+      }
+    } else if (activeResizer === 'vertical') {
+      const rightPanelRect = rightPanel.getBoundingClientRect();
+      const relativeY = e.clientY - rightPanelRect.top;
+      const totalHeight = rightPanelRect.height;
+      const minPreviewHeight = 100;
+      const minBottomHeight = 200;
 
-    if (newWidth >= 20 && newWidth <= 80) {
-      editorPanel.style.width = `${newWidth}%`;
-      state.editor.resize();
+      if (relativeY >= minPreviewHeight && relativeY <= totalHeight - minBottomHeight) {
+        previewPanel.style.flex = 'none';
+        previewPanel.style.height = `${relativeY}px`;
+        bottomRow.style.height = `${totalHeight - relativeY - 4}px`; // 4px for resizer
+      }
+    } else if (activeResizer === 'bottom') {
+      const bottomRowRect = bottomRow.getBoundingClientRect();
+      const relativeX = e.clientX - bottomRowRect.left;
+      const minGridWidth = 200;
+      const minParamsWidth = 200;
+
+      if (relativeX >= minGridWidth && relativeX <= bottomRowRect.width - minParamsWidth) {
+        gridPanel.style.width = `${relativeX}px`;
+        paramsPanel.style.flex = '1';
+      }
     }
   });
 
   document.addEventListener('mouseup', () => {
-    if (isResizing) {
-      isResizing = false;
+    if (activeResizer) {
       resizer.classList.remove('dragging');
-      saveViewState(); // Save editor width on resize end
+      resizerVertical.classList.remove('dragging');
+      resizerBottom.classList.remove('dragging');
+      activeResizer = null;
+      saveViewState();
     }
   });
 }
@@ -214,20 +262,42 @@ export function toggleParams() {
     paramsPanel.classList.add('hidden');
   }
 
+  updatePanelVisibility();
   saveViewState();
 }
 
 export function updatePanelVisibility() {
   const rightPanel = document.getElementById('right-panel');
   const resizer = document.getElementById('resizer');
+  const resizerVertical = document.getElementById('resizer-vertical');
+  const resizerBottom = document.getElementById('resizer-bottom');
   const editorPanel = document.getElementById('editor-panel');
+  const bottomRow = document.getElementById('bottom-row');
 
-  const rightVisible = state.previewEnabled || state.gridEnabled;
+  const rightVisible = state.previewEnabled || state.gridEnabled || state.paramsEnabled;
   const leftVisible = state.editorEnabled;
+  const bottomVisible = state.gridEnabled || state.paramsEnabled;
 
-  // Side-by-side layout when editor hidden and both grid+preview visible
-  const sideBySide = !leftVisible && state.gridEnabled && state.previewEnabled;
-  rightPanel.classList.toggle('side-by-side', sideBySide);
+  // Show/hide vertical resizer between preview and bottom row
+  if (state.previewEnabled && bottomVisible) {
+    resizerVertical.classList.remove('hidden');
+  } else {
+    resizerVertical.classList.add('hidden');
+  }
+
+  // Show/hide bottom row and horizontal resizer
+  if (bottomVisible) {
+    bottomRow.classList.remove('hidden');
+    // Show resizer between grid and params only if both visible
+    if (state.gridEnabled && state.paramsEnabled) {
+      resizerBottom.classList.remove('hidden');
+    } else {
+      resizerBottom.classList.add('hidden');
+    }
+  } else {
+    bottomRow.classList.add('hidden');
+    resizerBottom.classList.add('hidden');
+  }
 
   if (!rightVisible && leftVisible) {
     // Only editor - full width

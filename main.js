@@ -613,6 +613,7 @@ async function openFile() {
     properties: ['openFile'],
     filters: [
       { name: 'Shader Files', extensions: ['frag', 'glsl', 'shader', 'fs'] },
+      { name: 'Three.js Scenes', extensions: ['scene.js', 'jsx'] },
       { name: 'All Files', extensions: ['*'] }
     ]
   });
@@ -1111,12 +1112,13 @@ ipcMain.on('preset-sync', (event, data) => {
   }
 });
 
-// Load shader for grid slot
+// Load shader or scene for grid slot
 ipcMain.handle('load-shader-for-grid', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
     filters: [
       { name: 'Shader Files', extensions: ['frag', 'glsl', 'shader', 'fs'] },
+      { name: 'Three.js Scenes', extensions: ['scene.js', 'jsx'] },
       { name: 'All Files', extensions: ['*'] }
     ]
   });

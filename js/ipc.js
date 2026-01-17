@@ -1,12 +1,12 @@
 // IPC Handlers module
 import { state } from './state.js';
 import { setStatus, updateChannelSlot } from './utils.js';
-import { compileShader } from './editor.js';
+import { compileShader, setEditorMode } from './editor.js';
 import { togglePlayback, resetTime } from './controls.js';
 import { loadGridPresetsFromData, saveGridState } from './shader-grid.js';
 import { recallLocalPreset, recallGlobalPreset } from './presets.js';
 import { loadParamsToSliders } from './params.js';
-import { updatePreviewFrameLimit } from './renderer.js';
+import { updatePreviewFrameLimit, setRenderMode, detectRenderMode } from './renderer.js';
 
 // Track the last saved content to detect changes
 let lastSavedContent = '';
@@ -14,6 +14,11 @@ let lastSavedContent = '';
 export function initIPC() {
   // File operations
   window.electronAPI.onFileOpened(({ content, filePath }) => {
+    // Detect render mode from file extension/content
+    const mode = detectRenderMode(filePath, content);
+    setRenderMode(mode);
+    setEditorMode(mode);
+
     state.editor.setValue(content, -1);
     lastSavedContent = content;
     compileShader();
@@ -115,6 +120,7 @@ export function initIPC() {
 
     const fullscreenState = {
       shaderCode: shaderCode,
+      renderMode: state.renderMode,  // Include render mode for scene support
       time: stats.time,
       frame: stats.frame,
       isPlaying: stats.isPlaying,

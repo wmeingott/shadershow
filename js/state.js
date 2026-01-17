@@ -1,7 +1,10 @@
 // Global state - shared across modules
 export const state = {
   editor: null,
-  renderer: null,
+  renderer: null,        // Current active renderer (ShaderRenderer or ThreeSceneRenderer)
+  shaderRenderer: null,  // WebGL shader renderer
+  sceneRenderer: null,   // Three.js scene renderer
+  renderMode: 'shader',  // 'shader' or 'scene'
   compileTimeout: null,
   animationId: null,
   previewEnabled: true,

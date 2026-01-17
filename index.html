@@ -278,9 +278,19 @@
   <!-- Ace Editor -->
   <script src="node_modules/ace-builds/src-min-noconflict/ace.js"></script>
   <script src="node_modules/ace-builds/src-min-noconflict/mode-glsl.js"></script>
+  <script src="node_modules/ace-builds/src-min-noconflict/mode-javascript.js"></script>
+  <script src="node_modules/ace-builds/src-min-noconflict/mode-jsx.js"></script>
   <script src="node_modules/ace-builds/src-min-noconflict/theme-monokai.js"></script>
 
+  <!-- Three.js for 3D scene rendering -->
+  <script src="node_modules/three/build/three.min.js"></script>
+
+  <!-- Babel for JSX compilation -->
+  <script src="node_modules/@babel/standalone/babel.min.js"></script>
+
+  <!-- Renderers -->
   <script src="shader-renderer.js"></script>
+  <script src="three-scene-renderer.js"></script>
   <script type="module" src="js/renderer.js"></script>
 </body>
 </html>

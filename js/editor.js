@@ -52,6 +52,16 @@ export function initEditor() {
   });
 }
 
+// Set editor mode based on file type
+export function setEditorMode(mode) {
+  if (mode === 'scene' || mode === 'jsx' || mode === 'javascript') {
+    state.editor.session.setMode('ace/mode/javascript');
+  } else {
+    state.editor.session.setMode('ace/mode/glsl');
+  }
+}
+
+// Compile current editor content (shader or scene)
 export function compileShader() {
   const source = state.editor.getValue();
 
@@ -59,14 +69,20 @@ export function compileShader() {
   state.editor.session.clearAnnotations();
 
   try {
+    // Compile using the active renderer
     state.renderer.compile(source);
-    setStatus('Shader compiled successfully', 'success');
 
-    // Generate dynamic UI for custom shader parameters
+    const modeLabel = state.renderMode === 'scene' ? 'Scene' : 'Shader';
+    setStatus(`${modeLabel} compiled successfully`, 'success');
+
+    // Generate dynamic UI for custom parameters
     generateCustomParamUI();
 
     // Sync to fullscreen window
-    window.electronAPI.sendShaderUpdate({ shaderCode: source });
+    window.electronAPI.sendShaderUpdate({
+      shaderCode: source,
+      renderMode: state.renderMode
+    });
   } catch (err) {
     const message = err.message || err.raw || String(err);
     setStatus(`Compile error: ${message}`, 'error');

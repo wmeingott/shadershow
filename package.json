@@ -20,8 +20,10 @@
     "electron": "^33.0.0"
   },
   "dependencies": {
+    "@babel/standalone": "^7.28.6",
     "ace-builds": "^1.32.0",
-    "grandiose-mac": "^0.0.6"
+    "grandiose-mac": "^0.0.6",
+    "three": "^0.182.0"
   },
   "optionalDependencies": {
     "grandiose": "^0.0.4",

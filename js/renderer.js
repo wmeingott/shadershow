@@ -36,12 +36,70 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 function initRenderer() {
   const canvas = document.getElementById('shader-canvas');
-  state.renderer = new ShaderRenderer(canvas);
 
-  // Set initial resolution
+  // Initialize both renderers
+  state.shaderRenderer = new ShaderRenderer(canvas);
+  state.sceneRenderer = new ThreeSceneRenderer(canvas);
+
+  // Start with shader renderer as default
+  state.renderer = state.shaderRenderer;
+  state.renderMode = 'shader';
+
+  // Set initial resolution for both renderers
   const select = document.getElementById('resolution-select');
   const [width, height] = select.value.split('x').map(Number);
-  state.renderer.setResolution(width, height);
+  state.shaderRenderer.setResolution(width, height);
+  state.sceneRenderer.setResolution(width, height);
+}
+
+// Switch between shader and scene renderers
+export function setRenderMode(mode) {
+  if (mode === state.renderMode) return;
+
+  state.renderMode = mode;
+
+  if (mode === 'scene') {
+    state.renderer = state.sceneRenderer;
+    // Set editor mode to JavaScript/JSX
+    state.editor.session.setMode('ace/mode/javascript');
+  } else {
+    state.renderer = state.shaderRenderer;
+    // Set editor mode to GLSL
+    state.editor.session.setMode('ace/mode/glsl');
+  }
+
+  // Sync resolution
+  const canvas = document.getElementById('shader-canvas');
+  state.renderer.setResolution(canvas.width, canvas.height);
+}
+
+// Detect render mode from file extension or content
+export function detectRenderMode(filename, content) {
+  if (!filename) {
+    // Detect from content
+    if (content.includes('function setup') && content.includes('THREE')) {
+      return 'scene';
+    }
+    if (content.includes('void mainImage') || content.includes('void main()')) {
+      return 'shader';
+    }
+    return 'shader'; // Default
+  }
+
+  const ext = filename.toLowerCase().split('.').pop();
+  if (ext === 'jsx' || ext === 'js' && filename.includes('.scene.')) {
+    return 'scene';
+  }
+  if (ext === 'glsl' || ext === 'frag' || ext === 'vert') {
+    return 'shader';
+  }
+
+  // Check content as fallback
+  if (content && content.includes('function setup')) {
+    return 'scene';
+  }
+
+  return 'shader';
 }
 
 // Preview frame rate limiting

@@ -1,5 +1,8 @@
 // Fullscreen renderer - receives shader state from main window and renders
-let renderer;
+let renderer;           // Current active renderer
+let shaderRenderer;     // WebGL shader renderer
+let sceneRenderer;      // Three.js scene renderer
+let renderMode = 'shader';  // 'shader' or 'scene'
 let animationId;
 let localPresets = [];
 let globalPresets = [];
@@ -23,7 +26,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 
-  renderer = new ShaderRenderer(canvas);
+  // Initialize both renderers
+  shaderRenderer = new ShaderRenderer(canvas);
+  sceneRenderer = new ThreeSceneRenderer(canvas);
+
+  // Default to shader renderer
+  renderer = shaderRenderer;
 
   // Get display refresh rate and set frame interval limit
   try {
@@ -42,7 +50,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   window.addEventListener('resize', () => {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
-    renderer.setResolution(window.innerWidth, window.innerHeight);
+    shaderRenderer.setResolution(window.innerWidth, window.innerHeight);
+    sceneRenderer.setResolution(window.innerWidth, window.innerHeight);
   });
 
   // Fade out the exit hint after 3 seconds
@@ -210,17 +219,24 @@ function renderLoop(currentTime) {
   }
 }
 
-// Initialize with shader state from main window
+// Initialize with shader/scene state from main window
 window.electronAPI.onInitFullscreen((state) => {
-  // Set resolution to native display resolution
-  renderer.setResolution(window.innerWidth, window.innerHeight);
+  // Switch renderer if mode specified
+  if (state.renderMode) {
+    renderMode = state.renderMode;
+    renderer = renderMode === 'scene' ? sceneRenderer : shaderRenderer;
+  }
 
-  // Compile the shader
+  // Set resolution to native display resolution
+  shaderRenderer.setResolution(window.innerWidth, window.innerHeight);
+  sceneRenderer.setResolution(window.innerWidth, window.innerHeight);
+
+  // Compile the shader/scene
   if (state.shaderCode) {
     try {
       renderer.compile(state.shaderCode);
     } catch (err) {
-      console.error('Shader compile error:', err);
+      console.error('Compile error:', err);
     }
   }
 
@@ -263,13 +279,20 @@ window.electronAPI.onInitFullscreen((state) => {
   createPresetButtons();
 });
 
-// Handle shader updates from main window
+// Handle shader/scene updates from main window
 window.electronAPI.onShaderUpdate((data) => {
+  // Switch renderer if mode changed
+  if (data.renderMode && data.renderMode !== renderMode) {
+    renderMode = data.renderMode;
+    renderer = renderMode === 'scene' ? sceneRenderer : shaderRenderer;
+    renderer.setResolution(window.innerWidth, window.innerHeight);
+  }
+
   if (data.shaderCode) {
     try {
       renderer.compile(data.shaderCode);
     } catch (err) {
-      console.error('Shader compile error:', err);
+      console.error('Compile error:', err);
     }
   }
 });

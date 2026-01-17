@@ -2,6 +2,7 @@
 import { state } from './state.js';
 import { setStatus } from './utils.js';
 import { saveActiveSlotShader } from './shader-grid.js';
+import { generateCustomParamUI } from './params.js';
 
 export function initEditor() {
   state.editor = ace.edit('editor');
@@ -60,6 +61,9 @@ export function compileShader() {
   try {
     state.renderer.compile(source);
     setStatus('Shader compiled successfully', 'success');
+
+    // Generate dynamic UI for custom shader parameters
+    generateCustomParamUI();
 
     // Sync to fullscreen window
     window.electronAPI.sendShaderUpdate({ shaderCode: source });

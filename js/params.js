@@ -22,12 +22,15 @@ function debouncedSaveGridState() {
   }, SAVE_DEBOUNCE_MS);
 }
 
-// Default parameter names
+// Default parameter names (for legacy mode)
 const defaultParamNames = {
   p0: 'P0', p1: 'P1', p2: 'P2', p3: 'P3', p4: 'P4',
   c0: 'C0', c1: 'C1', c2: 'C2', c3: 'C3', c4: 'C4',
   c5: 'C5', c6: 'C6', c7: 'C7', c8: 'C8', c9: 'C9'
 };
+
+// Track whether we're showing custom or legacy params
+let usingCustomParams = false;
 
 export function initParams() {
   // Build params array for speed + 5 params + 10 RGB colors
@@ -509,4 +512,306 @@ export function updateParamLabels(paramNames) {
 export function resetParamLabels() {
   // Reset all labels to defaults
   updateParamLabels(null);
+}
+
+// =============================================================================
+// Dynamic Custom Parameter UI Generation
+// =============================================================================
+
+// Generate UI controls for custom shader parameters
+export function generateCustomParamUI() {
+  const container = document.getElementById('custom-params-container');
+  const legacySection = document.getElementById('legacy-params-section');
+
+  if (!container || !state.renderer) return;
+
+  // Get custom param definitions from the shader
+  const params = state.renderer.getCustomParamDefs();
+
+  // Clear existing custom UI
+  container.innerHTML = '';
+
+  if (params.length === 0) {
+    // No custom params - show legacy UI
+    usingCustomParams = false;
+    if (legacySection) legacySection.style.display = '';
+    return;
+  }
+
+  // Has custom params - hide legacy UI
+  usingCustomParams = true;
+  if (legacySection) legacySection.style.display = 'none';
+
+  // Group parameters: scalars first, then arrays
+  const scalarParams = params.filter(p => !p.isArray);
+  const arrayParams = params.filter(p => p.isArray);
+
+  // Create section for scalar parameters
+  if (scalarParams.length > 0) {
+    const section = createParamSection('Shader Parameters');
+    scalarParams.forEach(param => {
+      const control = createParamControl(param);
+      if (control) section.appendChild(control);
+    });
+    container.appendChild(section);
+  }
+
+  // Create sections for each array parameter
+  arrayParams.forEach(param => {
+    const section = createParamSection(param.description || param.name);
+    const arrayControls = createArrayParamControls(param);
+    arrayControls.forEach(control => section.appendChild(control));
+    container.appendChild(section);
+  });
+}
+
+// Create a params section with title
+function createParamSection(title) {
+  const section = document.createElement('div');
+  section.className = 'params-section';
+
+  const titleEl = document.createElement('div');
+  titleEl.className = 'params-section-title';
+  titleEl.textContent = title;
+  section.appendChild(titleEl);
+
+  return section;
+}
+
+// Create control for a single (non-array) parameter
+function createParamControl(param, index = null, arrayName = null) {
+  const row = document.createElement('div');
+  row.className = 'param-row';
+
+  // Determine the actual param name for value storage
+  const paramName = arrayName ? arrayName : param.name;
+
+  // Label
+  const label = document.createElement('label');
+  label.textContent = index !== null ? `${index}` : param.name;
+  if (param.description && index === null) {
+    label.title = param.description;
+  }
+  row.appendChild(label);
+
+  // Get current value
+  const values = state.renderer.getCustomParamValues();
+  const currentValue = index !== null ? values[paramName][index] : values[paramName];
+
+  // Create appropriate control based on type
+  switch (param.type) {
+    case 'int':
+    case 'float':
+      createSliderControl(row, param, currentValue, paramName, index);
+      break;
+    case 'vec2':
+      createVec2Control(row, param, currentValue, paramName, index);
+      break;
+    case 'vec3':
+      createVec3Control(row, param, currentValue, paramName, index);
+      break;
+    case 'vec4':
+      createVec4Control(row, param, currentValue, paramName, index);
+      break;
+  }
+
+  return row;
+}
+
+// Create slider control for int/float
+function createSliderControl(row, param, value, paramName, arrayIndex) {
+  const isInt = param.type === 'int';
+  const min = param.min !== null ? param.min : (isInt ? 0 : 0);
+  const max = param.max !== null ? param.max : (isInt ? 10 : 1);
+  const step = isInt ? 1 : 0.01;
+
+  const slider = document.createElement('input');
+  slider.type = 'range';
+  slider.min = min;
+  slider.max = max;
+  slider.step = step;
+  slider.value = value;
+
+  const valueDisplay = document.createElement('span');
+  valueDisplay.className = 'param-value';
+  valueDisplay.textContent = isInt ? Math.round(value).toString() : value.toFixed(2);
+
+  slider.addEventListener('input', () => {
+    const newValue = isInt ? parseInt(slider.value, 10) : parseFloat(slider.value);
+    valueDisplay.textContent = isInt ? newValue.toString() : newValue.toFixed(2);
+    updateCustomParamValue(paramName, newValue, arrayIndex);
+  });
+
+  // Double-click to reset
+  slider.addEventListener('dblclick', () => {
+    const defaultVal = arrayIndex !== null ? param.default[arrayIndex] : param.default;
+    slider.value = defaultVal;
+    valueDisplay.textContent = isInt ? Math.round(defaultVal).toString() : defaultVal.toFixed(2);
+    updateCustomParamValue(paramName, defaultVal, arrayIndex);
+  });
+
+  row.appendChild(slider);
+  row.appendChild(valueDisplay);
+}
+
+// Create vec2 control (two sliders)
+function createVec2Control(row, param, value, paramName, arrayIndex) {
+  const min = param.min !== null ? param.min : 0;
+  const max = param.max !== null ? param.max : 1;
+
+  ['X', 'Y'].forEach((axis, i) => {
+    const subLabel = document.createElement('label');
+    subLabel.textContent = axis;
+    subLabel.style.minWidth = '12px';
+    row.appendChild(subLabel);
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = min;
+    slider.max = max;
+    slider.step = 0.01;
+    slider.value = value[i];
+    slider.style.width = '60px';
+
+    slider.addEventListener('input', () => {
+      const newValue = parseFloat(slider.value);
+      const fullValue = [...value];
+      fullValue[i] = newValue;
+      updateCustomParamValue(paramName, fullValue, arrayIndex);
+    });
+
+    row.appendChild(slider);
+  });
+}
+
+// Create vec3 control (three sliders, styled as RGB for colors)
+function createVec3Control(row, param, value, paramName, arrayIndex) {
+  row.className = 'color-row';
+
+  const min = param.min !== null ? param.min : 0;
+  const max = param.max !== null ? param.max : 1;
+
+  const channels = ['R', 'G', 'B'];
+  const classes = ['color-red', 'color-green', 'color-blue'];
+
+  channels.forEach((channel, i) => {
+    const subLabel = document.createElement('label');
+    subLabel.textContent = channel;
+    subLabel.className = classes[i];
+    row.appendChild(subLabel);
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = min;
+    slider.max = max;
+    slider.step = 0.01;
+    slider.value = value[i];
+
+    slider.addEventListener('input', () => {
+      const newValue = parseFloat(slider.value);
+      // Get current full value
+      const values = state.renderer.getCustomParamValues();
+      const fullValue = arrayIndex !== null
+        ? [...values[paramName][arrayIndex]]
+        : [...values[paramName]];
+      fullValue[i] = newValue;
+      updateCustomParamValue(paramName, fullValue, arrayIndex);
+    });
+
+    row.appendChild(slider);
+  });
+}
+
+// Create vec4 control (four sliders, styled as RGBA)
+function createVec4Control(row, param, value, paramName, arrayIndex) {
+  row.className = 'color-row';
+
+  const min = param.min !== null ? param.min : 0;
+  const max = param.max !== null ? param.max : 1;
+
+  const channels = ['R', 'G', 'B', 'A'];
+  const classes = ['color-red', 'color-green', 'color-blue', ''];
+
+  channels.forEach((channel, i) => {
+    const subLabel = document.createElement('label');
+    subLabel.textContent = channel;
+    if (classes[i]) subLabel.className = classes[i];
+    row.appendChild(subLabel);
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = min;
+    slider.max = max;
+    slider.step = 0.01;
+    slider.value = value[i];
+    slider.style.width = '50px';
+
+    slider.addEventListener('input', () => {
+      const newValue = parseFloat(slider.value);
+      const values = state.renderer.getCustomParamValues();
+      const fullValue = arrayIndex !== null
+        ? [...values[paramName][arrayIndex]]
+        : [...values[paramName]];
+      fullValue[i] = newValue;
+      updateCustomParamValue(paramName, fullValue, arrayIndex);
+    });
+
+    row.appendChild(slider);
+  });
+}
+
+// Create controls for array parameters
+function createArrayParamControls(param) {
+  const controls = [];
+
+  for (let i = 0; i < param.arraySize; i++) {
+    const control = createParamControl(param, i, param.name);
+    controls.push(control);
+  }
+
+  return controls;
+}
+
+// Update a custom parameter value
+function updateCustomParamValue(paramName, value, arrayIndex = null) {
+  if (!state.renderer) return;
+
+  if (arrayIndex !== null) {
+    // Update array element
+    const values = state.renderer.getCustomParamValues();
+    const arr = values[paramName];
+    if (arr && Array.isArray(arr)) {
+      arr[arrayIndex] = value;
+      state.renderer.setParam(paramName, arr);
+    }
+  } else {
+    state.renderer.setParam(paramName, value);
+  }
+
+  // Sync to fullscreen
+  const fullValue = arrayIndex !== null
+    ? state.renderer.getCustomParamValues()[paramName]
+    : value;
+  window.electronAPI.sendParamUpdate({ name: paramName, value: fullValue });
+
+  // Save to active grid slot
+  if (state.activeGridSlot !== null && state.gridSlots[state.activeGridSlot]) {
+    const slot = state.gridSlots[state.activeGridSlot];
+    if (!slot.customParams) slot.customParams = {};
+    slot.customParams[paramName] = state.renderer.getCustomParamValues()[paramName];
+    debouncedSaveGridState();
+  }
+}
+
+// Load custom param values to UI (after loading a slot or preset)
+export function loadCustomParamsToUI() {
+  if (!state.renderer || !usingCustomParams) return;
+
+  // Regenerate the UI to reflect current values
+  generateCustomParamUI();
+}
+
+// Check if currently using custom params
+export function isUsingCustomParams() {
+  return usingCustomParams;
 }

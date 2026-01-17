@@ -1,7 +1,7 @@
 // Shader Grid module
 import { state } from './state.js';
 import { setStatus } from './utils.js';
-import { loadParamsToSliders, updateParamLabels, resetParamLabels } from './params.js';
+import { loadParamsToSliders, updateParamLabels, resetParamLabels, generateCustomParamUI } from './params.js';
 import { updateLocalPresetsUI } from './presets.js';
 
 // Track drag state
@@ -301,7 +301,7 @@ function assignCurrentShaderToSlot(slotIndex) {
   assignShaderToSlot(slotIndex, shaderCode, null);
 }
 
-export async function assignShaderToSlot(slotIndex, shaderCode, filePath, skipSave = false, params = null, presets = null, paramNames = null) {
+export async function assignShaderToSlot(slotIndex, shaderCode, filePath, skipSave = false, params = null, presets = null, paramNames = null, customParams = null) {
   const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`);
   const canvas = slot.querySelector('canvas');
 
@@ -315,6 +315,7 @@ export async function assignShaderToSlot(slotIndex, shaderCode, filePath, skipSa
 
   // Use provided params or capture current params
   const slotParams = params || state.renderer.getParams();
+  const slotCustomParams = customParams || state.renderer.getCustomParamValues();
 
   try {
     miniRenderer.compile(shaderCode);
@@ -323,6 +324,7 @@ export async function assignShaderToSlot(slotIndex, shaderCode, filePath, skipSa
       filePath,
       renderer: miniRenderer,
       params: { ...slotParams },
+      customParams: { ...slotCustomParams },
       presets: presets || [],
       paramNames: paramNames || {}
     };
@@ -424,6 +426,7 @@ export function saveGridState() {
     return {
       filePath: slot.filePath,
       params: slot.params,
+      customParams: slot.customParams || {},  // Custom shader parameters
       presets: slot.presets || [],
       paramNames: slot.paramNames || {}
     };
@@ -439,7 +442,7 @@ export async function loadGridState() {
   for (let i = 0; i < Math.min(gridState.length, 32); i++) {
     if (gridState[i] && gridState[i].shaderCode) {
       try {
-        await assignShaderToSlot(i, gridState[i].shaderCode, gridState[i].filePath, true, gridState[i].params, gridState[i].presets, gridState[i].paramNames);
+        await assignShaderToSlot(i, gridState[i].shaderCode, gridState[i].filePath, true, gridState[i].params, gridState[i].presets, gridState[i].paramNames, gridState[i].customParams);
         loadedCount++;
       } catch (err) {
         console.warn(`Failed to restore shader in slot ${i + 1}:`, err);
@@ -516,14 +519,19 @@ export function loadGridShaderToEditor(slotIndex) {
   // Import compileShader dynamically to avoid circular dependency
   import('./editor.js').then(({ compileShader }) => {
     compileShader();
+    // Load saved custom param values if available (after compilation parses params)
+    if (slotData.customParams) {
+      state.renderer.setCustomParamValues(slotData.customParams);
+      generateCustomParamUI(); // Regenerate UI to reflect loaded values
+    }
   });
 
-  // Load params into sliders
+  // Load legacy params into sliders (for shaders without custom params)
   if (slotData.params) {
     loadParamsToSliders(slotData.params);
   }
 
-  // Update parameter labels with custom names
+  // Update legacy parameter labels with custom names
   updateParamLabels(slotData.paramNames);
 
   // Update local presets UI for this shader
@@ -570,6 +578,13 @@ export function playGridShader(slotIndex) {
     try {
       state.renderer.compile(slotData.shaderCode);
       state.renderer.resetTime();
+      // Generate dynamic UI for custom shader parameters
+      generateCustomParamUI();
+      // Load saved custom param values if available
+      if (slotData.customParams) {
+        state.renderer.setCustomParamValues(slotData.customParams);
+        generateCustomParamUI(); // Regenerate to reflect loaded values
+      }
     } catch (err) {
       setStatus(`Failed to compile shader: ${err.message}`, 'error');
       return;
@@ -588,9 +603,22 @@ export function playGridShader(slotIndex) {
   window.electronAPI.sendShaderUpdate(fullscreenState);
   window.electronAPI.sendTimeSync({ time: 0, frame: 0, isPlaying: true });
 
-  // Send all params to fullscreen
+  // Send all legacy params to fullscreen
   if (slotData.params) {
     Object.entries(slotData.params).forEach(([name, value]) => {
+      window.electronAPI.sendParamUpdate({ name, value });
+    });
+  }
+
+  // Send custom params to fullscreen
+  if (slotData.customParams) {
+    Object.entries(slotData.customParams).forEach(([name, value]) => {
+      window.electronAPI.sendParamUpdate({ name, value });
+    });
+  } else {
+    // Send default custom params from renderer
+    const customParams = state.renderer.getCustomParamValues();
+    Object.entries(customParams).forEach(([name, value]) => {
       window.electronAPI.sendParamUpdate({ name, value });
     });
   }

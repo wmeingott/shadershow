@@ -1,3 +1,144 @@
+// =============================================================================
+// Shader Parameter Parser
+// Parses @param comments from shader source to define custom uniforms
+//
+// Format: // @param name type [default] [range] ["description"]
+//
+// Supported types:
+//   int, int[N]       - Integer or integer array
+//   float, float[N]   - Float or float array
+//   vec2, vec2[N]     - 2D vector or array
+//   vec3, vec3[N]     - 3D vector or array (also used for colors)
+//   vec4, vec4[N]     - 4D vector or array
+// =============================================================================
+
+const ShaderParamParser = {
+  PARAM_REGEX: /^\s*\/\/\s*@param\s+(\w+)\s+(int|float|vec[234])(\[(\d+)\])?\s*(.*)/,
+
+  parseValue(valueStr, baseType) {
+    const parts = valueStr.split(',').map(s => s.trim());
+    switch (baseType) {
+      case 'int': return parseInt(parts[0], 10) || 0;
+      case 'float': return parseFloat(parts[0]) || 0.0;
+      case 'vec2': return [parseFloat(parts[0]) || 0, parseFloat(parts[1]) || 0];
+      case 'vec3': return [parseFloat(parts[0]) || 0, parseFloat(parts[1]) || 0, parseFloat(parts[2]) || 0];
+      case 'vec4': return [parseFloat(parts[0]) || 0, parseFloat(parts[1]) || 0, parseFloat(parts[2]) || 0, parseFloat(parts[3]) || 0];
+      default: return 0;
+    }
+  },
+
+  getDefaultValue(baseType, arraySize = null) {
+    let defaultVal;
+    switch (baseType) {
+      case 'int': defaultVal = 0; break;
+      case 'float': defaultVal = 0.5; break;
+      case 'vec2': defaultVal = [0.5, 0.5]; break;
+      case 'vec3': defaultVal = [1.0, 1.0, 1.0]; break;
+      case 'vec4': defaultVal = [0.0, 0.0, 0.0, 1.0]; break;
+      default: defaultVal = 0;
+    }
+    if (arraySize) {
+      return Array(arraySize).fill(null).map(() => Array.isArray(defaultVal) ? [...defaultVal] : defaultVal);
+    }
+    return defaultVal;
+  },
+
+  parseRest(restStr, baseType, arraySize) {
+    let defaultValue = this.getDefaultValue(baseType, arraySize);
+    let min = null, max = null, description = '';
+    let remaining = restStr.trim();
+
+    // Extract description (quoted string at the end)
+    const descMatch = remaining.match(/"([^"]*)"$/);
+    if (descMatch) {
+      description = descMatch[1];
+      remaining = remaining.slice(0, -descMatch[0].length).trim();
+    }
+
+    // Extract range [min, max]
+    const rangeMatch = remaining.match(/\[([^\]]+)\]\s*$/);
+    if (rangeMatch) {
+      const rangeParts = rangeMatch[1].split(',').map(s => s.trim());
+      if (rangeParts.length >= 2) {
+        min = parseFloat(rangeParts[0]);
+        max = parseFloat(rangeParts[1]);
+        if (isNaN(min)) min = null;
+        if (isNaN(max)) max = null;
+      }
+      remaining = remaining.slice(0, -rangeMatch[0].length).trim();
+    }
+
+    // Remaining is the default value
+    if (remaining.length > 0) {
+      if (arraySize) {
+        const singleDefault = this.parseValue(remaining, baseType);
+        defaultValue = Array(arraySize).fill(null).map(() => Array.isArray(singleDefault) ? [...singleDefault] : singleDefault);
+      } else {
+        defaultValue = this.parseValue(remaining, baseType);
+      }
+    }
+
+    return { defaultValue, min, max, description };
+  },
+
+  parseParamLine(line) {
+    const match = line.match(this.PARAM_REGEX);
+    if (!match) return null;
+
+    const name = match[1];
+    const baseType = match[2];
+    const arraySize = match[4] ? parseInt(match[4], 10) : null;
+    const rest = match[5] || '';
+    const { defaultValue, min, max, description } = this.parseRest(rest, baseType, arraySize);
+
+    return {
+      name,
+      type: baseType,
+      arraySize,
+      isArray: arraySize !== null,
+      default: defaultValue,
+      min,
+      max,
+      description,
+      glslType: arraySize ? `${baseType}[${arraySize}]` : baseType,
+      uniformDecl: arraySize ? `uniform ${baseType} ${name}[${arraySize}];` : `uniform ${baseType} ${name};`
+    };
+  },
+
+  parse(shaderSource) {
+    const params = [];
+    const lines = shaderSource.split('\n');
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.length > 0 && !trimmed.startsWith('//') && !trimmed.startsWith('/*') && !trimmed.startsWith('*')) {
+        if (!trimmed.startsWith('*/')) break;
+      }
+      const param = this.parseParamLine(line);
+      if (param) params.push(param);
+    }
+    return params;
+  },
+
+  generateUniformDeclarations(params) {
+    return params.map(p => p.uniformDecl).join('\n');
+  },
+
+  createParamValues(params) {
+    const values = {};
+    for (const param of params) {
+      values[param.name] = param.isArray
+        ? param.default.map(v => Array.isArray(v) ? [...v] : v)
+        : (Array.isArray(param.default) ? [...param.default] : param.default);
+    }
+    return values;
+  }
+};
+
+// =============================================================================
+// ShaderRenderer Class
+// =============================================================================
+
 class ShaderRenderer {
   constructor(canvas) {
     this.canvas = canvas;
@@ -33,39 +174,28 @@ class ShaderRenderer {
 
     // Video/Camera sources for channels (HTMLVideoElement)
     this.channelVideoSources = [null, null, null, null];
-    this.channelTypes = ['empty', 'empty', 'empty', 'empty']; // 'empty', 'image', 'video', 'camera', 'audio', 'ndi'
+    this.channelTypes = ['empty', 'empty', 'empty', 'empty'];
 
     // Audio sources for channels
-    this.channelAudioSources = [null, null, null, null]; // { audioContext, analyser, stream, frequencyData, timeDomainData }
+    this.channelAudioSources = [null, null, null, null];
 
     // NDI sources for channels
-    this.channelNDIData = [null, null, null, null]; // { width, height, data (Uint8Array) }
+    this.channelNDIData = [null, null, null, null];
 
-    // Custom parameters (sliders)
-    this.params = {
-      speed: 1.0
-    };
+    // Custom parameters - now dynamic per shader
+    this.customParams = [];      // Parsed param definitions from shader
+    this.customParamValues = {}; // Current values { paramName: value }
+    this.customParamUniforms = {}; // Uniform locations { paramName: location }
 
-    // Params array (5 parameters)
-    for (let i = 0; i < 5; i++) {
-      this.params[`p${i}`] = 0.5;
-    }
-
-    // Color array (10 RGB colors)
-    for (let i = 0; i < 10; i++) {
-      this.params[`r${i}`] = 1.0;
-      this.params[`g${i}`] = 1.0;
-      this.params[`b${i}`] = 1.0;
-    }
+    // Legacy fixed params for Shadertoy compatibility (always available)
+    this.params = { speed: 1.0 };
 
     // Uniform locations cache
     this.uniforms = {};
 
-    // Pre-allocated buffers for render loop (avoid GC pressure)
-    this._colorArray = new Float32Array(30);      // 10 colors * 3 components
-    this._paramsArray = new Float32Array(5);      // 5 custom params
-    this._resolutionsArray = new Float32Array(12); // 4 channels * 3 components
-    this._audioBuffer = new Uint8Array(512 * 2);  // Audio FFT + waveform
+    // Pre-allocated buffers for render loop
+    this._resolutionsArray = new Float32Array(12);
+    this._audioBuffer = new Uint8Array(512 * 2);
 
     // Setup
     this.setupGeometry();
@@ -469,13 +599,89 @@ class ShaderRenderer {
   }
 
   setParam(name, value) {
-    if (this.params.hasOwnProperty(name)) {
+    // Check custom params first
+    if (this.customParamValues.hasOwnProperty(name)) {
+      this.customParamValues[name] = value;
+    } else if (this.params.hasOwnProperty(name)) {
       this.params[name] = value;
     }
   }
 
   getParams() {
-    return { ...this.params };
+    return { ...this.params, ...this.customParamValues };
+  }
+
+  // Get the current shader's custom parameter definitions
+  getCustomParamDefs() {
+    return this.customParams;
+  }
+
+  // Get custom parameter values only
+  getCustomParamValues() {
+    return { ...this.customParamValues };
+  }
+
+  // Set all custom param values at once (e.g., when loading a preset)
+  setCustomParamValues(values) {
+    for (const [name, value] of Object.entries(values)) {
+      if (this.customParamValues.hasOwnProperty(name)) {
+        this.customParamValues[name] = value;
+      }
+    }
+  }
+
+  // Set params including custom params (for loading slot params)
+  setParams(params) {
+    if (!params) return;
+    for (const [name, value] of Object.entries(params)) {
+      this.setParam(name, value);
+    }
+  }
+
+  // Set all custom uniform values to the GPU
+  setCustomUniforms() {
+    const gl = this.gl;
+
+    for (const param of this.customParams) {
+      const value = this.customParamValues[param.name];
+      const location = this.customParamUniforms[param.name];
+
+      if (location === null || location === undefined) continue;
+
+      if (param.isArray) {
+        // Handle arrays
+        for (let i = 0; i < param.arraySize; i++) {
+          const elemLocation = location[i];
+          if (elemLocation === null) continue;
+
+          const elemValue = value[i];
+          this.setUniformValue(gl, param.type, elemLocation, elemValue);
+        }
+      } else {
+        this.setUniformValue(gl, param.type, location, value);
+      }
+    }
+  }
+
+  // Helper to set a single uniform value based on type
+  setUniformValue(gl, type, location, value) {
+    switch (type) {
+      case 'int':
+        gl.uniform1i(location, value);
+        break;
+      case 'float':
+        gl.uniform1f(location, value);
+        break;
+      case 'vec2':
+        gl.uniform2f(location, value[0], value[1]);
+        break;
+      case 'vec3':
+        gl.uniform3f(location, value[0], value[1], value[2]);
+        break;
+      case 'vec4':
+        gl.uniform4f(location, value[0], value[1], value[2], value[3]);
+        break;
+    }
   }
 
   setResolution(width, height) {
@@ -487,6 +693,14 @@ class ShaderRenderer {
   compile(fragmentSource) {
     const gl = this.gl;
 
+    // Parse custom parameters from shader source
+    this.customParams = ShaderParamParser.parse(fragmentSource);
+    this.customParamValues = ShaderParamParser.createParamValues(this.customParams);
+    this.customParamUniforms = {};
+
+    // Generate uniform declarations for custom params
+    const customUniformDecls = ShaderParamParser.generateUniformDeclarations(this.customParams);
+
     // Vertex shader (simple pass-through)
     const vertexSource = `#version 300 es
       layout(location = 0) in vec2 position;
@@ -495,11 +709,12 @@ class ShaderRenderer {
       }
     `;
 
-    // Wrap fragment shader with Shadertoy compatibility
+    // Wrap fragment shader with Shadertoy compatibility + custom params
     const wrappedFragment = `#version 300 es
       precision highp float;
       precision highp int;
 
+      // Shadertoy standard uniforms
       uniform vec3 iResolution;
       uniform float iTime;
       uniform float iTimeDelta;
@@ -512,10 +727,8 @@ class ShaderRenderer {
       uniform sampler2D iChannel3;
       uniform vec3 iChannelResolution[4];
 
-      // Custom parameters
-      uniform vec3 iColorRGB[10];  // 10 RGB color slots (0-1 each)
-      uniform float iParams[5];    // 5 custom parameters (0-1 each)
-      uniform float iSpeed;        // Speed multiplier
+      // Custom shader parameters (parsed from @param comments)
+      ${customUniformDecls}
 
       out vec4 outColor;
 
@@ -573,7 +786,7 @@ class ShaderRenderer {
 
     this.program = program;
 
-    // Cache uniform locations
+    // Cache uniform locations for Shadertoy standard uniforms
     this.uniforms = {
       iResolution: gl.getUniformLocation(program, 'iResolution'),
       iTime: gl.getUniformLocation(program, 'iTime'),
@@ -585,11 +798,22 @@ class ShaderRenderer {
       iChannel1: gl.getUniformLocation(program, 'iChannel1'),
       iChannel2: gl.getUniformLocation(program, 'iChannel2'),
       iChannel3: gl.getUniformLocation(program, 'iChannel3'),
-      iChannelResolution: gl.getUniformLocation(program, 'iChannelResolution'),
-      iColorRGB: gl.getUniformLocation(program, 'iColorRGB'),
-      iParams: gl.getUniformLocation(program, 'iParams'),
-      iSpeed: gl.getUniformLocation(program, 'iSpeed')
+      iChannelResolution: gl.getUniformLocation(program, 'iChannelResolution')
     };
+
+    // Cache uniform locations for custom parameters
+    this.customParamUniforms = {};
+    for (const param of this.customParams) {
+      if (param.isArray) {
+        // For arrays, get location for each element
+        this.customParamUniforms[param.name] = [];
+        for (let i = 0; i < param.arraySize; i++) {
+          this.customParamUniforms[param.name][i] = gl.getUniformLocation(program, `${param.name}[${i}]`);
+        }
+      } else {
+        this.customParamUniforms[param.name] = gl.getUniformLocation(program, param.name);
+      }
+    }
 
     // Clean up shaders (they're now part of program)
     gl.deleteShader(vertexShader);
@@ -603,7 +827,10 @@ class ShaderRenderer {
     const match = error.match(/ERROR:\s*\d+:(\d+):\s*(.+)/);
     if (match) {
       // Subtract wrapper lines (header before user code)
-      const wrapperLines = 18; // Count of lines before user code in wrappedFragment
+      // Count: #version + precision*2 + standard uniforms (13) + custom uniforms comment + out + empty lines
+      const baseWrapperLines = 17; // Lines before ${customUniformDecls}
+      const customUniformLines = this.customParams ? this.customParams.length : 0;
+      const wrapperLines = baseWrapperLines + customUniformLines + 3; // +3 for out, empty line, fragment source marker
       const line = Math.max(1, parseInt(match[1]) - wrapperLines);
       return { line, message: match[2] };
     }
@@ -656,25 +883,13 @@ class ShaderRenderer {
     gl.uniform1i(this.uniforms.iFrame, this.frameCount);
     gl.uniform4f(this.uniforms.iDate, dateValues[0], dateValues[1], dateValues[2], dateValues[3]);
 
-    // Custom parameters - use pre-allocated color array
-    for (let i = 0; i < 10; i++) {
-      this._colorArray[i * 3] = this.params[`r${i}`];
-      this._colorArray[i * 3 + 1] = this.params[`g${i}`];
-      this._colorArray[i * 3 + 2] = this.params[`b${i}`];
-    }
-    gl.uniform3fv(this.uniforms.iColorRGB, this._colorArray);
-
-    // Use pre-allocated params array
-    for (let i = 0; i < 5; i++) {
-      this._paramsArray[i] = this.params[`p${i}`];
-    }
-    gl.uniform1fv(this.uniforms.iParams, this._paramsArray);
-    gl.uniform1f(this.uniforms.iSpeed, this.params.speed);
-
     // Mouse: xy = current pos, zw = click pos (z negative if not pressed)
     const mouseZ = this.mouse.isDown ? this.mouse.clickX : -this.mouse.clickX;
     const mouseW = this.mouse.isDown ? this.mouse.clickY : -this.mouse.clickY;
     gl.uniform4f(this.uniforms.iMouse, this.mouse.x, this.mouse.y, mouseZ, mouseW);
+
+    // Set custom parameter uniforms
+    this.setCustomUniforms();
 
     // Bind textures
     for (let i = 0; i < 4; i++) {

@@ -5,9 +5,7 @@ let sceneRenderer;      // Three.js scene renderer
 let renderMode = 'shader';  // 'shader' or 'scene'
 let animationId;
 let localPresets = [];
-let globalPresets = [];
 let activeLocalPresetIndex = null;
-let activeGlobalPresetIndex = null;
 let presetBarTimeout = null;
 let blackoutEnabled = false;
 
@@ -94,16 +92,9 @@ function handlePresetKey(e) {
   const key = e.key;
   if (key >= '1' && key <= '9') {
     const index = parseInt(key) - 1;
-    if (e.shiftKey) {
-      // Shift+number for local presets
-      if (index < localPresets.length) {
-        recallLocalPreset(index);
-      }
-    } else {
-      // Number for global presets
-      if (index < globalPresets.length) {
-        recallGlobalPreset(index);
-      }
+    // Number keys for local presets
+    if (index < localPresets.length) {
+      recallLocalPreset(index);
     }
   }
 }
@@ -118,7 +109,6 @@ function recallLocalPreset(index, fromSync = false) {
   });
 
   activeLocalPresetIndex = index;
-  activeGlobalPresetIndex = null;
   updatePresetHighlights();
 
   // Sync back to main window (unless this call came from sync)
@@ -131,66 +121,27 @@ function recallLocalPreset(index, fromSync = false) {
   }
 }
 
-function recallGlobalPreset(index, fromSync = false) {
-  if (index >= globalPresets.length) return;
-  const preset = globalPresets[index];
-  const params = preset.params || preset;
-
-  Object.keys(params).forEach(name => {
-    renderer.setParam(name, params[name]);
-  });
-
-  activeGlobalPresetIndex = index;
-  activeLocalPresetIndex = null;
-  updatePresetHighlights();
-
-  // Sync back to main window (unless this call came from sync)
-  if (!fromSync) {
-    window.electronAPI.sendPresetSync({
-      type: 'global',
-      index: index,
-      params: params
-    });
-  }
-}
-
 function updatePresetHighlights() {
   document.querySelectorAll('#local-presets .preset-btn').forEach((btn, i) => {
     btn.classList.toggle('active', i === activeLocalPresetIndex);
-  });
-  document.querySelectorAll('#global-presets .preset-btn').forEach((btn, i) => {
-    btn.classList.toggle('active', i === activeGlobalPresetIndex);
   });
 }
 
 function createPresetButtons() {
   const localContainer = document.getElementById('local-presets');
-  const globalContainer = document.getElementById('global-presets');
 
   // Clear existing buttons (keep labels)
   localContainer.querySelectorAll('.preset-btn').forEach(btn => btn.remove());
-  globalContainer.querySelectorAll('.preset-btn').forEach(btn => btn.remove());
 
   // Create local preset buttons
   localPresets.forEach((preset, index) => {
     const btn = document.createElement('button');
     btn.className = 'preset-btn';
     btn.textContent = preset.name || String(index + 1);
-    btn.title = `Shader preset ${index + 1} (Shift+${index + 1})`;
+    btn.title = `Shader preset ${index + 1} (Key ${index + 1})`;
     btn.addEventListener('click', () => recallLocalPreset(index));
     if (index === activeLocalPresetIndex) btn.classList.add('active');
     localContainer.appendChild(btn);
-  });
-
-  // Create global preset buttons
-  globalPresets.forEach((preset, index) => {
-    const btn = document.createElement('button');
-    btn.className = 'preset-btn';
-    btn.textContent = preset.name || String(index + 1);
-    btn.title = `Global preset ${index + 1} (Key ${index + 1})`;
-    btn.addEventListener('click', () => recallGlobalPreset(index));
-    if (index === activeGlobalPresetIndex) btn.classList.add('active');
-    globalContainer.appendChild(btn);
   });
 }
 
@@ -282,11 +233,7 @@ window.electronAPI.onInitFullscreen((state) => {
   if (state.localPresets) {
     localPresets = state.localPresets;
   }
-  if (state.globalPresets) {
-    globalPresets = state.globalPresets;
-  }
   activeLocalPresetIndex = state.activeLocalPresetIndex ?? null;
-  activeGlobalPresetIndex = state.activeGlobalPresetIndex ?? null;
 
   createPresetButtons();
 });
@@ -349,10 +296,6 @@ window.electronAPI.onPresetSync((data) => {
   // Update highlighting
   if (data.type === 'local') {
     activeLocalPresetIndex = data.index;
-    activeGlobalPresetIndex = null;
-  } else if (data.type === 'global') {
-    activeGlobalPresetIndex = data.index;
-    activeLocalPresetIndex = null;
   }
   updatePresetHighlights();
 });

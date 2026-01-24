@@ -4,7 +4,7 @@ import { setStatus, updateChannelSlot } from './utils.js';
 import { compileShader, setEditorMode } from './editor.js';
 import { togglePlayback, resetTime } from './controls.js';
 import { loadGridPresetsFromData, saveGridState } from './shader-grid.js';
-import { recallLocalPreset, recallGlobalPreset } from './presets.js';
+import { recallLocalPreset } from './presets.js';
 import { loadParamsToSliders } from './params.js';
 import { updatePreviewFrameLimit, setRenderMode, detectRenderMode } from './renderer.js';
 import { createTab, openInTab, activeTabHasChanges, markTabSaved, getActiveTab } from './tabs.js';
@@ -144,9 +144,7 @@ export function initIPC() {
       channels: state.channelState,
       params: state.renderer.getParams(),
       localPresets: localPresets,
-      globalPresets: state.globalPresets,
-      activeLocalPresetIndex: state.activeLocalPresetIndex,
-      activeGlobalPresetIndex: state.activeGlobalPresetIndex
+      activeLocalPresetIndex: state.activeLocalPresetIndex
     };
     window.electronAPI.sendFullscreenState(fullscreenState);
   });
@@ -209,21 +207,8 @@ export function initIPC() {
     // Update highlighting without triggering another sync
     if (data.type === 'local') {
       state.activeLocalPresetIndex = data.index;
-      state.activeGlobalPresetIndex = null;
       document.querySelectorAll('.preset-btn.local-preset').forEach((btn, i) => {
         btn.classList.toggle('active', i === data.index);
-      });
-      document.querySelectorAll('.preset-btn.global-preset').forEach(btn => {
-        btn.classList.remove('active');
-      });
-    } else if (data.type === 'global') {
-      state.activeGlobalPresetIndex = data.index;
-      state.activeLocalPresetIndex = null;
-      document.querySelectorAll('.preset-btn.global-preset').forEach((btn, i) => {
-        btn.classList.toggle('active', i === data.index);
-      });
-      document.querySelectorAll('.preset-btn.local-preset').forEach(btn => {
-        btn.classList.remove('active');
       });
     }
   });

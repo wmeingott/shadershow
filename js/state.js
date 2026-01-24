@@ -33,9 +33,7 @@ export const state = {
   gridAnimationId: null,
   activeGridSlot: null,
 
-  // Parameter presets
-  globalPresets: [],
-  activeGlobalPresetIndex: null,
+  // Parameter presets (local only - per shader)
   activeLocalPresetIndex: null,
 
   // Tiled preview state

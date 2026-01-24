@@ -1,8 +1,8 @@
-// Presets module
+// Presets module - Local shader presets only
 import { state } from './state.js';
 import { setStatus } from './utils.js';
 import { saveGridState } from './shader-grid.js';
-import { loadParamsToSliders } from './params.js';
+import { loadParamsToSliders, generateCustomParamUI } from './params.js';
 import { tileState } from './tile-state.js';
 
 export async function initPresets() {
@@ -10,36 +10,62 @@ export async function initPresets() {
   const addLocalBtn = document.getElementById('btn-add-local-preset');
   addLocalBtn.addEventListener('click', () => addLocalPreset());
 
-  // Global preset add button
-  const addGlobalBtn = document.getElementById('btn-add-global-preset');
-  addGlobalBtn.addEventListener('click', () => addGlobalPreset());
-
-  // Load saved global presets and param ranges
-  await loadGlobalPresets();
-  await loadParamRanges();
-}
-
-async function loadGlobalPresets() {
-  const savedPresets = await window.electronAPI.loadPresets();
-  if (savedPresets && Array.isArray(savedPresets)) {
-    savedPresets.forEach((preset, index) => {
-      // Handle old format (just params) and new format ({ params, name })
-      if (preset.params) {
-        state.globalPresets.push(preset);
-      } else {
-        state.globalPresets.push({ params: preset, name: null });
-      }
-      createGlobalPresetButton(index);
-    });
+  // Reset to default button
+  const resetBtn = document.getElementById('btn-reset-params');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => resetToDefaults());
   }
 }
 
-async function loadParamRanges() {
-  // Legacy param ranges are no longer used - custom @param system has its own ranges
-}
+// Reset parameters to shader defaults
+export function resetToDefaults() {
+  if (!state.renderer) {
+    setStatus('No shader loaded', 'error');
+    return;
+  }
 
-export function saveGlobalPresetsToFile() {
-  window.electronAPI.savePresets(state.globalPresets);
+  // Get custom param definitions with default values
+  const paramDefs = state.renderer.getCustomParamDefs?.() || [];
+
+  // Reset speed to 1
+  state.renderer.setParam('speed', 1);
+  const speedSlider = document.getElementById('param-speed');
+  const speedValue = document.getElementById('param-speed-value');
+  if (speedSlider) {
+    speedSlider.value = 1;
+    if (speedValue) speedValue.textContent = '1.00';
+  }
+
+  // Reset each custom param to its default
+  paramDefs.forEach(param => {
+    if (param.default !== undefined) {
+      state.renderer.setParam(param.name, param.default);
+    }
+  });
+
+  // Regenerate UI to show default values
+  generateCustomParamUI();
+
+  // Update selected tile if in tiled mode
+  if (state.tiledPreviewEnabled) {
+    const defaultParams = { speed: 1 };
+    paramDefs.forEach(param => {
+      if (param.default !== undefined) {
+        defaultParams[param.name] = param.default;
+      }
+    });
+    applyParamsToSelectedTile(defaultParams);
+  }
+
+  // Sync to fullscreen
+  window.electronAPI.sendParamUpdate({ name: 'speed', value: 1 });
+  paramDefs.forEach(param => {
+    if (param.default !== undefined) {
+      window.electronAPI.sendParamUpdate({ name: param.name, value: param.default });
+    }
+  });
+
+  setStatus('Parameters reset to defaults', 'success');
 }
 
 // Update local presets UI when shader selection changes
@@ -91,17 +117,7 @@ function addLocalPreset() {
 
   createLocalPresetButton(presetIndex);
   saveGridState();
-  setStatus(`Shader preset ${presetIndex + 1} saved`, 'success');
-}
-
-function addGlobalPreset() {
-  const params = state.renderer.getParams();
-  const presetIndex = state.globalPresets.length;
-  state.globalPresets.push({ params: { ...params }, name: null });
-
-  createGlobalPresetButton(presetIndex);
-  saveGlobalPresetsToFile();
-  setStatus(`Global preset ${presetIndex + 1} saved`, 'success');
+  setStatus(`Preset ${presetIndex + 1} saved`, 'success');
 }
 
 function createLocalPresetButton(index) {
@@ -117,29 +133,10 @@ function createLocalPresetButton(index) {
   btn.addEventListener('click', () => recallLocalPreset(index));
   btn.addEventListener('contextmenu', (e) => {
     e.preventDefault();
-    showPresetContextMenu(e.clientX, e.clientY, index, btn, 'local');
+    showPresetContextMenu(e.clientX, e.clientY, index, btn);
   });
 
   localRow.insertBefore(btn, addBtn);
-}
-
-function createGlobalPresetButton(index) {
-  const globalRow = document.getElementById('global-presets-row');
-  const addBtn = document.getElementById('btn-add-global-preset');
-
-  const btn = document.createElement('button');
-  btn.className = 'preset-btn global-preset';
-  updateGlobalPresetButtonLabel(btn, index);
-  btn.dataset.presetIndex = index;
-  btn.dataset.presetType = 'global';
-
-  btn.addEventListener('click', () => recallGlobalPreset(index));
-  btn.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    showPresetContextMenu(e.clientX, e.clientY, index, btn, 'global');
-  });
-
-  globalRow.insertBefore(btn, addBtn);
 }
 
 function updateLocalPresetButtonLabel(btn, index) {
@@ -150,19 +147,10 @@ function updateLocalPresetButtonLabel(btn, index) {
   btn.textContent = label;
   btn.title = preset && preset.name
     ? `${preset.name} (right-click for options)`
-    : `Shader preset ${index + 1} (right-click for options)`;
+    : `Preset ${index + 1} (right-click for options)`;
 }
 
-function updateGlobalPresetButtonLabel(btn, index) {
-  const preset = state.globalPresets[index];
-  const label = preset && preset.name ? preset.name : String(index + 1);
-  btn.textContent = label;
-  btn.title = preset && preset.name
-    ? `${preset.name} (right-click for options)`
-    : `Global preset ${index + 1} (right-click for options)`;
-}
-
-function showPresetContextMenu(x, y, index, btn, type) {
+function showPresetContextMenu(x, y, index, btn) {
   hidePresetContextMenu();
 
   const menu = document.createElement('div');
@@ -175,7 +163,7 @@ function showPresetContextMenu(x, y, index, btn, type) {
   renameItem.textContent = 'Rename...';
   renameItem.addEventListener('click', () => {
     hidePresetContextMenu();
-    showRenamePresetDialog(index, btn, type);
+    showRenamePresetDialog(index, btn);
   });
   menu.appendChild(renameItem);
 
@@ -185,11 +173,7 @@ function showPresetContextMenu(x, y, index, btn, type) {
   deleteItem.textContent = 'Delete';
   deleteItem.addEventListener('click', () => {
     hidePresetContextMenu();
-    if (type === 'local') {
-      deleteLocalPreset(index, btn);
-    } else {
-      deleteGlobalPreset(index, btn);
-    }
+    deleteLocalPreset(index, btn);
   });
   menu.appendChild(deleteItem);
 
@@ -216,17 +200,10 @@ function hidePresetContextMenu() {
   if (menu) menu.remove();
 }
 
-function showRenamePresetDialog(index, btn, type) {
-  let preset, defaultName;
-  if (type === 'local') {
-    const presets = state.gridSlots[state.activeGridSlot]?.presets || [];
-    preset = presets[index];
-    defaultName = `Preset ${index + 1}`;
-  } else {
-    preset = state.globalPresets[index];
-    defaultName = `Preset ${index + 1}`;
-  }
-
+function showRenamePresetDialog(index, btn) {
+  const presets = state.gridSlots[state.activeGridSlot]?.presets || [];
+  const preset = presets[index];
+  const defaultName = `Preset ${index + 1}`;
   const currentName = preset?.name || defaultName;
 
   const overlay = document.createElement('div');
@@ -234,7 +211,7 @@ function showRenamePresetDialog(index, btn, type) {
   overlay.className = 'dialog-overlay';
   overlay.innerHTML = `
     <div class="rename-dialog">
-      <div class="dialog-header">Rename ${type === 'local' ? 'Shader' : 'Global'} Preset</div>
+      <div class="dialog-header">Rename Preset</div>
       <input type="text" id="preset-name-input" value="${currentName}" maxlength="12" placeholder="Preset name">
       <div class="dialog-buttons">
         <button class="btn-secondary" id="rename-cancel">Cancel</button>
@@ -253,18 +230,10 @@ function showRenamePresetDialog(index, btn, type) {
   document.getElementById('rename-cancel').onclick = close;
   document.getElementById('rename-ok').onclick = () => {
     const newName = input.value.trim();
-    if (type === 'local') {
-      if (state.gridSlots[state.activeGridSlot]?.presets?.[index]) {
-        state.gridSlots[state.activeGridSlot].presets[index].name = newName || null;
-        updateLocalPresetButtonLabel(btn, index);
-        saveGridState();
-      }
-    } else {
-      if (state.globalPresets[index]) {
-        state.globalPresets[index].name = newName || null;
-        updateGlobalPresetButtonLabel(btn, index);
-        saveGlobalPresetsToFile();
-      }
+    if (state.gridSlots[state.activeGridSlot]?.presets?.[index]) {
+      state.gridSlots[state.activeGridSlot].presets[index].name = newName || null;
+      updateLocalPresetButtonLabel(btn, index);
+      saveGridState();
     }
     close();
   };
@@ -295,8 +264,6 @@ export function recallLocalPreset(index, fromSync = false) {
 
   // Update active highlighting
   updateActiveLocalPreset(index);
-  state.activeGlobalPresetIndex = null;
-  clearGlobalPresetHighlight();
 
   // Sync to fullscreen (unless this call came from sync)
   if (!fromSync) {
@@ -308,42 +275,6 @@ export function recallLocalPreset(index, fromSync = false) {
   }
 
   const name = preset.name || `Preset ${index + 1}`;
-  setStatus(`${name} loaded`, 'success');
-}
-
-export function recallGlobalPreset(index, fromSync = false) {
-  if (index >= state.globalPresets.length) return;
-
-  const preset = state.globalPresets[index];
-  const params = preset.params || preset;
-  loadParamsToSliders(params);
-
-  // Also update the active shader's params if one is selected
-  if (state.activeGridSlot !== null && state.gridSlots[state.activeGridSlot]) {
-    state.gridSlots[state.activeGridSlot].params = { ...params };
-    saveGridState();
-  }
-
-  // Update selected tile if in tiled mode
-  if (state.tiledPreviewEnabled) {
-    applyParamsToSelectedTile(params);
-  }
-
-  // Update active highlighting
-  updateActiveGlobalPreset(index);
-  state.activeLocalPresetIndex = null;
-  clearLocalPresetHighlight();
-
-  // Sync to fullscreen (unless this call came from sync)
-  if (!fromSync) {
-    window.electronAPI.sendPresetSync({
-      type: 'global',
-      index: index,
-      params: params
-    });
-  }
-
-  const name = preset.name || `Global preset ${index + 1}`;
   setStatus(`${name} loaded`, 'success');
 }
 
@@ -379,19 +310,8 @@ function updateActiveLocalPreset(index) {
   if (btn) btn.classList.add('active');
 }
 
-function updateActiveGlobalPreset(index) {
-  state.activeGlobalPresetIndex = index;
-  clearGlobalPresetHighlight();
-  const btn = document.querySelector(`.preset-btn.global-preset[data-preset-index="${index}"]`);
-  if (btn) btn.classList.add('active');
-}
-
 function clearLocalPresetHighlight() {
   document.querySelectorAll('.preset-btn.local-preset').forEach(btn => btn.classList.remove('active'));
-}
-
-function clearGlobalPresetHighlight() {
-  document.querySelectorAll('.preset-btn.global-preset').forEach(btn => btn.classList.remove('active'));
 }
 
 function deleteLocalPreset(index, btnElement) {
@@ -408,7 +328,7 @@ function deleteLocalPreset(index, btnElement) {
     btn.onclick = () => recallLocalPreset(i);
     btn.oncontextmenu = (e) => {
       e.preventDefault();
-      showPresetContextMenu(e.clientX, e.clientY, i, btn, 'local');
+      showPresetContextMenu(e.clientX, e.clientY, i, btn);
     };
   });
 
@@ -416,28 +336,5 @@ function deleteLocalPreset(index, btnElement) {
   else if (state.activeLocalPresetIndex > index) state.activeLocalPresetIndex--;
 
   saveGridState();
-  setStatus('Shader preset deleted', 'success');
-}
-
-function deleteGlobalPreset(index, btnElement) {
-  state.globalPresets.splice(index, 1);
-  btnElement.remove();
-
-  // Re-index remaining buttons
-  const globalBtns = document.querySelectorAll('.preset-btn.global-preset');
-  globalBtns.forEach((btn, i) => {
-    btn.dataset.presetIndex = i;
-    updateGlobalPresetButtonLabel(btn, i);
-    btn.onclick = () => recallGlobalPreset(i);
-    btn.oncontextmenu = (e) => {
-      e.preventDefault();
-      showPresetContextMenu(e.clientX, e.clientY, i, btn, 'global');
-    };
-  });
-
-  if (state.activeGlobalPresetIndex === index) state.activeGlobalPresetIndex = null;
-  else if (state.activeGlobalPresetIndex > index) state.activeGlobalPresetIndex--;
-
-  saveGlobalPresetsToFile();
-  setStatus('Global preset deleted', 'success');
+  setStatus('Preset deleted', 'success');
 }

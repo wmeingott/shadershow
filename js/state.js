@@ -40,5 +40,6 @@ export const state = {
 
   // Tiled preview state
   tiledPreviewEnabled: false,
-  tileRenderers: []  // Array of MiniShaderRenderer for tiled preview
+  tileRenderers: [],  // Array of MiniShaderRenderer for tiled preview
+  selectedTileIndex: 0  // Currently selected tile for parameter/shader routing
 };

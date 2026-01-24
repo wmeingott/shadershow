@@ -2,6 +2,7 @@
 import { state } from './state.js';
 import { setStatus } from './utils.js';
 import { saveGridState } from './shader-grid.js';
+import { tileState } from './tile-state.js';
 
 // Debounced grid state save
 let saveGridStateTimeout = null;
@@ -29,6 +30,9 @@ export function initParams() {
       state.renderer.setParam('speed', value);
       speedValue.textContent = value.toFixed(2);
       window.electronAPI.sendParamUpdate({ name: 'speed', value });
+
+      // Also update selected tile's renderer if in tiled mode
+      updateSelectedTileParam('speed', value);
     });
 
     // Double-click to reset speed to 1
@@ -37,8 +41,41 @@ export function initParams() {
       state.renderer.setParam('speed', 1);
       speedValue.textContent = '1.00';
       window.electronAPI.sendParamUpdate({ name: 'speed', value: 1 });
+
+      // Also update selected tile's renderer if in tiled mode
+      updateSelectedTileParam('speed', 1);
     });
   }
+}
+
+// Update parameter on selected tile's renderer (for tiled preview mode)
+function updateSelectedTileParam(paramName, value) {
+  if (!state.tiledPreviewEnabled) return;
+
+  const tileIndex = state.selectedTileIndex;
+  if (tileIndex < 0 || tileIndex >= tileState.tiles.length) return;
+
+  const tile = tileState.tiles[tileIndex];
+  if (!tile || tile.gridSlotIndex === null) return;
+
+  const slotData = state.gridSlots[tile.gridSlotIndex];
+  if (!slotData) return;
+
+  // Update tile's stored params
+  if (!tile.params) tile.params = {};
+  tile.params[paramName] = value;
+
+  // Also update the slot's params
+  if (!slotData.params) slotData.params = {};
+  slotData.params[paramName] = value;
+
+  // Update the MiniShaderRenderer if it exists (only supports speed)
+  if (slotData.renderer && paramName === 'speed') {
+    slotData.renderer.setSpeed(value);
+  }
+
+  // Save state
+  debouncedSaveGridState();
 }
 
 export function initMouseAssignment() {
@@ -443,8 +480,23 @@ function updateCustomParamValue(paramName, value, arrayIndex = null) {
     slot.customParams[paramName] = state.renderer.getCustomParamValues()[paramName];
     debouncedSaveGridState();
   }
-  // Note: We intentionally do NOT regenerate the UI here - the input handlers
-  // already update the displayed values. This avoids expensive DOM operations.
+
+  // Also update selected tile's params if in tiled mode
+  // Note: MiniShaderRenderer doesn't support custom params, but we store them
+  // so they're applied when the tile is played in the main renderer
+  if (state.tiledPreviewEnabled) {
+    const tileIndex = state.selectedTileIndex;
+    if (tileIndex >= 0 && tileIndex < tileState.tiles.length) {
+      const tile = tileState.tiles[tileIndex];
+      if (tile && tile.gridSlotIndex !== null) {
+        const slotData = state.gridSlots[tile.gridSlotIndex];
+        if (slotData) {
+          if (!slotData.customParams) slotData.customParams = {};
+          slotData.customParams[paramName] = fullValue;
+        }
+      }
+    }
+  }
 }
 
 // Load custom param values to UI (after loading a slot or preset)

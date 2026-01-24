@@ -905,6 +905,12 @@ export function playGridShader(slotIndex) {
   const slotData = state.gridSlots[slotIndex];
   if (!slotData) return;
 
+  // If tiled preview is enabled, assign to selected tile instead
+  if (state.tiledPreviewEnabled) {
+    assignShaderToTile(slotIndex, state.selectedTileIndex);
+    return;
+  }
+
   // Clear previous active slot highlight
   if (state.activeGridSlot !== null) {
     const prevSlot = document.querySelector(`.grid-slot[data-slot="${state.activeGridSlot}"]`);

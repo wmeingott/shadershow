@@ -218,6 +218,7 @@ function renderLoop(currentTime) {
 // Cache for tiled preview canvas
 let tiledPreviewCanvas = null;
 let tiledPreviewCtx = null;
+let cachedTileBounds = null;  // Cache tile bounds for click detection
 
 // Render tiled preview using MiniShaderRenderers from grid slots
 function renderTiledPreview() {
@@ -234,9 +235,12 @@ function renderTiledPreview() {
     tiledPreviewCanvas.style.left = '0';
     tiledPreviewCanvas.style.width = '100%';
     tiledPreviewCanvas.style.height = '100%';
-    tiledPreviewCanvas.style.pointerEvents = 'none';
+    tiledPreviewCanvas.style.cursor = 'pointer';
     mainCanvas.parentElement.style.position = 'relative';
     mainCanvas.parentElement.appendChild(tiledPreviewCanvas);
+
+    // Add click handler for tile selection
+    tiledPreviewCanvas.addEventListener('click', handleTileClick);
   }
 
   // Sync canvas size
@@ -252,8 +256,9 @@ function renderTiledPreview() {
 
   const ctx = tiledPreviewCtx;
 
-  // Calculate tile bounds
+  // Calculate tile bounds and cache for click detection
   const bounds = calculateTileBounds(canvasWidth, canvasHeight);
+  cachedTileBounds = bounds;
 
   // Clear with gap color
   ctx.fillStyle = '#0d0d0d';
@@ -294,8 +299,13 @@ function renderTiledPreview() {
       continue;
     }
 
-    // Render the mini shader
+    // Render the mini shader with tile-specific params
     const miniRenderer = slotData.renderer;
+
+    // Apply tile's speed param (or fall back to slot's params)
+    const speed = tile.params?.speed ?? slotData.params?.speed ?? 1;
+    miniRenderer.setSpeed(speed);
+
     miniRenderer.render();
 
     // Draw the mini canvas to the tile region
@@ -305,10 +315,101 @@ function renderTiledPreview() {
     }
   }
 
+  // Draw selection highlight on selected tile
+  if (state.selectedTileIndex >= 0 && state.selectedTileIndex < bounds.length) {
+    const selectedBound = bounds[state.selectedTileIndex];
+    const selX = selectedBound.x;
+    const selY = canvasHeight - selectedBound.y - selectedBound.height;
+
+    ctx.strokeStyle = '#ffaa00';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(selX + 1.5, selY + 1.5, selectedBound.width - 3, selectedBound.height - 3);
+
+    // Draw tile number indicator
+    ctx.fillStyle = '#ffaa00';
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(`Tile ${state.selectedTileIndex + 1}`, selX + 6, selY + 4);
+  }
+
   // Show overlay canvas
   tiledPreviewCanvas.style.display = 'block';
 
   return mainStats;
+}
+
+// Handle click on tiled preview to select a tile
+function handleTileClick(e) {
+  if (!cachedTileBounds || !tiledPreviewCanvas) return;
+
+  const rect = tiledPreviewCanvas.getBoundingClientRect();
+  const scaleX = tiledPreviewCanvas.width / rect.width;
+  const scaleY = tiledPreviewCanvas.height / rect.height;
+
+  const clickX = (e.clientX - rect.left) * scaleX;
+  const clickY = (e.clientY - rect.top) * scaleY;
+
+  // Convert to WebGL coordinates (Y up)
+  const canvasHeight = tiledPreviewCanvas.height;
+
+  // Find which tile was clicked
+  for (let i = 0; i < cachedTileBounds.length; i++) {
+    const bound = cachedTileBounds[i];
+    // Convert bound to canvas coords (Y down)
+    const boundTop = canvasHeight - bound.y - bound.height;
+    const boundBottom = canvasHeight - bound.y;
+
+    if (clickX >= bound.x && clickX < bound.x + bound.width &&
+        clickY >= boundTop && clickY < boundBottom) {
+      selectTile(i);
+      return;
+    }
+  }
+}
+
+// Select a tile and update UI
+export async function selectTile(tileIndex) {
+  state.selectedTileIndex = tileIndex;
+
+  // Update active grid slot to match the tile's assigned shader
+  const tile = tileState.tiles[tileIndex];
+  if (tile && tile.gridSlotIndex !== null) {
+    const slotData = state.gridSlots[tile.gridSlotIndex];
+    if (slotData) {
+      // Update active slot highlight
+      if (state.activeGridSlot !== null) {
+        const prevSlot = document.querySelector(`.grid-slot[data-slot="${state.activeGridSlot}"]`);
+        if (prevSlot) prevSlot.classList.remove('active');
+      }
+
+      state.activeGridSlot = tile.gridSlotIndex;
+      const slot = document.querySelector(`.grid-slot[data-slot="${tile.gridSlotIndex}"]`);
+      if (slot) slot.classList.add('active');
+
+      // Load the tile's params to sliders
+      if (tile.params || slotData.params) {
+        const { loadParamsToSliders, generateCustomParamUI } = await import('./params.js');
+        loadParamsToSliders(tile.params || slotData.params);
+
+        // Load custom params if available
+        if (slotData.customParams && state.renderer?.setCustomParamValues) {
+          state.renderer.setCustomParamValues(slotData.customParams);
+          generateCustomParamUI();
+        }
+      }
+    }
+  }
+
+  // Show status
+  const { setStatus } = await import('./utils.js');
+  if (tile && tile.gridSlotIndex !== null) {
+    const slotData = state.gridSlots[tile.gridSlotIndex];
+    const name = slotData?.filePath?.split('/').pop() || `Slot ${tile.gridSlotIndex + 1}`;
+    setStatus(`Selected tile ${tileIndex + 1}: ${name}`, 'success');
+  } else {
+    setStatus(`Selected tile ${tileIndex + 1} (empty)`, 'success');
+  }
 }
 
 // Hide tiled preview overlay

@@ -292,7 +292,7 @@ function renderTiledPreview() {
       continue;
     }
 
-    // Get the grid slot's MiniShaderRenderer
+    // Get the slot's MiniShaderRenderer (shared, but we apply tile-specific params)
     const slotData = state.gridSlots[tile.gridSlotIndex];
     if (!slotData || !slotData.renderer) {
       // No renderer - render error placeholder
@@ -301,12 +301,25 @@ function renderTiledPreview() {
       continue;
     }
 
-    // Render the mini shader with tile-specific params
+    // Use slot's renderer but apply tile-specific params before rendering
     const miniRenderer = slotData.renderer;
 
-    // Apply tile's speed param (or fall back to slot's params)
+    // Reset custom params to defaults before applying tile-specific ones
+    // This ensures params from previous tiles don't bleed through
+    if (miniRenderer.resetCustomParams) {
+      miniRenderer.resetCustomParams();
+    }
+
+    // Apply tile's params (speed and custom params)
     const speed = tile.params?.speed ?? slotData.params?.speed ?? 1;
     miniRenderer.setSpeed(speed);
+
+    // Merge slot's custom params with tile's custom params (tile takes precedence)
+    // This ensures tile has access to all slot params plus its own overrides
+    const customParams = { ...(slotData.customParams || {}), ...(tile.customParams || {}) };
+    if (Object.keys(customParams).length > 0) {
+      miniRenderer.setParams(customParams);
+    }
 
     miniRenderer.render();
 
@@ -403,13 +416,14 @@ export function selectTile(tileIndex) {
         }
       }
 
-      // Load speed param to slider (use tile's params if set, otherwise slot's params)
+      // Load speed param to slider (use tile's own params, fallback to slot's params)
       const params = tile.params || slotData.params || {};
       loadParamsToSliders(params);
 
-      // Load custom params to main renderer and regenerate UI
-      if (slotData.customParams && state.renderer?.setCustomParamValues) {
-        state.renderer.setCustomParamValues(slotData.customParams);
+      // Load custom params to main renderer (use tile's own customParams, fallback to slot's)
+      const customParams = tile.customParams || slotData.customParams;
+      if (customParams && state.renderer?.setCustomParamValues) {
+        state.renderer.setCustomParamValues(customParams);
       }
 
       // Regenerate custom param UI for this shader

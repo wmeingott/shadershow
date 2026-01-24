@@ -291,15 +291,30 @@ function applyParamsToSelectedTile(params) {
   const slotData = state.gridSlots[tile.gridSlotIndex];
   if (!slotData) return;
 
-  // Update tile's stored params
-  tile.params = { ...params };
+  // Separate speed from custom params
+  const { speed, ...customParams } = params;
 
-  // Also update the slot's params
-  slotData.params = { ...params };
+  // Update tile's stored params (speed)
+  if (!tile.params) tile.params = {};
+  if (speed !== undefined) {
+    tile.params.speed = speed;
+  }
+
+  // Update tile's custom params
+  if (!tile.customParams) tile.customParams = {};
+  Object.assign(tile.customParams, customParams);
+
+  // Also update the slot's params and customParams
+  if (!slotData.params) slotData.params = {};
+  if (speed !== undefined) {
+    slotData.params.speed = speed;
+  }
+  if (!slotData.customParams) slotData.customParams = {};
+  Object.assign(slotData.customParams, customParams);
 
   // Update the MiniShaderRenderer speed if available
-  if (slotData.renderer && params.speed !== undefined) {
-    slotData.renderer.setSpeed(params.speed);
+  if (slotData.renderer && speed !== undefined) {
+    slotData.renderer.setSpeed(speed);
   }
 }
 

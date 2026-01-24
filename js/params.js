@@ -48,7 +48,7 @@ export function initParams() {
   }
 }
 
-// Update parameter on selected tile's renderer (for tiled preview mode)
+// Update parameter on selected tile (for tiled preview mode)
 function updateSelectedTileParam(paramName, value) {
   if (!state.tiledPreviewEnabled) return;
 
@@ -58,21 +58,12 @@ function updateSelectedTileParam(paramName, value) {
   const tile = tileState.tiles[tileIndex];
   if (!tile || tile.gridSlotIndex === null) return;
 
-  const slotData = state.gridSlots[tile.gridSlotIndex];
-  if (!slotData) return;
-
-  // Update tile's stored params
+  // Update tile's stored params (tile has its own independent params)
   if (!tile.params) tile.params = {};
   tile.params[paramName] = value;
 
-  // Also update the slot's params
-  if (!slotData.params) slotData.params = {};
-  slotData.params[paramName] = value;
-
-  // Update the MiniShaderRenderer if it exists
-  if (slotData.renderer && slotData.renderer.setParam) {
-    slotData.renderer.setParam(paramName, value);
-  }
+  // Note: The slot's renderer is shared. Tile params are applied during render.
+  // No need to update renderer here - renderTiledPreview will apply tile params.
 
   // Save state
   debouncedSaveGridState();
@@ -502,23 +493,16 @@ function updateCustomParamValue(paramName, value, arrayIndex = null) {
     debouncedSaveGridState();
   }
 
-  // Also update selected tile's renderer if in tiled mode
+  // Also update selected tile's customParams if in tiled mode
   if (state.tiledPreviewEnabled) {
     const tileIndex = state.selectedTileIndex;
     if (tileIndex >= 0 && tileIndex < tileState.tiles.length) {
       const tile = tileState.tiles[tileIndex];
       if (tile && tile.gridSlotIndex !== null) {
-        const slotData = state.gridSlots[tile.gridSlotIndex];
-        if (slotData) {
-          // Store the param value
-          if (!slotData.customParams) slotData.customParams = {};
-          slotData.customParams[paramName] = fullValue;
-
-          // Update the MiniShaderRenderer
-          if (slotData.renderer && slotData.renderer.setParam) {
-            slotData.renderer.setParam(paramName, fullValue);
-          }
-        }
+        // Store the param value in the tile's own customParams
+        if (!tile.customParams) tile.customParams = {};
+        tile.customParams[paramName] = fullValue;
+        // Note: renderTiledPreview will apply tile's customParams during render
       }
     }
   }

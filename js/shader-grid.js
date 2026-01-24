@@ -280,15 +280,20 @@ function assignShaderToTile(slotIndex, tileIndex) {
     return;
   }
 
-  // Update tile state
-  assignTile(tileIndex, slotIndex, slotData.params);
+  // Update tile state with copies of slot's params
+  // Tiles share the slot's renderer but have their own param copies
+  assignTile(tileIndex, slotIndex, slotData.params, slotData.customParams);
 
-  // Update tile renderer if tiled preview is enabled
+  // Update tile renderer reference (points to slot's renderer)
   updateTileRenderer(tileIndex);
 
   // Sync to fullscreen if tiled mode is active
+  const allParams = {
+    ...(slotData.params || {}),
+    ...(slotData.customParams || {})
+  };
   if (window.electronAPI.assignTileShader) {
-    window.electronAPI.assignTileShader(tileIndex, slotIndex, slotData.shaderCode, slotData.params);
+    window.electronAPI.assignTileShader(tileIndex, slotIndex, slotData.shaderCode, allParams);
   }
 
   // Save tile state
@@ -303,6 +308,8 @@ function saveTileState() {
     layout: { ...tileState.layout },
     tiles: tileState.tiles.map(t => ({
       gridSlotIndex: t.gridSlotIndex,
+      params: t.params ? { ...t.params } : null,
+      customParams: t.customParams ? { ...t.customParams } : null,
       visible: t.visible
     }))
   };
@@ -517,18 +524,34 @@ export async function assignShaderToSlot(slotIndex, shaderCode, filePath, skipSa
   // Create mini renderer for this slot
   const miniRenderer = new MiniShaderRenderer(canvas);
 
-  // Use provided params or capture current params
-  const slotParams = params || state.renderer.getParams();
-  const slotCustomParams = customParams || state.renderer.getCustomParamValues();
+  // Use provided params or capture current params for speed
+  const slotParams = params || { speed: 1 };
 
   try {
     miniRenderer.compile(shaderCode);
+
+    // Get custom params: start with defaults from the shader, then overlay any saved values
+    // This ensures all params have values even if saved state is incomplete
+    let slotCustomParams = {};
+
+    // First, populate with defaults from shader's @param definitions
+    for (const param of miniRenderer.customParams || []) {
+      slotCustomParams[param.name] = Array.isArray(param.default)
+        ? [...param.default]
+        : param.default;
+    }
+
+    // Then overlay any provided/saved custom params
+    if (customParams && Object.keys(customParams).length > 0) {
+      Object.assign(slotCustomParams, customParams);
+    }
+
     state.gridSlots[slotIndex] = {
       shaderCode,
       filePath,
       renderer: miniRenderer,
       params: { ...slotParams },
-      customParams: { ...slotCustomParams },
+      customParams: slotCustomParams,
       presets: presets || []
     };
     slot.classList.add('has-shader');
@@ -1156,7 +1179,7 @@ export function stopGridAnimation() {
 }
 
 // Mini shader renderer for grid previews
-class MiniShaderRenderer {
+export class MiniShaderRenderer {
   constructor(canvas) {
     this.canvas = canvas;
     this.gl = canvas.getContext('webgl2', { alpha: false, antialias: false });
@@ -1199,6 +1222,11 @@ class MiniShaderRenderer {
     Object.entries(params).forEach(([name, value]) => {
       this.setParam(name, value);
     });
+  }
+
+  // Reset custom params to shader defaults (call before applying tile-specific params)
+  resetCustomParams() {
+    this.customParamValues = {};
   }
 
   setupGeometry() {

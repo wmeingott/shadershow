@@ -10,13 +10,14 @@ export const tileState = {
   },
 
   // Tile assignments - array of tile configurations
-  // Each tile maps to a grid slot and can have its own params
+  // Each tile maps to a grid slot and can have its own independent params
+  // Tiles share the slot's renderer but have their own param copies
   // Initialize with 4 empty tiles for default 2x2 layout
   tiles: [
-    { gridSlotIndex: null, params: null, visible: true },
-    { gridSlotIndex: null, params: null, visible: true },
-    { gridSlotIndex: null, params: null, visible: true },
-    { gridSlotIndex: null, params: null, visible: true }
+    { gridSlotIndex: null, params: null, customParams: null, visible: true },
+    { gridSlotIndex: null, params: null, customParams: null, visible: true },
+    { gridSlotIndex: null, params: null, customParams: null, visible: true },
+    { gridSlotIndex: null, params: null, customParams: null, visible: true }
   ],
 
   // Runtime state (not persisted)
@@ -44,7 +45,8 @@ export function initTiles(rows, cols) {
   for (let i = 0; i < count; i++) {
     tileState.tiles.push({
       gridSlotIndex: null,  // Index into grid slots (0-31), null = empty
-      params: null,         // Per-tile parameter overrides (null = use slot defaults)
+      params: null,         // Per-tile parameter overrides (speed, etc)
+      customParams: null,   // Per-tile custom shader parameters
       visible: true         // Whether to render this tile
     });
   }
@@ -78,6 +80,7 @@ export function setLayout(rows, cols, gaps = 4, preserveTiles = false) {
         tileState.tiles.push({
           gridSlotIndex: null,
           params: null,
+          customParams: null,
           visible: true
         });
       }
@@ -85,6 +88,7 @@ export function setLayout(rows, cols, gaps = 4, preserveTiles = false) {
       tileState.tiles.push({
         gridSlotIndex: null,
         params: null,
+        customParams: null,
         visible: true
       });
     }
@@ -92,11 +96,12 @@ export function setLayout(rows, cols, gaps = 4, preserveTiles = false) {
 }
 
 // Assign a grid slot to a tile
-export function assignTile(tileIndex, gridSlotIndex, params = null) {
+export function assignTile(tileIndex, gridSlotIndex, params = null, customParams = null) {
   if (tileIndex >= 0 && tileIndex < tileState.tiles.length) {
     tileState.tiles[tileIndex] = {
       gridSlotIndex,
-      params,
+      params: params ? { ...params } : null,
+      customParams: customParams ? { ...customParams } : null,
       visible: true
     };
   }
@@ -108,6 +113,7 @@ export function clearTile(tileIndex) {
     tileState.tiles[tileIndex] = {
       gridSlotIndex: null,
       params: null,
+      customParams: null,
       visible: true
     };
   }
@@ -158,6 +164,7 @@ export function serializeTileState() {
     tiles: tileState.tiles.map(t => ({
       gridSlotIndex: t.gridSlotIndex,
       params: t.params ? { ...t.params } : null,
+      customParams: t.customParams ? { ...t.customParams } : null,
       visible: t.visible
     }))
   };
@@ -177,6 +184,7 @@ export function deserializeTileState(data) {
     tileState.tiles = data.tiles.map(t => ({
       gridSlotIndex: t.gridSlotIndex ?? null,
       params: t.params ? { ...t.params } : null,
+      customParams: t.customParams ? { ...t.customParams } : null,
       visible: t.visible !== false
     }));
   }
@@ -187,6 +195,7 @@ export function deserializeTileState(data) {
     tileState.tiles.push({
       gridSlotIndex: null,
       params: null,
+      customParams: null,
       visible: true
     });
   }

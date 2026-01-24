@@ -427,13 +427,14 @@ function initTileRenderers() {
   const { rows, cols } = tileState.layout;
   const tileCount = rows * cols;
 
-  // Create a MiniShaderRenderer for each tile
+  // Tiles share the slot's renderer to avoid WebGL context exhaustion
+  // Each tile just stores its own params/customParams
   for (let i = 0; i < tileCount; i++) {
     const tile = tileState.tiles[i];
     if (tile && tile.gridSlotIndex !== null) {
       const slotData = state.gridSlots[tile.gridSlotIndex];
       if (slotData && slotData.renderer) {
-        // Reuse existing MiniShaderRenderer from grid slot
+        // Reference the slot's renderer (shared)
         state.tileRenderers[i] = slotData.renderer;
       } else {
         state.tileRenderers[i] = null;
@@ -446,21 +447,18 @@ function initTileRenderers() {
 
 // Cleanup tile renderers
 function cleanupTileRenderers() {
+  // Tiles share slot renderers, so just clear references (don't dispose)
   state.tileRenderers = [];
 }
 
-// Update a specific tile's renderer when assigned
+// Update a specific tile's renderer reference when assigned
 export function updateTileRenderer(tileIndex) {
   if (!state.tiledPreviewEnabled) return;
 
   const tile = tileState.tiles[tileIndex];
-  if (tile && tile.gridSlotIndex !== null) {
-    const slotData = state.gridSlots[tile.gridSlotIndex];
-    if (slotData && slotData.renderer) {
-      state.tileRenderers[tileIndex] = slotData.renderer;
-    } else {
-      state.tileRenderers[tileIndex] = null;
-    }
+  if (tile && tile.renderer) {
+    // Each tile now has its own renderer
+    state.tileRenderers[tileIndex] = tile.renderer;
   } else {
     state.tileRenderers[tileIndex] = null;
   }

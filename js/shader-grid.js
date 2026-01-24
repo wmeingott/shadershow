@@ -906,12 +906,6 @@ export function selectGridSlot(slotIndex) {
   const slotData = state.gridSlots[slotIndex];
   if (!slotData) return;
 
-  // If tiled preview is enabled, assign shader to selected tile
-  if (state.tiledPreviewEnabled) {
-    assignShaderToTile(slotIndex, state.selectedTileIndex);
-    return;
-  }
-
   // Clear previous active slot highlight
   if (state.activeGridSlot !== null) {
     const prevSlot = document.querySelector(`.grid-slot[data-slot="${state.activeGridSlot}"]`);
@@ -926,21 +920,26 @@ export function selectGridSlot(slotIndex) {
   const isScene = slotData.type === 'scene';
   const slotName = slotData.filePath ? slotData.filePath.split('/').pop().split('\\').pop() : `Slot ${slotIndex + 1}`;
 
-  // Switch render mode if needed and compile the shader/scene to preview
-  if (isScene) {
-    setRenderMode('scene');
+  // If tiled preview is enabled, assign shader to selected tile
+  if (state.tiledPreviewEnabled) {
+    assignShaderToTile(slotIndex, state.selectedTileIndex);
   } else {
-    setRenderMode('shader');
+    // Switch render mode if needed and compile the shader/scene to main preview
+    if (isScene) {
+      setRenderMode('scene');
+    } else {
+      setRenderMode('shader');
+    }
+
+    // Compile the shader/scene to the main preview
+    try {
+      state.renderer.compile(slotData.shaderCode);
+    } catch (err) {
+      console.warn(`Failed to compile for preview:`, err.message);
+    }
   }
 
-  // Compile the shader/scene to the main preview
-  try {
-    state.renderer.compile(slotData.shaderCode);
-  } catch (err) {
-    console.warn(`Failed to compile for preview:`, err.message);
-  }
-
-  // Load params to sliders
+  // Load params to sliders (works for both tiled and non-tiled mode)
   if (slotData.params) {
     loadParamsToSliders(slotData.params);
   }
@@ -965,17 +964,26 @@ export function selectGridSlot(slotIndex) {
     ...(slotData.customParams || state.renderer.getCustomParamValues?.() || {})
   };
 
-  window.electronAPI.sendShaderUpdate({
-    shaderCode: slotData.shaderCode,
-    renderMode: isScene ? 'scene' : 'shader',
-    params: allParams
-  });
+  if (state.tiledPreviewEnabled) {
+    // In tiled mode, update the specific tile
+    if (window.electronAPI.assignTileShader) {
+      window.electronAPI.assignTileShader(state.selectedTileIndex, slotIndex, slotData.shaderCode, allParams);
+    }
+  } else {
+    // In normal mode, update the main fullscreen
+    window.electronAPI.sendShaderUpdate({
+      shaderCode: slotData.shaderCode,
+      renderMode: isScene ? 'scene' : 'shader',
+      params: allParams
+    });
 
-  if (window.electronAPI.sendBatchParamUpdate) {
-    window.electronAPI.sendBatchParamUpdate(allParams);
+    if (window.electronAPI.sendBatchParamUpdate) {
+      window.electronAPI.sendBatchParamUpdate(allParams);
+    }
   }
 
-  setStatus(`Playing ${slotName} (slot ${slotIndex + 1})`, 'success');
+  const tileInfo = state.tiledPreviewEnabled ? ` -> tile ${state.selectedTileIndex + 1}` : '';
+  setStatus(`Playing ${slotName} (slot ${slotIndex + 1}${tileInfo})`, 'success');
 }
 
 export function playGridShader(slotIndex) {

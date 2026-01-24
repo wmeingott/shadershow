@@ -119,16 +119,16 @@ export async function initShaderGrid() {
     slot.addEventListener('drop', dropHandler);
     listeners.push({ event: 'drop', handler: dropHandler });
 
-    // Left click - play shader in preview and/or fullscreen
+    // Left click - select slot and load parameters
     const clickHandler = () => {
       if (state.gridSlots[index]) {
-        playGridShader(index);
+        selectGridSlot(index);
       }
     };
     slot.addEventListener('click', clickHandler);
     listeners.push({ event: 'click', handler: clickHandler });
 
-    // Double click - load shader into editor
+    // Double click - open shader in editor tab
     const dblclickHandler = () => {
       if (state.gridSlots[index]) {
         loadGridShaderToEditor(index);
@@ -899,6 +899,53 @@ export function loadGridShaderToEditor(slotIndex) {
   updateSaveButtonState();
 
   setStatus(`Editing ${slotName} (${typeLabel} slot ${slotIndex + 1})`, 'success');
+}
+
+// Select a grid slot and load its parameters (single click behavior)
+export function selectGridSlot(slotIndex) {
+  const slotData = state.gridSlots[slotIndex];
+  if (!slotData) return;
+
+  // If tiled preview is enabled, assign shader to selected tile
+  if (state.tiledPreviewEnabled) {
+    assignShaderToTile(slotIndex, state.selectedTileIndex);
+    return;
+  }
+
+  // Clear previous active slot highlight
+  if (state.activeGridSlot !== null) {
+    const prevSlot = document.querySelector(`.grid-slot[data-slot="${state.activeGridSlot}"]`);
+    if (prevSlot) prevSlot.classList.remove('active');
+  }
+
+  // Set active slot
+  state.activeGridSlot = slotIndex;
+  const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`);
+  if (slot) slot.classList.add('active');
+
+  const isScene = slotData.type === 'scene';
+  const slotName = slotData.filePath ? slotData.filePath.split('/').pop().split('\\').pop() : `Slot ${slotIndex + 1}`;
+
+  // Load params to sliders
+  if (slotData.params) {
+    loadParamsToSliders(slotData.params);
+  }
+
+  // Load custom params if available and regenerate UI
+  if (slotData.customParams && !isScene && state.renderer?.setCustomParamValues) {
+    state.renderer.setCustomParamValues(slotData.customParams);
+  }
+
+  // Regenerate custom param UI
+  generateCustomParamUI();
+
+  // Update local presets UI for this shader
+  updateLocalPresetsUI();
+
+  // Update save button state
+  updateSaveButtonState();
+
+  setStatus(`Selected ${slotName} (slot ${slotIndex + 1})`, 'success');
 }
 
 export function playGridShader(slotIndex) {

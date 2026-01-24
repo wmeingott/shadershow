@@ -92,7 +92,19 @@ export function loadParamsToSliders(params) {
       speedSlider.value = params.speed;
       if (speedValue) speedValue.textContent = params.speed.toFixed(2);
       if (state.renderer) state.renderer.setParam('speed', params.speed);
+
+      // Also update selected tile if in tiled mode
+      updateSelectedTileParam('speed', params.speed);
     }
+  }
+
+  // Load all params to selected tile if in tiled mode
+  if (state.tiledPreviewEnabled && params) {
+    Object.entries(params).forEach(([name, value]) => {
+      if (name !== 'speed') {
+        updateSelectedTileParam(name, value);
+      }
+    });
   }
 }
 

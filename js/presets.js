@@ -3,6 +3,7 @@ import { state } from './state.js';
 import { setStatus } from './utils.js';
 import { saveGridState } from './shader-grid.js';
 import { loadParamsToSliders } from './params.js';
+import { tileState } from './tile-state.js';
 
 export async function initPresets() {
   // Local preset add button
@@ -287,6 +288,11 @@ export function recallLocalPreset(index, fromSync = false) {
   const params = preset.params || preset;
   loadParamsToSliders(params);
 
+  // Update selected tile if in tiled mode
+  if (state.tiledPreviewEnabled) {
+    applyParamsToSelectedTile(params);
+  }
+
   // Update active highlighting
   updateActiveLocalPreset(index);
   state.activeGlobalPresetIndex = null;
@@ -318,6 +324,11 @@ export function recallGlobalPreset(index, fromSync = false) {
     saveGridState();
   }
 
+  // Update selected tile if in tiled mode
+  if (state.tiledPreviewEnabled) {
+    applyParamsToSelectedTile(params);
+  }
+
   // Update active highlighting
   updateActiveGlobalPreset(index);
   state.activeLocalPresetIndex = null;
@@ -334,6 +345,31 @@ export function recallGlobalPreset(index, fromSync = false) {
 
   const name = preset.name || `Global preset ${index + 1}`;
   setStatus(`${name} loaded`, 'success');
+}
+
+// Apply params to selected tile (for tiled preview mode)
+function applyParamsToSelectedTile(params) {
+  if (!params) return;
+
+  const tileIndex = state.selectedTileIndex;
+  if (tileIndex < 0 || tileIndex >= tileState.tiles.length) return;
+
+  const tile = tileState.tiles[tileIndex];
+  if (!tile || tile.gridSlotIndex === null) return;
+
+  const slotData = state.gridSlots[tile.gridSlotIndex];
+  if (!slotData) return;
+
+  // Update tile's stored params
+  tile.params = { ...params };
+
+  // Also update the slot's params
+  slotData.params = { ...params };
+
+  // Update the MiniShaderRenderer speed if available
+  if (slotData.renderer && params.speed !== undefined) {
+    slotData.renderer.setSpeed(params.speed);
+  }
 }
 
 function updateActiveLocalPreset(index) {

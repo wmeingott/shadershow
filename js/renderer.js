@@ -2,7 +2,7 @@
 import { state } from './state.js';
 import { initEditor, compileShader } from './editor.js';
 import { initControls, initResizer } from './controls.js';
-import { initParams, initMouseAssignment } from './params.js';
+import { initParams, initMouseAssignment, loadParamsToSliders, generateCustomParamUI } from './params.js';
 import { initPresets } from './presets.js';
 import { initShaderGrid } from './shader-grid.js';
 import { initIPC } from './ipc.js';
@@ -11,6 +11,8 @@ import { sendNDIFrame } from './ndi.js';
 import { sendSyphonFrame } from './syphon.js';
 import { initTileConfig, showTileConfigDialog } from './tile-config.js';
 import { tileState, calculateTileBounds } from './tile-state.js';
+import { setStatus } from './utils.js';
+import { updateLocalPresetsUI } from './presets.js';
 
 // Initialize application
 document.addEventListener('DOMContentLoaded', async () => {
@@ -369,7 +371,7 @@ function handleTileClick(e) {
 }
 
 // Select a tile and update UI
-export async function selectTile(tileIndex) {
+export function selectTile(tileIndex) {
   state.selectedTileIndex = tileIndex;
 
   // Update active grid slot to match the tile's assigned shader
@@ -377,7 +379,7 @@ export async function selectTile(tileIndex) {
   if (tile && tile.gridSlotIndex !== null) {
     const slotData = state.gridSlots[tile.gridSlotIndex];
     if (slotData) {
-      // Update active slot highlight
+      // Update active slot highlight in grid
       if (state.activeGridSlot !== null) {
         const prevSlot = document.querySelector(`.grid-slot[data-slot="${state.activeGridSlot}"]`);
         if (prevSlot) prevSlot.classList.remove('active');
@@ -387,28 +389,35 @@ export async function selectTile(tileIndex) {
       const slot = document.querySelector(`.grid-slot[data-slot="${tile.gridSlotIndex}"]`);
       if (slot) slot.classList.add('active');
 
-      // Load the tile's params to sliders
-      if (tile.params || slotData.params) {
-        const { loadParamsToSliders, generateCustomParamUI } = await import('./params.js');
-        loadParamsToSliders(tile.params || slotData.params);
+      // Temporarily disable tiled mode to prevent param routing loop
+      const wasTiledEnabled = state.tiledPreviewEnabled;
+      state.tiledPreviewEnabled = false;
 
-        // Load custom params if available
-        if (slotData.customParams && state.renderer?.setCustomParamValues) {
-          state.renderer.setCustomParamValues(slotData.customParams);
-          generateCustomParamUI();
-        }
+      // Load speed param to slider (use tile's params if set, otherwise slot's params)
+      const params = tile.params || slotData.params || {};
+      loadParamsToSliders(params);
+
+      // Load custom params to main renderer and regenerate UI
+      if (slotData.customParams && state.renderer?.setCustomParamValues) {
+        state.renderer.setCustomParamValues(slotData.customParams);
       }
-    }
-  }
 
-  // Show status
-  const { setStatus } = await import('./utils.js');
-  if (tile && tile.gridSlotIndex !== null) {
-    const slotData = state.gridSlots[tile.gridSlotIndex];
-    const name = slotData?.filePath?.split('/').pop() || `Slot ${tile.gridSlotIndex + 1}`;
-    setStatus(`Selected tile ${tileIndex + 1}: ${name}`, 'success');
+      // Regenerate custom param UI for this shader
+      generateCustomParamUI();
+
+      // Re-enable tiled mode
+      state.tiledPreviewEnabled = wasTiledEnabled;
+
+      // Update local presets UI for this shader
+      updateLocalPresetsUI();
+
+      const name = slotData.filePath?.split('/').pop() || `Slot ${tile.gridSlotIndex + 1}`;
+      setStatus(`Tile ${tileIndex + 1}: ${name}`, 'success');
+    } else {
+      setStatus(`Tile ${tileIndex + 1} (empty slot)`, 'success');
+    }
   } else {
-    setStatus(`Selected tile ${tileIndex + 1} (empty)`, 'success');
+    setStatus(`Tile ${tileIndex + 1} (empty)`, 'success');
   }
 }
 

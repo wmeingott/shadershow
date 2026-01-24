@@ -901,7 +901,7 @@ export function loadGridShaderToEditor(slotIndex) {
   setStatus(`Editing ${slotName} (${typeLabel} slot ${slotIndex + 1})`, 'success');
 }
 
-// Select a grid slot and load its parameters (single click behavior)
+// Select a grid slot: load shader into preview and show its parameters (single click behavior)
 export function selectGridSlot(slotIndex) {
   const slotData = state.gridSlots[slotIndex];
   if (!slotData) return;
@@ -926,17 +926,31 @@ export function selectGridSlot(slotIndex) {
   const isScene = slotData.type === 'scene';
   const slotName = slotData.filePath ? slotData.filePath.split('/').pop().split('\\').pop() : `Slot ${slotIndex + 1}`;
 
+  // Switch render mode if needed and compile the shader/scene to preview
+  if (isScene) {
+    setRenderMode('scene');
+  } else {
+    setRenderMode('shader');
+  }
+
+  // Compile the shader/scene to the main preview
+  try {
+    state.renderer.compile(slotData.shaderCode);
+  } catch (err) {
+    console.warn(`Failed to compile for preview:`, err.message);
+  }
+
   // Load params to sliders
   if (slotData.params) {
     loadParamsToSliders(slotData.params);
   }
 
-  // Load custom params if available and regenerate UI
+  // Load custom params if available
   if (slotData.customParams && !isScene && state.renderer?.setCustomParamValues) {
     state.renderer.setCustomParamValues(slotData.customParams);
   }
 
-  // Regenerate custom param UI
+  // Regenerate custom param UI based on the shader's @param definitions
   generateCustomParamUI();
 
   // Update local presets UI for this shader
@@ -945,7 +959,23 @@ export function selectGridSlot(slotIndex) {
   // Update save button state
   updateSaveButtonState();
 
-  setStatus(`Selected ${slotName} (slot ${slotIndex + 1})`, 'success');
+  // Sync to fullscreen window if open
+  const allParams = {
+    ...(slotData.params || {}),
+    ...(slotData.customParams || state.renderer.getCustomParamValues?.() || {})
+  };
+
+  window.electronAPI.sendShaderUpdate({
+    shaderCode: slotData.shaderCode,
+    renderMode: isScene ? 'scene' : 'shader',
+    params: allParams
+  });
+
+  if (window.electronAPI.sendBatchParamUpdate) {
+    window.electronAPI.sendBatchParamUpdate(allParams);
+  }
+
+  setStatus(`Playing ${slotName} (slot ${slotIndex + 1})`, 'success');
 }
 
 export function playGridShader(slotIndex) {

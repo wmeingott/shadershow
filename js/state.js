@@ -36,5 +36,9 @@ export const state = {
   // Parameter presets
   globalPresets: [],
   activeGlobalPresetIndex: null,
-  activeLocalPresetIndex: null
+  activeLocalPresetIndex: null,
+
+  // Tiled preview state
+  tiledPreviewEnabled: false,
+  tileRenderers: []  // Array of MiniShaderRenderer for tiled preview
 };

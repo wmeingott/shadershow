@@ -10,6 +10,7 @@ import { restoreViewState } from './view-state.js';
 import { sendNDIFrame } from './ndi.js';
 import { sendSyphonFrame } from './syphon.js';
 import { initTileConfig, showTileConfigDialog } from './tile-config.js';
+import { tileState, calculateTileBounds } from './tile-state.js';
 
 // Initialize application
 document.addEventListener('DOMContentLoaded', async () => {
@@ -185,7 +186,14 @@ function renderLoop(currentTime) {
     lastPreviewFrameTime = currentTime;
   }
 
-  const stats = state.renderer.render();
+  let stats;
+
+  // Check if tiled preview mode is enabled
+  if (state.tiledPreviewEnabled && tileState.tiles.length > 0) {
+    stats = renderTiledPreview();
+  } else {
+    stats = state.renderer.render();
+  }
 
   if (stats && state.previewEnabled) {
     // Use cached DOM elements
@@ -205,6 +213,116 @@ function renderLoop(currentTime) {
     sendSyphonFrame();
   }
   if (state.syphonEnabled) state.syphonFrameCounter++;
+}
+
+// Cache for tiled preview canvas
+let tiledPreviewCanvas = null;
+let tiledPreviewCtx = null;
+
+// Render tiled preview using MiniShaderRenderers from grid slots
+function renderTiledPreview() {
+  const mainCanvas = document.getElementById('shader-canvas');
+  const canvasWidth = mainCanvas.width;
+  const canvasHeight = mainCanvas.height;
+
+  // Create or get the tiled preview overlay canvas
+  if (!tiledPreviewCanvas) {
+    tiledPreviewCanvas = document.createElement('canvas');
+    tiledPreviewCanvas.id = 'tiled-preview-canvas';
+    tiledPreviewCanvas.style.position = 'absolute';
+    tiledPreviewCanvas.style.top = '0';
+    tiledPreviewCanvas.style.left = '0';
+    tiledPreviewCanvas.style.width = '100%';
+    tiledPreviewCanvas.style.height = '100%';
+    tiledPreviewCanvas.style.pointerEvents = 'none';
+    mainCanvas.parentElement.style.position = 'relative';
+    mainCanvas.parentElement.appendChild(tiledPreviewCanvas);
+  }
+
+  // Sync canvas size
+  if (tiledPreviewCanvas.width !== canvasWidth || tiledPreviewCanvas.height !== canvasHeight) {
+    tiledPreviewCanvas.width = canvasWidth;
+    tiledPreviewCanvas.height = canvasHeight;
+  }
+
+  // Get 2D context
+  if (!tiledPreviewCtx) {
+    tiledPreviewCtx = tiledPreviewCanvas.getContext('2d');
+  }
+
+  const ctx = tiledPreviewCtx;
+
+  // Calculate tile bounds
+  const bounds = calculateTileBounds(canvasWidth, canvasHeight);
+
+  // Clear with gap color
+  ctx.fillStyle = '#0d0d0d';
+  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+  // Get time info from main renderer
+  const mainStats = state.renderer.getStats?.() || { time: 0, frame: 0, fps: 60 };
+
+  // Render each tile
+  for (let i = 0; i < bounds.length; i++) {
+    const tile = tileState.tiles[i];
+    const bound = bounds[i];
+
+    // Convert WebGL coords (Y up) to canvas coords (Y down)
+    const drawX = bound.x;
+    const drawY = canvasHeight - bound.y - bound.height;
+
+    if (!tile || tile.gridSlotIndex === null || !tile.visible) {
+      // Empty tile - render dark background
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(drawX, drawY, bound.width, bound.height);
+
+      // Draw tile number
+      ctx.fillStyle = '#444';
+      ctx.font = '14px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`${i + 1}`, drawX + bound.width / 2, drawY + bound.height / 2);
+      continue;
+    }
+
+    // Get the grid slot's MiniShaderRenderer
+    const slotData = state.gridSlots[tile.gridSlotIndex];
+    if (!slotData || !slotData.renderer) {
+      // No renderer - render error placeholder
+      ctx.fillStyle = '#2a1a1a';
+      ctx.fillRect(drawX, drawY, bound.width, bound.height);
+      continue;
+    }
+
+    // Render the mini shader
+    const miniRenderer = slotData.renderer;
+    miniRenderer.render();
+
+    // Draw the mini canvas to the tile region
+    const miniCanvas = miniRenderer.canvas;
+    if (miniCanvas) {
+      ctx.drawImage(miniCanvas, drawX, drawY, bound.width, bound.height);
+    }
+  }
+
+  // Show overlay canvas
+  tiledPreviewCanvas.style.display = 'block';
+
+  return mainStats;
+}
+
+// Hide tiled preview overlay
+export function hideTiledPreviewOverlay() {
+  if (tiledPreviewCanvas) {
+    tiledPreviewCanvas.style.display = 'none';
+  }
+}
+
+// Show tiled preview overlay
+export function showTiledPreviewOverlay() {
+  if (tiledPreviewCanvas) {
+    tiledPreviewCanvas.style.display = 'block';
+  }
 }
 
 // Update preview frame rate limiting based on fullscreen FPS

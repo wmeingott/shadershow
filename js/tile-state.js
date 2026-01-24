@@ -11,7 +11,13 @@ export const tileState = {
 
   // Tile assignments - array of tile configurations
   // Each tile maps to a grid slot and can have its own params
-  tiles: [],
+  // Initialize with 4 empty tiles for default 2x2 layout
+  tiles: [
+    { gridSlotIndex: null, params: null, visible: true },
+    { gridSlotIndex: null, params: null, visible: true },
+    { gridSlotIndex: null, params: null, visible: true },
+    { gridSlotIndex: null, params: null, visible: true }
+  ],
 
   // Runtime state (not persisted)
   renderers: [],      // TileRenderer instances (fullscreen window only)

@@ -7,6 +7,8 @@ import { setRenderMode, ensureSceneRenderer } from './renderer.js';
 import { setEditorMode } from './editor.js';
 import { parseShaderParams, generateUniformDeclarations } from './param-parser.js';
 import { openInTab } from './tabs.js';
+import { tileState, assignTile } from './tile-state.js';
+import { updateTileRenderer, refreshTileRenderers } from './controls.js';
 
 // Track drag state
 let dragSourceIndex = null;
@@ -208,6 +210,47 @@ function showGridContextMenu(x, y, slotIndex) {
   }
   menu.appendChild(clearItem);
 
+  // Send to Tile submenu (only if has shader and tiles are configured)
+  if (hasShader && tileState.tiles.length > 0) {
+    const separator = document.createElement('div');
+    separator.className = 'context-menu-separator';
+    menu.appendChild(separator);
+
+    const { rows, cols } = tileState.layout;
+    const tileCount = rows * cols;
+
+    // Create "Send to Tile" submenu container
+    const tileSubmenu = document.createElement('div');
+    tileSubmenu.className = 'context-menu-item has-submenu';
+    tileSubmenu.textContent = 'Send to Tile';
+
+    const submenuArrow = document.createElement('span');
+    submenuArrow.className = 'submenu-arrow';
+    submenuArrow.textContent = '\u25b6';
+    tileSubmenu.appendChild(submenuArrow);
+
+    const submenuContent = document.createElement('div');
+    submenuContent.className = 'context-submenu';
+
+    for (let i = 0; i < tileCount; i++) {
+      const tileItem = document.createElement('div');
+      tileItem.className = 'context-menu-item';
+      const currentSlot = tileState.tiles[i]?.gridSlotIndex;
+      const tileLabel = currentSlot !== null ? `Tile ${i + 1} (Slot ${currentSlot + 1})` : `Tile ${i + 1} (Empty)`;
+      tileItem.textContent = tileLabel;
+
+      tileItem.addEventListener('click', () => {
+        hideContextMenu();
+        assignShaderToTile(slotIndex, i);
+      });
+
+      submenuContent.appendChild(tileItem);
+    }
+
+    tileSubmenu.appendChild(submenuContent);
+    menu.appendChild(tileSubmenu);
+  }
+
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
   document.body.appendChild(menu);
@@ -227,6 +270,43 @@ function hideContextMenu() {
   if (menu) {
     menu.remove();
   }
+}
+
+// Assign a shader slot to a tile
+function assignShaderToTile(slotIndex, tileIndex) {
+  const slotData = state.gridSlots[slotIndex];
+  if (!slotData) {
+    setStatus('No shader in slot', 'error');
+    return;
+  }
+
+  // Update tile state
+  assignTile(tileIndex, slotIndex, slotData.params);
+
+  // Update tile renderer if tiled preview is enabled
+  updateTileRenderer(tileIndex);
+
+  // Sync to fullscreen if tiled mode is active
+  if (window.electronAPI.assignTileShader) {
+    window.electronAPI.assignTileShader(tileIndex, slotIndex, slotData.shaderCode, slotData.params);
+  }
+
+  // Save tile state
+  saveTileState();
+
+  setStatus(`Assigned slot ${slotIndex + 1} to tile ${tileIndex + 1}`, 'success');
+}
+
+// Save tile state to file
+function saveTileState() {
+  const saveData = {
+    layout: { ...tileState.layout },
+    tiles: tileState.tiles.map(t => ({
+      gridSlotIndex: t.gridSlotIndex,
+      visible: t.visible
+    }))
+  };
+  window.electronAPI.saveTileState?.(saveData);
 }
 
 // Set current parameters as default for a shader slot

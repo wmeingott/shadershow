@@ -3,6 +3,8 @@ import { state } from './state.js';
 import { saveActiveSlotShader, startGridAnimation, stopGridAnimation } from './shader-grid.js';
 import { saveViewState } from './view-state.js';
 import { showSettingsDialog } from './settings.js';
+import { tileState, calculateTileBounds } from './tile-state.js';
+import { showTileConfigDialog } from './tile-config.js';
 
 export function initControls() {
   // New File button - show dialog
@@ -80,6 +82,13 @@ export function initControls() {
   // Blackout button
   const btnBlackout = document.getElementById('btn-blackout');
   btnBlackout.addEventListener('click', toggleBlackout);
+
+  // Tiled preview button
+  const btnTiled = document.getElementById('btn-tiled');
+  btnTiled.addEventListener('click', toggleTiledPreview);
+
+  // Double-click to open tile config dialog
+  btnTiled.addEventListener('dblclick', showTileConfigDialog);
 
   // Settings button
   const btnSettings = document.getElementById('btn-settings');
@@ -391,4 +400,74 @@ export function toggleBlackout() {
   }
 
   window.electronAPI.sendBlackout(state.blackoutEnabled);
+}
+
+export function toggleTiledPreview() {
+  state.tiledPreviewEnabled = !state.tiledPreviewEnabled;
+  const btnTiled = document.getElementById('btn-tiled');
+
+  if (state.tiledPreviewEnabled) {
+    btnTiled.classList.add('active');
+    btnTiled.title = 'Disable Tiled Preview (double-click for config)';
+    initTileRenderers();
+  } else {
+    btnTiled.classList.remove('active');
+    btnTiled.title = 'Toggle Tiled Preview';
+    cleanupTileRenderers();
+    // Hide tiled preview overlay by directly accessing DOM
+    const overlay = document.getElementById('tiled-preview-canvas');
+    if (overlay) overlay.style.display = 'none';
+  }
+}
+
+// Initialize tile renderers for preview
+function initTileRenderers() {
+  cleanupTileRenderers();
+
+  const { rows, cols } = tileState.layout;
+  const tileCount = rows * cols;
+
+  // Create a MiniShaderRenderer for each tile
+  for (let i = 0; i < tileCount; i++) {
+    const tile = tileState.tiles[i];
+    if (tile && tile.gridSlotIndex !== null) {
+      const slotData = state.gridSlots[tile.gridSlotIndex];
+      if (slotData && slotData.renderer) {
+        // Reuse existing MiniShaderRenderer from grid slot
+        state.tileRenderers[i] = slotData.renderer;
+      } else {
+        state.tileRenderers[i] = null;
+      }
+    } else {
+      state.tileRenderers[i] = null;
+    }
+  }
+}
+
+// Cleanup tile renderers
+function cleanupTileRenderers() {
+  state.tileRenderers = [];
+}
+
+// Update a specific tile's renderer when assigned
+export function updateTileRenderer(tileIndex) {
+  if (!state.tiledPreviewEnabled) return;
+
+  const tile = tileState.tiles[tileIndex];
+  if (tile && tile.gridSlotIndex !== null) {
+    const slotData = state.gridSlots[tile.gridSlotIndex];
+    if (slotData && slotData.renderer) {
+      state.tileRenderers[tileIndex] = slotData.renderer;
+    } else {
+      state.tileRenderers[tileIndex] = null;
+    }
+  } else {
+    state.tileRenderers[tileIndex] = null;
+  }
+}
+
+// Refresh all tile renderers
+export function refreshTileRenderers() {
+  if (!state.tiledPreviewEnabled) return;
+  initTileRenderers();
 }

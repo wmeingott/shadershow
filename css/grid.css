@@ -134,6 +134,48 @@
   background-color: transparent;
 }
 
+.context-menu-separator {
+  height: 1px;
+  background-color: var(--border-color);
+  margin: 4px 8px;
+}
+
+/* Submenu styles */
+.context-menu-item.has-submenu {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.submenu-arrow {
+  font-size: 10px;
+  margin-left: 8px;
+  color: var(--text-secondary);
+}
+
+.context-submenu {
+  display: none;
+  position: absolute;
+  left: 100%;
+  top: -4px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 4px 0;
+  min-width: 140px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.context-menu-item.has-submenu:hover .context-submenu {
+  display: block;
+}
+
+.context-submenu .context-menu-item {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
 /* Shader Presets Section in Grid Panel */
 .grid-presets-section {
   width: 100%;

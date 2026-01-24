@@ -3,6 +3,7 @@
 
 import { state } from './state.js';
 import { setStatus } from './utils.js';
+import { tileState, setLayout, assignTile as assignTileToState } from './tile-state.js';
 
 // Local tile configuration state
 let tileConfig = {
@@ -259,6 +260,9 @@ function assignShaderToTile(tileIndex, gridSlotIndex) {
     visible: true
   };
 
+  // Sync to shared tileState module
+  assignTileToState(tileIndex, gridSlotIndex, slotData.params);
+
   updatePreviewGrid();
   setStatus(`Assigned slot ${gridSlotIndex + 1} to tile ${tileIndex + 1}`, 'success');
 }
@@ -272,6 +276,9 @@ function clearTile(tileIndex) {
     params: null,
     visible: true
   };
+
+  // Sync to shared tileState module
+  tileState.tiles[tileIndex] = { gridSlotIndex: null, params: null, visible: true };
 
   updatePreviewGrid();
 }
@@ -426,10 +433,23 @@ async function loadTileState() {
         tileConfig.tiles.push({ gridSlotIndex: null, params: null, visible: true });
       }
       tileConfig.tiles.length = count;
+
+      // Sync to shared tileState module
+      syncToTileState();
     }
   } catch (err) {
     console.error('Failed to load tile state:', err);
   }
+}
+
+// Sync local tileConfig to shared tileState module
+function syncToTileState() {
+  setLayout(tileConfig.layout.rows, tileConfig.layout.cols, tileConfig.layout.gaps);
+  tileConfig.tiles.forEach((tile, index) => {
+    if (tile.gridSlotIndex !== null) {
+      assignTileToState(index, tile.gridSlotIndex, tile.params);
+    }
+  });
 }
 
 // Export for use from menu

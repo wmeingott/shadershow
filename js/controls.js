@@ -5,6 +5,46 @@ import { saveViewState } from './view-state.js';
 import { showSettingsDialog } from './settings.js';
 
 export function initControls() {
+  // New File button - show dialog
+  const btnNew = document.getElementById('btn-new');
+  const newFileDialog = document.getElementById('new-file-dialog');
+  const newFileClose = document.getElementById('new-file-close');
+  const newShaderBtn = document.getElementById('new-shader-btn');
+  const newSceneBtn = document.getElementById('new-scene-btn');
+
+  btnNew.addEventListener('click', () => {
+    newFileDialog.classList.remove('hidden');
+  });
+
+  newFileClose.addEventListener('click', () => {
+    newFileDialog.classList.add('hidden');
+  });
+
+  // Close on backdrop click
+  newFileDialog.addEventListener('click', (e) => {
+    if (e.target === newFileDialog) {
+      newFileDialog.classList.add('hidden');
+    }
+  });
+
+  // New Shader
+  newShaderBtn.addEventListener('click', () => {
+    newFileDialog.classList.add('hidden');
+    window.electronAPI.newFile('shader');
+  });
+
+  // New Scene
+  newSceneBtn.addEventListener('click', () => {
+    newFileDialog.classList.add('hidden');
+    window.electronAPI.newFile('scene');
+  });
+
+  // Open File button
+  const btnOpen = document.getElementById('btn-open');
+  btnOpen.addEventListener('click', () => {
+    window.electronAPI.openFile();
+  });
+
   // Play/Pause button
   const btnPlay = document.getElementById('btn-play');
   btnPlay.addEventListener('click', togglePlayback);

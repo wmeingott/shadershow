@@ -2,7 +2,7 @@
 import { state } from './state.js';
 import { setStatus } from './utils.js';
 import { saveGridState } from './shader-grid.js';
-import { loadParamsToSliders, applyParamRanges } from './params.js';
+import { loadParamsToSliders } from './params.js';
 
 export async function initPresets() {
   // Local preset add button
@@ -34,11 +34,7 @@ async function loadGlobalPresets() {
 }
 
 async function loadParamRanges() {
-  const settings = await window.electronAPI.getSettings();
-  if (settings && settings.paramRanges) {
-    state.paramRanges = { ...state.paramRanges, ...settings.paramRanges };
-    applyParamRanges();
-  }
+  // Legacy param ranges are no longer used - custom @param system has its own ranges
 }
 
 export function saveGlobalPresetsToFile() {

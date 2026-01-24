@@ -25,10 +25,6 @@ export const state = {
   fullscreenTargetFps: 60,  // Display refresh rate
   previewFrameInterval: 0,  // 0 = no limiting, otherwise ms between frames
 
-  // Mouse assignment for params P0-P4
-  mouseAssignments: { p0: '', p1: '', p2: '', p3: '', p4: '' },
-  mousePosition: { x: 0.5, y: 0.5 },
-
   // Track channel state for fullscreen sync
   channelState: [null, null, null, null],
 
@@ -40,14 +36,5 @@ export const state = {
   // Parameter presets
   globalPresets: [],
   activeGlobalPresetIndex: null,
-  activeLocalPresetIndex: null,
-
-  // Parameter ranges (min, max) for P0-P4
-  paramRanges: {
-    p0: { min: 0, max: 1 },
-    p1: { min: 0, max: 1 },
-    p2: { min: 0, max: 1 },
-    p3: { min: 0, max: 1 },
-    p4: { min: 0, max: 1 }
-  }
+  activeLocalPresetIndex: null
 };

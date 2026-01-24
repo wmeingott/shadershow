@@ -7,41 +7,58 @@ import { loadGridPresetsFromData, saveGridState } from './shader-grid.js';
 import { recallLocalPreset, recallGlobalPreset } from './presets.js';
 import { loadParamsToSliders } from './params.js';
 import { updatePreviewFrameLimit, setRenderMode, detectRenderMode } from './renderer.js';
-
-// Track the last saved content to detect changes
-let lastSavedContent = '';
+import { createTab, openInTab, activeTabHasChanges, markTabSaved, getActiveTab } from './tabs.js';
 
 export function initIPC() {
   // File operations
   window.electronAPI.onFileOpened(({ content, filePath }) => {
     // Detect render mode from file extension/content
     const mode = detectRenderMode(filePath, content);
-    setRenderMode(mode);
-    setEditorMode(mode);
 
-    state.editor.setValue(content, -1);
-    lastSavedContent = content;
-    compileShader();
+    // Open in a new tab (or activate existing if already open)
+    openInTab({
+      content,
+      filePath,
+      type: mode,
+      activate: true
+    });
   });
 
-  window.electronAPI.onNewFile(() => {
-    window.electronAPI.getDefaultShader().then(defaultShader => {
-      state.editor.setValue(defaultShader, -1);
-      lastSavedContent = defaultShader;
-      compileShader();
-    });
+  window.electronAPI.onNewFile(async (data) => {
+    const fileType = data?.fileType || 'shader';
+
+    if (fileType === 'scene') {
+      const defaultScene = await window.electronAPI.getDefaultScene();
+      createTab({
+        content: defaultScene,
+        type: 'scene',
+        title: 'Untitled Scene',
+        activate: true
+      });
+    } else {
+      const defaultShader = await window.electronAPI.getDefaultShader();
+      createTab({
+        content: defaultShader,
+        type: 'shader',
+        title: 'Untitled Shader',
+        activate: true
+      });
+    }
   });
 
   window.electronAPI.onRequestContentForSave(() => {
     const content = state.editor.getValue();
-    lastSavedContent = content;
     window.electronAPI.saveContent(content);
+    // Mark current tab as saved
+    const activeTab = getActiveTab();
+    if (activeTab) {
+      markTabSaved(activeTab.id);
+    }
   });
 
   // Check if editor has unsaved changes
   window.electronAPI.onCheckEditorChanges(() => {
-    const currentContent = state.editor.getValue();
-    const hasChanges = currentContent !== lastSavedContent;
+    const hasChanges = activeTabHasChanges();
     window.electronAPI.sendEditorHasChanges(hasChanges);
   });
 

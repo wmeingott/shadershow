@@ -2,11 +2,14 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // File operations
+  newFile: (fileType) => ipcRenderer.send('trigger-new-file', fileType),
+  openFile: () => ipcRenderer.send('trigger-open-file'),
   onFileOpened: (callback) => ipcRenderer.on('file-opened', (event, data) => callback(data)),
-  onNewFile: (callback) => ipcRenderer.on('new-file', () => callback()),
+  onNewFile: (callback) => ipcRenderer.on('new-file', (event, data) => callback(data)),
   onRequestContentForSave: (callback) => ipcRenderer.on('request-content-for-save', () => callback()),
   saveContent: (content) => ipcRenderer.send('save-content', content),
   getDefaultShader: () => ipcRenderer.invoke('get-default-shader'),
+  getDefaultScene: () => ipcRenderer.invoke('get-default-scene'),
   onCheckEditorChanges: (callback) => ipcRenderer.on('check-editor-changes', () => callback()),
   sendEditorHasChanges: (hasChanges) => ipcRenderer.send('editor-has-changes-response', hasChanges),
 
@@ -36,12 +39,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendShaderUpdate: (data) => ipcRenderer.send('shader-update', data),
   sendTimeSync: (data) => ipcRenderer.send('time-sync', data),
   sendParamUpdate: (data) => ipcRenderer.send('param-update', data),
+  sendBatchParamUpdate: (params) => ipcRenderer.send('batch-param-update', params),
 
   // Fullscreen operations (fullscreen window)
   onInitFullscreen: (callback) => ipcRenderer.on('init-fullscreen', (event, data) => callback(data)),
   onShaderUpdate: (callback) => ipcRenderer.on('shader-update', (event, data) => callback(data)),
   onTimeSync: (callback) => ipcRenderer.on('time-sync', (event, data) => callback(data)),
   onParamUpdate: (callback) => ipcRenderer.on('param-update', (event, data) => callback(data)),
+  onBatchParamUpdate: (callback) => ipcRenderer.on('batch-param-update', (event, data) => callback(data)),
   onPresetSync: (callback) => ipcRenderer.on('preset-sync', (event, data) => callback(data)),
   sendPresetSync: (data) => ipcRenderer.send('preset-sync', data),
   onBlackout: (callback) => ipcRenderer.on('blackout', (event, data) => callback(data)),
@@ -99,5 +104,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Shader file operations
   saveShaderToSlot: (slotIndex, shaderCode) => ipcRenderer.invoke('save-shader-to-slot', slotIndex, shaderCode),
   loadShaderFromSlot: (slotIndex) => ipcRenderer.invoke('load-shader-from-slot', slotIndex),
-  deleteShaderFromSlot: (slotIndex) => ipcRenderer.invoke('delete-shader-from-slot', slotIndex)
+  deleteShaderFromSlot: (slotIndex) => ipcRenderer.invoke('delete-shader-from-slot', slotIndex),
+
+  // Tiled display operations (main window)
+  initTiledFullscreen: (config) => ipcRenderer.send('init-tiled-fullscreen', config),
+  updateTileLayout: (layout) => ipcRenderer.send('tile-layout-update', layout),
+  assignTileShader: (tileIndex, shaderCode, params) => ipcRenderer.send('tile-assign', { tileIndex, shaderCode, params }),
+  updateTileParam: (tileIndex, name, value) => ipcRenderer.send('tile-param-update', { tileIndex, name, value }),
+  exitTiledMode: () => ipcRenderer.send('exit-tiled-mode'),
+
+  // Tiled display operations (fullscreen window)
+  onInitTiledFullscreen: (callback) => ipcRenderer.on('init-tiled-fullscreen', (event, data) => callback(data)),
+  onTileLayoutUpdate: (callback) => ipcRenderer.on('tile-layout-update', (event, data) => callback(data)),
+  onTileAssign: (callback) => ipcRenderer.on('tile-assign', (event, data) => callback(data)),
+  onTileParamUpdate: (callback) => ipcRenderer.on('tile-param-update', (event, data) => callback(data)),
+  onExitTiledMode: (callback) => ipcRenderer.on('exit-tiled-mode', () => callback()),
+
+  // Tile state persistence
+  saveTileState: (tileState) => ipcRenderer.send('save-tile-state', tileState),
+  loadTileState: () => ipcRenderer.invoke('load-tile-state'),
+
+  // Open tiled fullscreen
+  openTiledFullscreen: (config) => ipcRenderer.send('open-tiled-fullscreen', config),
+
+  // Menu handlers for tile config
+  onOpenTileConfig: (callback) => ipcRenderer.on('open-tile-config', () => callback())
 });

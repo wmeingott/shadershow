@@ -54,6 +54,19 @@
   color: var(--warning-color);
 }
 
+/* Error state for slots that failed to compile */
+.grid-slot.has-error {
+  border-color: #cc4444;
+}
+
+.grid-slot.has-error:hover {
+  border-color: #ff6666;
+}
+
+.grid-slot.has-error .slot-number {
+  color: #ff4444;
+}
+
 /* Drag and drop states */
 .grid-slot.dragging {
   opacity: 0.5;

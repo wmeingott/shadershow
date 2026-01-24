@@ -42,6 +42,11 @@ const gridStateFile = path.join(dataDir, 'grid-state.json');
 const presetsFile = path.join(dataDir, 'presets.json');
 const settingsFile = path.join(dataDir, 'settings.json');
 const viewStateFile = path.join(dataDir, 'view-state.json');
+const tileStateFile = path.join(dataDir, 'tile-state.json');
+
+// Track tiled mode state
+let tiledFullscreenWindow = null;
+let tiledModeActive = false;
 
 // Ensure data directory exists and migrate old data
 function ensureDataDir() {
@@ -301,6 +306,10 @@ function createMenu() {
         {
           label: 'Fullscreen Preview',
           submenu: buildFullscreenSubmenu()
+        },
+        {
+          label: 'Configure Tiled Display...',
+          click: () => mainWindow.webContents.send('open-tile-config')
         },
         { type: 'separator' },
         {
@@ -574,7 +583,7 @@ function createFullscreenWindow(display, shaderState) {
   });
 }
 
-async function newFile() {
+async function newFile(fileType = 'shader') {
   // Ask the renderer if there are unsaved changes
   const hasChanges = await new Promise((resolve) => {
     ipcMain.once('editor-has-changes-response', (event, result) => {
@@ -604,7 +613,7 @@ async function newFile() {
   }
 
   currentFilePath = null;
-  mainWindow.webContents.send('new-file');
+  mainWindow.webContents.send('new-file', { fileType });
   updateTitle();
 }
 
@@ -612,8 +621,7 @@ async function openFile() {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
     filters: [
-      { name: 'Shader Files', extensions: ['frag', 'glsl', 'shader', 'fs'] },
-      { name: 'Three.js Scenes', extensions: ['scene.js', 'jsx'] },
+      { name: 'Shaders & Scenes', extensions: ['frag', 'glsl', 'shader', 'fs', 'jsx', 'js'] },
       { name: 'All Files', extensions: ['*'] }
     ]
   });
@@ -1016,7 +1024,7 @@ ipcMain.handle('get-default-shader', async () => {
  * ShaderShow - Available Uniforms
  * ================================
  * vec3  iResolution      - Viewport resolution (width, height, 1.0)
- * float iTime            - Playback time in seconds (affected by iSpeed)
+ * float iTime            - Playback time in seconds
  * float iTimeDelta       - Time since last frame in seconds
  * int   iFrame           - Current frame number
  * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)
@@ -1025,15 +1033,125 @@ ipcMain.handle('get-default-shader', async () => {
  * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)
  * vec3  iChannelResolution[4] - Resolution of each channel
  *
- * float iParams[5]       - Custom parameters P0-P4 (0.0-1.0, sliders)
- * vec3  iColorRGB[10]    - Custom colors C0-C9 (RGB, 0.0-1.0 each)
- * float iSpeed           - Speed multiplier for iTime
+ * Custom Parameters (@param)
+ * --------------------------
+ * Define custom uniforms with UI controls using @param comments:
+ *   // @param name type [default] [min, max] "description"
+ *
+ * Supported types: int, float, vec2, vec3, vec4, color
+ *
+ * Examples:
+ *   // @param speed float 1.0 [0.0, 2.0] "Animation speed"
+ *   // @param center vec2 0.5, 0.5 "Center position"
+ *   // @param tint color [1.0, 0.5, 0.0] "Tint color"
  */
 
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     vec2 uv = fragCoord / iResolution.xy;
     vec3 col = 0.5 + 0.5 * cos(iTime + uv.xyx + vec3(0, 2, 4));
     fragColor = vec4(col, 1.0);
+}`;
+});
+
+ipcMain.handle('get-default-scene', async () => {
+  // Return a new Three.js scene template
+  return `/*
+ * ShaderShow - Three.js Scene
+ * ===========================
+ * Write a setup() function that creates and returns your scene.
+ * Write an animate() function for per-frame updates.
+ *
+ * Available in setup(THREE, canvas, params):
+ *   THREE   - Three.js library
+ *   canvas  - The rendering canvas
+ *   params  - Custom parameter values
+ *
+ * Custom Parameters (@param)
+ * --------------------------
+ * Define custom uniforms with UI controls using @param comments:
+ *   // @param name type [default] [min, max] "description"
+ *
+ * Supported types: int, float, vec2, vec3, vec4, color
+ */
+
+// @param rotationSpeed float 1.0 [0.0, 5.0] "Rotation speed"
+// @param cubeColor color [0.2, 0.6, 1.0] "Cube color"
+
+function setup(THREE, canvas, params) {
+  // Create scene
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x1a1a2e);
+
+  // Create camera
+  const camera = new THREE.PerspectiveCamera(
+    60,
+    canvas.width / canvas.height,
+    0.1,
+    1000
+  );
+  camera.position.set(0, 2, 5);
+  camera.lookAt(0, 0, 0);
+
+  // Create renderer
+  const renderer = new THREE.WebGLRenderer({
+    canvas: canvas,
+    antialias: true,
+    preserveDrawingBuffer: true
+  });
+  renderer.setSize(canvas.width, canvas.height, false);
+  renderer.shadowMap.enabled = true;
+
+  // Create a cube
+  const geometry = new THREE.BoxGeometry(1, 1, 1);
+  const material = new THREE.MeshStandardMaterial({
+    color: 0x4499ff,
+    roughness: 0.5,
+    metalness: 0.5
+  });
+  const cube = new THREE.Mesh(geometry, material);
+  cube.castShadow = true;
+  cube.position.y = 0.5;
+  scene.add(cube);
+
+  // Create ground plane
+  const groundGeometry = new THREE.PlaneGeometry(10, 10);
+  const groundMaterial = new THREE.MeshStandardMaterial({
+    color: 0x333333,
+    roughness: 0.8
+  });
+  const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  // Add lights
+  const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
+  scene.add(ambientLight);
+
+  const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+  directionalLight.position.set(5, 10, 5);
+  directionalLight.castShadow = true;
+  scene.add(directionalLight);
+
+  return { scene, camera, renderer, cube, material };
+}
+
+function animate(context, time, deltaTime, params) {
+  const { cube, material } = context;
+
+  // Rotate the cube
+  const speed = params.rotationSpeed || 1.0;
+  cube.rotation.x = time * speed;
+  cube.rotation.y = time * speed * 0.7;
+
+  // Update cube color from params
+  if (params.cubeColor) {
+    material.color.setRGB(
+      params.cubeColor[0],
+      params.cubeColor[1],
+      params.cubeColor[2]
+    );
+  }
 }`;
 });
 
@@ -1063,6 +1181,14 @@ ipcMain.on('time-sync', (event, data) => {
 ipcMain.on('param-update', (event, data) => {
   if (fullscreenWindow && !fullscreenWindow.isDestroyed()) {
     fullscreenWindow.webContents.send('param-update', data);
+  }
+});
+
+// Forward batched param updates to fullscreen window (reduces IPC overhead)
+ipcMain.on('batch-param-update', (event, params) => {
+  if (fullscreenWindow && !fullscreenWindow.isDestroyed()) {
+    // Send all params in a single IPC call
+    fullscreenWindow.webContents.send('batch-param-update', params);
   }
 });
 
@@ -1117,8 +1243,7 @@ ipcMain.handle('load-shader-for-grid', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
     filters: [
-      { name: 'Shader Files', extensions: ['frag', 'glsl', 'shader', 'fs'] },
-      { name: 'Three.js Scenes', extensions: ['scene.js', 'jsx'] },
+      { name: 'Shaders & Scenes', extensions: ['frag', 'glsl', 'shader', 'fs', 'jsx', 'js'] },
       { name: 'All Files', extensions: ['*'] }
     ]
   });
@@ -1208,7 +1333,10 @@ ipcMain.handle('load-grid-state', async () => {
           shaderCode,
           filePath: slot.filePath,
           params: slot.params || {},
-          presets: slot.presets || []
+          customParams: slot.customParams || {},
+          presets: slot.presets || [],
+          paramNames: slot.paramNames || {},
+          type: slot.type || 'shader'
         };
       });
 
@@ -1314,6 +1442,16 @@ ipcMain.on('preview-resolution', async (event, { width, height }) => {
   }
 
   createMenu();
+});
+
+// Trigger new file from toolbar
+ipcMain.on('trigger-new-file', (event, fileType) => {
+  newFile(fileType || 'shader');
+});
+
+// Trigger open file from toolbar
+ipcMain.on('trigger-open-file', () => {
+  openFile();
 });
 
 // Toggle NDI from toolbar
@@ -1516,6 +1654,128 @@ ipcMain.handle('load-view-state', async () => {
   }
   return null;
 });
+
+// =============================================================================
+// Tiled Display IPC Handlers
+// =============================================================================
+
+// Save tile state
+ipcMain.on('save-tile-state', async (event, tileState) => {
+  ensureDataDir();
+  try {
+    await fsPromises.writeFile(tileStateFile, JSON.stringify(tileState, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to save tile state:', err);
+  }
+});
+
+// Load tile state
+ipcMain.handle('load-tile-state', async () => {
+  try {
+    if (fs.existsSync(tileStateFile)) {
+      const data = fs.readFileSync(tileStateFile, 'utf-8');
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error('Failed to load tile state:', err);
+  }
+  return null;
+});
+
+// Open tiled fullscreen window
+ipcMain.on('open-tiled-fullscreen', (event, config) => {
+  openTiledFullscreen(config);
+});
+
+// Initialize tiled fullscreen (forward to fullscreen window)
+ipcMain.on('init-tiled-fullscreen', (event, config) => {
+  if (fullscreenWindow && !fullscreenWindow.isDestroyed()) {
+    fullscreenWindow.webContents.send('init-tiled-fullscreen', config);
+    tiledModeActive = true;
+  }
+});
+
+// Update tile layout (forward to fullscreen window)
+ipcMain.on('tile-layout-update', (event, layout) => {
+  if (fullscreenWindow && !fullscreenWindow.isDestroyed()) {
+    fullscreenWindow.webContents.send('tile-layout-update', layout);
+  }
+});
+
+// Assign shader to tile (forward to fullscreen window)
+ipcMain.on('tile-assign', (event, data) => {
+  if (fullscreenWindow && !fullscreenWindow.isDestroyed()) {
+    fullscreenWindow.webContents.send('tile-assign', data);
+  }
+});
+
+// Update tile parameter (forward to fullscreen window)
+ipcMain.on('tile-param-update', (event, data) => {
+  if (fullscreenWindow && !fullscreenWindow.isDestroyed()) {
+    fullscreenWindow.webContents.send('tile-param-update', data);
+  }
+});
+
+// Exit tiled mode (forward to fullscreen window)
+ipcMain.on('exit-tiled-mode', () => {
+  if (fullscreenWindow && !fullscreenWindow.isDestroyed()) {
+    fullscreenWindow.webContents.send('exit-tiled-mode');
+    tiledModeActive = false;
+  }
+});
+
+// Create tiled fullscreen window
+function openTiledFullscreen(config) {
+  // Close existing fullscreen window if any
+  if (fullscreenWindow) {
+    fullscreenWindow.close();
+    fullscreenWindow = null;
+  }
+
+  const displays = screen.getAllDisplays();
+  // Use primary display or first display
+  const display = displays.find(d => d.bounds.x === 0 && d.bounds.y === 0) || displays[0];
+  const { x, y, width, height } = display.bounds;
+
+  fullscreenWindow = new BrowserWindow({
+    x,
+    y,
+    width,
+    height,
+    fullscreen: true,
+    frame: false,
+    alwaysOnTop: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    },
+    backgroundColor: '#000000'
+  });
+
+  fullscreenWindow.loadFile('fullscreen.html');
+
+  // Send tile configuration once the window is ready
+  fullscreenWindow.webContents.on('did-finish-load', () => {
+    fullscreenWindow.webContents.send('init-tiled-fullscreen', config);
+    tiledModeActive = true;
+  });
+
+  // Handle ESC key to close
+  fullscreenWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'Escape') {
+      fullscreenWindow.close();
+    }
+  });
+
+  fullscreenWindow.on('closed', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('fullscreen-closed');
+    }
+    fullscreenWindow = null;
+    tiledModeActive = false;
+  });
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

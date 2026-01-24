@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' file: blob:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' file: blob:;">
   <title>ShaderShow - Fullscreen</title>
   <style>
     * {
@@ -110,7 +110,11 @@
   <div id="exit-hint">Press ESC to exit fullscreen • Move mouse for presets • Keys 1-9 for global presets</div>
 
   <!-- Three.js for 3D scene rendering -->
-  <script src="node_modules/three/build/three.min.js"></script>
+  <script>window.THREE = null;</script>
+  <script type="module">
+    import * as THREE from './node_modules/three/build/three.module.js';
+    window.THREE = THREE;
+  </script>
 
   <!-- Babel for JSX compilation -->
   <script src="node_modules/@babel/standalone/babel.min.js"></script>
@@ -118,6 +122,7 @@
   <!-- Renderers -->
   <script src="shader-renderer.js"></script>
   <script src="three-scene-renderer.js"></script>
+  <script src="tile-renderer.js"></script>
   <script src="fullscreen-renderer.js"></script>
 </body>
 </html>

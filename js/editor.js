@@ -3,8 +3,9 @@ import { state } from './state.js';
 import { setStatus } from './utils.js';
 import { saveActiveSlotShader } from './shader-grid.js';
 import { generateCustomParamUI } from './params.js';
+import { initTabs, markTabSaved, getActiveTab } from './tabs.js';
 
-export function initEditor() {
+export async function initEditor() {
   state.editor = ace.edit('editor');
   state.editor.setTheme('ace/theme/monokai');
   state.editor.session.setMode('ace/mode/glsl');
@@ -17,8 +18,8 @@ export function initEditor() {
     enableBasicAutocompletion: true
   });
 
-  // Auto-compile on change (debounced)
-  state.editor.session.on('change', () => {
+  // Auto-compile on change (debounced) - attached to editor, works across all sessions
+  state.editor.on('change', () => {
     clearTimeout(state.compileTimeout);
     state.compileTimeout = setTimeout(compileShader, 500);
   });
@@ -48,8 +49,32 @@ export function initEditor() {
         // Otherwise use standard file save
         window.electronAPI.saveContent(state.editor.getValue());
       }
+      // Mark the current tab as saved
+      const activeTab = getActiveTab();
+      if (activeTab) {
+        markTabSaved(activeTab.id);
+      }
     }
   });
+
+  // Listen for tab activation to switch modes and compile
+  window.addEventListener('tab-activated', (e) => {
+    const { type } = e.detail;
+
+    // Set editor mode based on tab type
+    setEditorMode(type);
+
+    // Import setRenderMode dynamically to avoid circular dependency
+    import('./renderer.js').then(({ setRenderMode }) => {
+      setRenderMode(type);
+      // Compile after mode is set
+      compileShader();
+      generateCustomParamUI();
+    });
+  });
+
+  // Initialize tabs system (will create initial tab with default shader)
+  await initTabs();
 }
 
 // Set editor mode based on file type
@@ -63,6 +88,9 @@ export function setEditorMode(mode) {
 
 // Compile current editor content (shader or scene)
 export function compileShader() {
+  // Guard: renderer may not be initialized yet during startup
+  if (!state.renderer) return;
+
   const source = state.editor.getValue();
 
   // Clear previous error markers

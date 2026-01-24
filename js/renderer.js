@@ -9,66 +9,117 @@ import { initIPC } from './ipc.js';
 import { restoreViewState } from './view-state.js';
 import { sendNDIFrame } from './ndi.js';
 import { sendSyphonFrame } from './syphon.js';
+import { initTileConfig, showTileConfigDialog } from './tile-config.js';
 
 // Initialize application
 document.addEventListener('DOMContentLoaded', async () => {
-  initEditor();
-  initRenderer();
-  initControls();
-  initParams();
-  initMouseAssignment();
-  initPresets();
-  initResizer();
-  initIPC();
-  initShaderGrid();
+  try {
+    console.log('Starting initialization...');
 
-  // Load default shader
-  const defaultShader = await window.electronAPI.getDefaultShader();
-  state.editor.setValue(defaultShader, -1);
-  compileShader();
+    // Initialize editor first (creates initial tab with default shader)
+    await initEditor();
+    console.log('Editor initialized');
 
-  // Restore saved view state
-  await restoreViewState();
+    initRenderer();
+    console.log('Renderer initialized');
 
-  // Start render loop
-  renderLoop();
+    initControls();
+    console.log('Controls initialized');
+
+    initParams();
+    initMouseAssignment();
+    initPresets();
+    initResizer();
+    initIPC();
+    initShaderGrid();
+    initTileConfig();
+
+    // Compile the initial shader now that renderer is ready
+    compileShader();
+
+    // Restore saved view state
+    await restoreViewState();
+
+    // Cache DOM elements and start render loop
+    cacheRenderLoopElements();
+    renderLoop();
+    console.log('Initialization complete');
+  } catch (err) {
+    console.error('Initialization error:', err);
+  }
+});
+
+// IPC handler for opening tile config dialog from menu
+window.electronAPI.onOpenTileConfig?.(() => {
+  showTileConfigDialog();
 });
 
 function initRenderer() {
   const canvas = document.getElementById('shader-canvas');
 
-  // Initialize both renderers
+  // Initialize shader renderer (always available)
   state.shaderRenderer = new ShaderRenderer(canvas);
-  state.sceneRenderer = new ThreeSceneRenderer(canvas);
+
+  // Scene renderer will be initialized lazily when needed
+  state.sceneRenderer = null;
 
   // Start with shader renderer as default
   state.renderer = state.shaderRenderer;
   state.renderMode = 'shader';
 
-  // Set initial resolution for both renderers
+  // Set initial resolution
   const select = document.getElementById('resolution-select');
   const [width, height] = select.value.split('x').map(Number);
   state.shaderRenderer.setResolution(width, height);
-  state.sceneRenderer.setResolution(width, height);
+}
+
+// Lazy initialization of ThreeSceneRenderer (called when loading a scene file)
+export function ensureSceneRenderer() {
+  if (state.sceneRenderer) return state.sceneRenderer;
+
+  const canvas = document.getElementById('shader-canvas');
+
+  try {
+    if (typeof ThreeSceneRenderer !== 'undefined' && window.THREE) {
+      state.sceneRenderer = new ThreeSceneRenderer(canvas);
+      state.sceneRenderer.setResolution(canvas.width, canvas.height);
+      return state.sceneRenderer;
+    } else {
+      console.error('THREE.js not available for scene rendering');
+      return null;
+    }
+  } catch (err) {
+    console.error('Failed to initialize ThreeSceneRenderer:', err.message);
+    return null;
+  }
 }
 
 // Switch between shader and scene renderers
 export function setRenderMode(mode) {
+  // Guard: renderer may not be initialized yet during startup
+  if (!state.shaderRenderer) {
+    state.renderMode = mode;
+    return;
+  }
+
   if (mode === state.renderMode) return;
 
   state.renderMode = mode;
 
   if (mode === 'scene') {
-    state.renderer = state.sceneRenderer;
-    // Set editor mode to JavaScript/JSX
+    const sceneRenderer = ensureSceneRenderer();
+    if (!sceneRenderer) {
+      console.error('Cannot switch to scene mode - ThreeSceneRenderer not available');
+      state.renderMode = 'shader';
+      return;
+    }
+    state.renderer = sceneRenderer;
     state.editor.session.setMode('ace/mode/javascript');
   } else {
     state.renderer = state.shaderRenderer;
-    // Set editor mode to GLSL
     state.editor.session.setMode('ace/mode/glsl');
   }
 
-  // Sync resolution
   const canvas = document.getElementById('shader-canvas');
   state.renderer.setResolution(canvas.width, canvas.height);
 }
@@ -76,25 +127,23 @@ export function setRenderMode(mode) {
 // Detect render mode from file extension or content
 export function detectRenderMode(filename, content) {
   if (!filename) {
-    // Detect from content
     if (content.includes('function setup') && content.includes('THREE')) {
       return 'scene';
     }
     if (content.includes('void mainImage') || content.includes('void main()')) {
       return 'shader';
     }
-    return 'shader'; // Default
+    return 'shader';
   }
 
   const ext = filename.toLowerCase().split('.').pop();
-  if (ext === 'jsx' || ext === 'js' && filename.includes('.scene.')) {
+  if (ext === 'jsx' || (ext === 'js' && filename.includes('.scene.'))) {
     return 'scene';
   }
   if (ext === 'glsl' || ext === 'frag' || ext === 'vert') {
     return 'shader';
   }
 
-  // Check content as fallback
   if (content && content.includes('function setup')) {
     return 'scene';
   }
@@ -104,6 +153,17 @@ export function detectRenderMode(filename, content) {
 
 // Preview frame rate limiting
 let lastPreviewFrameTime = 0;
+
+// Cache DOM elements for render loop (avoid querySelectorAll per frame)
+let cachedFpsDisplay = null;
+let cachedTimeDisplay = null;
+let cachedFrameDisplay = null;
+
+function cacheRenderLoopElements() {
+  cachedFpsDisplay = document.getElementById('fps-display');
+  cachedTimeDisplay = document.getElementById('time-display');
+  cachedFrameDisplay = document.getElementById('frame-display');
+}
 
 function renderLoop(currentTime) {
   state.animationId = requestAnimationFrame(renderLoop);
@@ -128,9 +188,10 @@ function renderLoop(currentTime) {
   const stats = state.renderer.render();
 
   if (stats && state.previewEnabled) {
-    document.getElementById('fps-display').textContent = `FPS: ${stats.fps}`;
-    document.getElementById('time-display').textContent = `Time: ${stats.time.toFixed(2)}s`;
-    document.getElementById('frame-display').textContent = `Frame: ${stats.frame}`;
+    // Use cached DOM elements
+    if (cachedFpsDisplay) cachedFpsDisplay.textContent = `FPS: ${stats.fps}`;
+    if (cachedTimeDisplay) cachedTimeDisplay.textContent = `Time: ${stats.time.toFixed(2)}s`;
+    if (cachedFrameDisplay) cachedFrameDisplay.textContent = `Frame: ${stats.frame}`;
   }
 
   // Send frame to NDI output if enabled (skip frames to reduce load)

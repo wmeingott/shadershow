@@ -1,13 +1,47 @@
 // Shader Grid module
 import { state } from './state.js';
 import { setStatus } from './utils.js';
-import { loadParamsToSliders, updateParamLabels, resetParamLabels, generateCustomParamUI } from './params.js';
+import { loadParamsToSliders, generateCustomParamUI } from './params.js';
 import { updateLocalPresetsUI } from './presets.js';
+import { setRenderMode, ensureSceneRenderer } from './renderer.js';
+import { setEditorMode } from './editor.js';
+import { parseShaderParams, generateUniformDeclarations } from './param-parser.js';
+import { openInTab } from './tabs.js';
 
 // Track drag state
 let dragSourceIndex = null;
 
+// Store event listeners for cleanup (to prevent memory leaks)
+const slotEventListeners = new Map();
+let documentClickHandler = null;
+
+// Cleanup function for grid event listeners
+export function cleanupShaderGrid() {
+  // Remove slot event listeners
+  slotEventListeners.forEach((listeners, slot) => {
+    listeners.forEach(({ event, handler }) => {
+      slot.removeEventListener(event, handler);
+    });
+  });
+  slotEventListeners.clear();
+
+  // Remove document click handler
+  if (documentClickHandler) {
+    document.removeEventListener('click', documentClickHandler);
+    documentClickHandler = null;
+  }
+
+  // Disconnect intersection observer
+  cleanupGridVisibilityObserver();
+
+  // Stop grid animation
+  stopGridAnimation();
+}
+
 export async function initShaderGrid() {
+  // Cleanup any existing listeners first
+  cleanupShaderGrid();
+
   const slots = document.querySelectorAll('.grid-slot');
 
   slots.forEach((slot, index) => {
@@ -18,79 +52,104 @@ export async function initShaderGrid() {
     // Enable dragging
     slot.setAttribute('draggable', 'true');
 
+    // Store listeners for this slot
+    const listeners = [];
+
     // Drag start - store source index
-    slot.addEventListener('dragstart', (e) => {
+    const dragstartHandler = (e) => {
       dragSourceIndex = index;
       slot.classList.add('dragging');
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', index.toString());
-    });
+    };
+    slot.addEventListener('dragstart', dragstartHandler);
+    listeners.push({ event: 'dragstart', handler: dragstartHandler });
 
     // Drag end - cleanup
-    slot.addEventListener('dragend', () => {
+    const dragendHandler = () => {
       slot.classList.remove('dragging');
       dragSourceIndex = null;
       // Remove drag-over from all slots
       document.querySelectorAll('.grid-slot.drag-over').forEach(s => {
         s.classList.remove('drag-over');
       });
-    });
+    };
+    slot.addEventListener('dragend', dragendHandler);
+    listeners.push({ event: 'dragend', handler: dragendHandler });
 
     // Drag over - allow drop
-    slot.addEventListener('dragover', (e) => {
+    const dragoverHandler = (e) => {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
-    });
+    };
+    slot.addEventListener('dragover', dragoverHandler);
+    listeners.push({ event: 'dragover', handler: dragoverHandler });
 
     // Drag enter - visual feedback
-    slot.addEventListener('dragenter', (e) => {
+    const dragenterHandler = (e) => {
       e.preventDefault();
       if (dragSourceIndex !== null && dragSourceIndex !== index) {
         slot.classList.add('drag-over');
       }
-    });
+    };
+    slot.addEventListener('dragenter', dragenterHandler);
+    listeners.push({ event: 'dragenter', handler: dragenterHandler });
 
     // Drag leave - remove visual feedback
-    slot.addEventListener('dragleave', (e) => {
+    const dragleaveHandler = (e) => {
       // Only remove if actually leaving the slot (not entering a child)
       if (!slot.contains(e.relatedTarget)) {
         slot.classList.remove('drag-over');
       }
-    });
+    };
+    slot.addEventListener('dragleave', dragleaveHandler);
+    listeners.push({ event: 'dragleave', handler: dragleaveHandler });
 
     // Drop - swap slots
-    slot.addEventListener('drop', (e) => {
+    const dropHandler = (e) => {
       e.preventDefault();
       slot.classList.remove('drag-over');
       const fromIndex = parseInt(e.dataTransfer.getData('text/plain'), 10);
       if (!isNaN(fromIndex) && fromIndex !== index) {
         swapGridSlots(fromIndex, index);
       }
-    });
+    };
+    slot.addEventListener('drop', dropHandler);
+    listeners.push({ event: 'drop', handler: dropHandler });
 
     // Left click - play shader in preview and/or fullscreen
-    slot.addEventListener('click', () => {
+    const clickHandler = () => {
       if (state.gridSlots[index]) {
         playGridShader(index);
       }
-    });
+    };
+    slot.addEventListener('click', clickHandler);
+    listeners.push({ event: 'click', handler: clickHandler });
 
     // Double click - load shader into editor
-    slot.addEventListener('dblclick', () => {
+    const dblclickHandler = () => {
       if (state.gridSlots[index]) {
         loadGridShaderToEditor(index);
       }
-    });
+    };
+    slot.addEventListener('dblclick', dblclickHandler);
+    listeners.push({ event: 'dblclick', handler: dblclickHandler });
 
     // Right click - context menu
-    slot.addEventListener('contextmenu', (e) => {
+    const contextmenuHandler = (e) => {
       e.preventDefault();
       showGridContextMenu(e.clientX, e.clientY, index);
-    });
+    };
+    slot.addEventListener('contextmenu', contextmenuHandler);
+    listeners.push({ event: 'contextmenu', handler: contextmenuHandler });
+
+    // Store all listeners for this slot
+    slotEventListeners.set(slot, listeners);
   });
 
   // Close context menu when clicking elsewhere
-  document.addEventListener('click', hideContextMenu);
+  documentClickHandler = hideContextMenu;
+  document.addEventListener('click', documentClickHandler);
 
   // Load saved grid state
   await loadGridState();
@@ -210,23 +269,65 @@ async function swapGridSlots(fromIndex, toIndex) {
   // Recreate renderers for swapped slots (they need new canvas references)
   if (state.gridSlots[fromIndex]) {
     const data = state.gridSlots[fromIndex];
-    const newRenderer = new MiniShaderRenderer(fromCanvas);
-    try {
-      newRenderer.compile(data.shaderCode);
-      data.renderer = newRenderer;
-    } catch (err) {
-      console.warn(`Failed to recompile shader for slot ${fromIndex + 1}:`, err);
+    if (data.type === 'scene') {
+      // Re-render scene snapshot to new canvas position
+      try {
+        const sceneRenderer = ensureSceneRenderer();
+        if (sceneRenderer) {
+          sceneRenderer.compile(data.shaderCode);
+          sceneRenderer.resetTime();
+          sceneRenderer.render();
+          const mainCanvas = document.getElementById('shader-canvas');
+          const ctx = fromCanvas.getContext('2d');
+          ctx.drawImage(mainCanvas, 0, 0, mainCanvas.width, mainCanvas.height, 0, 0, fromCanvas.width, fromCanvas.height);
+        }
+      } catch (err) {
+        console.warn(`Failed to re-render scene for slot ${fromIndex + 1}:`, err);
+      }
+    } else {
+      // Dispose old renderer before creating new one
+      if (data.renderer && data.renderer.dispose) {
+        data.renderer.dispose();
+      }
+      const newRenderer = new MiniShaderRenderer(fromCanvas);
+      try {
+        newRenderer.compile(data.shaderCode);
+        data.renderer = newRenderer;
+      } catch (err) {
+        console.warn(`Failed to recompile shader for slot ${fromIndex + 1}:`, err);
+      }
     }
   }
 
   if (state.gridSlots[toIndex]) {
     const data = state.gridSlots[toIndex];
-    const newRenderer = new MiniShaderRenderer(toCanvas);
-    try {
-      newRenderer.compile(data.shaderCode);
-      data.renderer = newRenderer;
-    } catch (err) {
-      console.warn(`Failed to recompile shader for slot ${toIndex + 1}:`, err);
+    if (data.type === 'scene') {
+      // Re-render scene snapshot to new canvas position
+      try {
+        const sceneRenderer = ensureSceneRenderer();
+        if (sceneRenderer) {
+          sceneRenderer.compile(data.shaderCode);
+          sceneRenderer.resetTime();
+          sceneRenderer.render();
+          const mainCanvas = document.getElementById('shader-canvas');
+          const ctx = toCanvas.getContext('2d');
+          ctx.drawImage(mainCanvas, 0, 0, mainCanvas.width, mainCanvas.height, 0, 0, toCanvas.width, toCanvas.height);
+        }
+      } catch (err) {
+        console.warn(`Failed to re-render scene for slot ${toIndex + 1}:`, err);
+      }
+    } else {
+      // Dispose old renderer before creating new one
+      if (data.renderer && data.renderer.dispose) {
+        data.renderer.dispose();
+      }
+      const newRenderer = new MiniShaderRenderer(toCanvas);
+      try {
+        newRenderer.compile(data.shaderCode);
+        data.renderer = newRenderer;
+      } catch (err) {
+        console.warn(`Failed to recompile shader for slot ${toIndex + 1}:`, err);
+      }
     }
   }
 
@@ -271,9 +372,10 @@ function updateSlotVisualState(index, slot) {
 
   if (data) {
     slot.classList.add('has-shader');
+    const typeLabel = data.type === 'scene' ? ' (scene)' : '';
     slot.title = data.filePath
-      ? `Slot ${index + 1}: ${data.filePath.split('/').pop().split('\\').pop()}`
-      : `Slot ${index + 1}: Current shader`;
+      ? `Slot ${index + 1}: ${data.filePath.split('/').pop().split('\\').pop()}${typeLabel}`
+      : `Slot ${index + 1}: Current ${data.type === 'scene' ? 'scene' : 'shader'}`;
   } else {
     slot.classList.remove('has-shader');
     slot.title = `Slot ${index + 1} - Right-click to assign shader`;
@@ -290,24 +392,46 @@ function updateSlotVisualState(index, slot) {
 async function loadShaderToSlot(slotIndex) {
   const result = await window.electronAPI.loadShaderForGrid();
   if (result && result.content) {
-    assignShaderToSlot(slotIndex, result.content, result.filePath);
+    // Check if this is a Three.js scene file
+    const isScene = result.filePath &&
+      (result.filePath.endsWith('.jsx') || result.filePath.includes('.scene.js')) ||
+      isSceneCode(result.content);
+
+    if (isScene) {
+      assignSceneToSlot(slotIndex, result.content, result.filePath);
+    } else {
+      assignShaderToSlot(slotIndex, result.content, result.filePath);
+    }
   } else if (result && result.error) {
     setStatus(`Failed to load shader: ${result.error}`, 'error');
   }
 }
 
 function assignCurrentShaderToSlot(slotIndex) {
-  const shaderCode = state.editor.getValue();
-  assignShaderToSlot(slotIndex, shaderCode, null);
+  const code = state.editor.getValue();
+  const isScene = state.renderMode === 'scene' || isSceneCode(code);
+
+  if (isScene) {
+    assignSceneToSlot(slotIndex, code, null);
+  } else {
+    assignShaderToSlot(slotIndex, code, null);
+  }
 }
 
-export async function assignShaderToSlot(slotIndex, shaderCode, filePath, skipSave = false, params = null, presets = null, paramNames = null, customParams = null) {
+// Detect if code is a Three.js scene
+function isSceneCode(code) {
+  return code.includes('function setup') && (code.includes('THREE') || code.includes('scene'));
+}
+
+export async function assignShaderToSlot(slotIndex, shaderCode, filePath, skipSave = false, params = null, presets = null, customParams = null) {
   const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`);
   const canvas = slot.querySelector('canvas');
 
-  // Clean up existing renderer
+  // Clean up existing renderer to prevent memory leaks
   if (state.gridSlots[slotIndex] && state.gridSlots[slotIndex].renderer) {
-    // Just clear the reference
+    if (state.gridSlots[slotIndex].renderer.dispose) {
+      state.gridSlots[slotIndex].renderer.dispose();
+    }
   }
 
   // Create mini renderer for this slot
@@ -325,10 +449,10 @@ export async function assignShaderToSlot(slotIndex, shaderCode, filePath, skipSa
       renderer: miniRenderer,
       params: { ...slotParams },
       customParams: { ...slotCustomParams },
-      presets: presets || [],
-      paramNames: paramNames || {}
+      presets: presets || []
     };
     slot.classList.add('has-shader');
+    slot.classList.remove('has-error');  // Clear any previous error state
     slot.title = filePath ? `Slot ${slotIndex + 1}: ${filePath.split('/').pop().split('\\').pop()}` : `Slot ${slotIndex + 1}: Current shader`;
 
     if (!skipSave) {
@@ -345,10 +469,118 @@ export async function assignShaderToSlot(slotIndex, shaderCode, filePath, skipSa
   }
 }
 
+// Assign a Three.js scene to a grid slot with a static snapshot
+async function assignSceneToSlot(slotIndex, sceneCode, filePath, skipSave = false, params = null, presets = null) {
+  const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`);
+  const canvas = slot.querySelector('canvas');
+  const ctx = canvas.getContext('2d');
+
+  // Clean up existing slot data
+  if (state.gridSlots[slotIndex]) {
+    state.gridSlots[slotIndex] = null;
+  }
+
+  // Use provided params or capture current params
+  const slotParams = params || state.renderer.getParams();
+
+  try {
+    // Ensure scene renderer is available
+    const sceneRenderer = ensureSceneRenderer();
+    if (!sceneRenderer) {
+      throw new Error('ThreeSceneRenderer not available');
+    }
+
+    // Temporarily compile and render the scene to get a snapshot
+    sceneRenderer.compile(sceneCode);
+    sceneRenderer.resetTime();
+
+    // Render a single frame at time=0
+    sceneRenderer.render();
+
+    // Get the main canvas (where scene was rendered)
+    const mainCanvas = document.getElementById('shader-canvas');
+
+    // Draw snapshot to the mini canvas
+    ctx.drawImage(mainCanvas, 0, 0, mainCanvas.width, mainCanvas.height, 0, 0, canvas.width, canvas.height);
+
+    // Store scene data (no renderer - just static snapshot)
+    state.gridSlots[slotIndex] = {
+      shaderCode: sceneCode,
+      filePath,
+      renderer: null,  // No mini renderer for scenes
+      type: 'scene',   // Mark as scene type
+      params: { ...slotParams },
+      presets: presets || []
+    };
+
+    slot.classList.add('has-shader');
+    slot.classList.remove('has-error');  // Clear any previous error state
+    slot.title = filePath
+      ? `Slot ${slotIndex + 1}: ${filePath.split('/').pop().split('\\').pop()} (scene)`
+      : `Slot ${slotIndex + 1}: Current scene`;
+
+    if (!skipSave) {
+      // Save scene code to individual file
+      await window.electronAPI.saveShaderToSlot(slotIndex, sceneCode);
+      setStatus(`Scene assigned to slot ${slotIndex + 1}`, 'success');
+      saveGridState();
+    }
+  } catch (err) {
+    // Draw error indicator on canvas
+    ctx.fillStyle = '#330000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#ff4444';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Scene Error', canvas.width / 2, canvas.height / 2);
+
+    if (!skipSave) {
+      setStatus(`Failed to render scene for slot ${slotIndex + 1}: ${err.message}`, 'error');
+    }
+    throw err;
+  }
+}
+
+// Store a shader that failed to compile so user can still edit it
+function assignFailedShaderToSlot(slotIndex, shaderCode, filePath, savedData = {}) {
+  const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`);
+  const canvas = slot.querySelector('canvas');
+  const ctx = canvas.getContext('2d');
+
+  // Draw error indicator on canvas
+  ctx.fillStyle = '#331111';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#ff4444';
+  ctx.font = 'bold 12px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('ERROR', canvas.width / 2, canvas.height / 2 - 8);
+  ctx.font = '10px sans-serif';
+  ctx.fillText('Click to fix', canvas.width / 2, canvas.height / 2 + 8);
+
+  // Store shader data (without renderer) so it can be edited
+  state.gridSlots[slotIndex] = {
+    shaderCode,
+    filePath,
+    renderer: null,  // No renderer - compilation failed
+    type: savedData.type || 'shader',
+    params: savedData.params || {},
+    customParams: savedData.customParams || {},
+    presets: savedData.presets || [],
+    hasError: true  // Flag to indicate this slot has an error
+  };
+
+  slot.classList.add('has-shader');
+  slot.classList.add('has-error');
+  const fileName = filePath ? filePath.split('/').pop().split('\\').pop() : 'shader';
+  slot.title = `Slot ${slotIndex + 1}: ${fileName} (ERROR - click to edit)`;
+}
+
 async function clearGridSlot(slotIndex) {
   const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`);
   state.gridSlots[slotIndex] = null;
   slot.classList.remove('has-shader');
+  slot.classList.remove('has-error');
   slot.title = `Slot ${slotIndex + 1} - Right-click to assign shader`;
 
   // Clear canvas
@@ -366,7 +598,6 @@ async function clearGridSlot(slotIndex) {
     state.activeGridSlot = null;
     updateLocalPresetsUI();
     updateSaveButtonState();
-    resetParamLabels();
   }
 
   setStatus(`Cleared slot ${slotIndex + 1}`, 'success');
@@ -377,34 +608,57 @@ async function clearGridSlot(slotIndex) {
 
 export async function saveActiveSlotShader() {
   if (state.activeGridSlot === null) {
-    setStatus('No shader slot selected', 'error');
+    setStatus('No slot selected', 'error');
     return;
   }
 
-  if (!state.gridSlots[state.activeGridSlot]) {
-    setStatus('No shader in active slot', 'error');
+  const slotData = state.gridSlots[state.activeGridSlot];
+  if (!slotData) {
+    setStatus('No content in active slot', 'error');
     return;
   }
 
-  const shaderCode = state.editor.getValue();
+  const code = state.editor.getValue();
+  const isScene = slotData.type === 'scene';
 
-  // Update the slot's shader code
-  state.gridSlots[state.activeGridSlot].shaderCode = shaderCode;
+  // Update the slot's code
+  slotData.shaderCode = code;
 
-  // Also update the renderer in the slot
+  // Also update the renderer/snapshot in the slot
   try {
-    state.gridSlots[state.activeGridSlot].renderer.compile(shaderCode);
+    if (isScene) {
+      // For scenes, re-render the snapshot
+      const sceneRenderer = ensureSceneRenderer();
+      if (sceneRenderer) {
+        sceneRenderer.compile(code);
+        sceneRenderer.resetTime();
+        sceneRenderer.render();
+
+        // Update the slot canvas with new snapshot
+        const slot = document.querySelector(`.grid-slot[data-slot="${state.activeGridSlot}"]`);
+        const canvas = slot.querySelector('canvas');
+        const mainCanvas = document.getElementById('shader-canvas');
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(mainCanvas, 0, 0, mainCanvas.width, mainCanvas.height, 0, 0, canvas.width, canvas.height);
+      }
+    } else {
+      // For shaders, recompile the mini renderer
+      if (slotData.renderer) {
+        slotData.renderer.compile(code);
+      }
+    }
   } catch (err) {
     // Don't fail the save if compilation fails
-    console.warn('Shader compilation warning:', err.message);
+    console.warn(`${isScene ? 'Scene' : 'Shader'} compilation warning:`, err.message);
   }
 
   // Save to file
-  const result = await window.electronAPI.saveShaderToSlot(state.activeGridSlot, shaderCode);
+  const result = await window.electronAPI.saveShaderToSlot(state.activeGridSlot, code);
+  const typeLabel = isScene ? 'Scene' : 'Shader';
   if (result.success) {
-    setStatus(`Shader saved to slot ${state.activeGridSlot + 1}`, 'success');
+    setStatus(`${typeLabel} saved to slot ${state.activeGridSlot + 1}`, 'success');
   } else {
-    setStatus(`Failed to save shader: ${result.error}`, 'error');
+    setStatus(`Failed to save ${typeLabel.toLowerCase()}: ${result.error}`, 'error');
   }
 }
 
@@ -428,7 +682,7 @@ export function saveGridState() {
       params: slot.params,
       customParams: slot.customParams || {},  // Custom shader parameters
       presets: slot.presets || [],
-      paramNames: slot.paramNames || {}
+      type: slot.type || 'shader'  // 'shader' or 'scene'
     };
   });
   window.electronAPI.saveGridState(gridState);
@@ -439,23 +693,35 @@ export async function loadGridState() {
   if (!gridState || !Array.isArray(gridState)) return;
 
   let loadedCount = 0;
+  const failedSlots = [];
+
   for (let i = 0; i < Math.min(gridState.length, 32); i++) {
     if (gridState[i] && gridState[i].shaderCode) {
       try {
-        await assignShaderToSlot(i, gridState[i].shaderCode, gridState[i].filePath, true, gridState[i].params, gridState[i].presets, gridState[i].paramNames, gridState[i].customParams);
+        const isScene = gridState[i].type === 'scene';
+        if (isScene) {
+          await assignSceneToSlot(i, gridState[i].shaderCode, gridState[i].filePath, true, gridState[i].params, gridState[i].presets);
+        } else {
+          await assignShaderToSlot(i, gridState[i].shaderCode, gridState[i].filePath, true, gridState[i].params, gridState[i].presets, gridState[i].customParams);
+        }
         loadedCount++;
       } catch (err) {
-        console.warn(`Failed to restore shader in slot ${i + 1}:`, err);
+        // Store the shader anyway so user can edit it
+        assignFailedShaderToSlot(i, gridState[i].shaderCode, gridState[i].filePath, gridState[i]);
+        failedSlots.push(i + 1);
+        console.warn(`Failed to compile slot ${i + 1}:`, err.message);
       }
     }
   }
 
-  if (loadedCount > 0) {
-    setStatus(`Restored ${loadedCount} shader${loadedCount > 1 ? 's' : ''} from saved state`, 'success');
+  if (failedSlots.length > 0) {
+    setStatus(`Restored ${loadedCount} items, ${failedSlots.length} failed to compile (slots: ${failedSlots.join(', ')})`, 'error');
+  } else if (loadedCount > 0) {
+    setStatus(`Restored ${loadedCount} item${loadedCount > 1 ? 's' : ''} from saved state`, 'success');
   }
 }
 
-export function loadGridPresetsFromData(gridState, filePath) {
+export async function loadGridPresetsFromData(gridState, filePath) {
   if (!gridState || !Array.isArray(gridState)) {
     setStatus('Invalid grid presets file', 'error');
     return;
@@ -480,10 +746,15 @@ export function loadGridPresetsFromData(gridState, filePath) {
   for (let i = 0; i < Math.min(gridState.length, 32); i++) {
     if (gridState[i] && gridState[i].shaderCode) {
       try {
-        assignShaderToSlot(i, gridState[i].shaderCode, gridState[i].filePath, true, gridState[i].params, gridState[i].presets, gridState[i].paramNames);
+        const isScene = gridState[i].type === 'scene';
+        if (isScene) {
+          await assignSceneToSlot(i, gridState[i].shaderCode, gridState[i].filePath, true, gridState[i].params, gridState[i].presets);
+        } else {
+          await assignShaderToSlot(i, gridState[i].shaderCode, gridState[i].filePath, true, gridState[i].params, gridState[i].presets, gridState[i].customParams);
+        }
         loadedCount++;
       } catch (err) {
-        console.warn(`Failed to load shader in slot ${i + 1}:`, err);
+        console.warn(`Failed to load ${gridState[i].type || 'shader'} in slot ${i + 1}:`, err);
       }
     }
   }
@@ -513,26 +784,33 @@ export function loadGridShaderToEditor(slotIndex) {
   const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`);
   slot.classList.add('active');
 
-  // Load shader into editor
-  state.editor.setValue(slotData.shaderCode, -1);
+  // Determine type and title
+  const isScene = slotData.type === 'scene';
+  const slotName = slotData.filePath ? slotData.filePath.split('/').pop().split('\\').pop() : `Slot ${slotIndex + 1}`;
+  const typeLabel = isScene ? 'scene' : 'shader';
 
-  // Import compileShader dynamically to avoid circular dependency
-  import('./editor.js').then(({ compileShader }) => {
-    compileShader();
-    // Load saved custom param values if available (after compilation parses params)
-    if (slotData.customParams) {
+  // Open in a new tab (or activate existing tab for this slot)
+  openInTab({
+    content: slotData.shaderCode,
+    filePath: slotData.filePath,
+    type: isScene ? 'scene' : 'shader',
+    title: slotName,
+    slotIndex: slotIndex,
+    activate: true
+  });
+
+  // Load saved custom param values if available (after tab is activated and compiled)
+  setTimeout(() => {
+    if (slotData.customParams && !isScene) {
       state.renderer.setCustomParamValues(slotData.customParams);
       generateCustomParamUI(); // Regenerate UI to reflect loaded values
     }
-  });
+  }, 100);
 
-  // Load legacy params into sliders (for shaders without custom params)
+  // Load speed to slider if present
   if (slotData.params) {
     loadParamsToSliders(slotData.params);
   }
-
-  // Update legacy parameter labels with custom names
-  updateParamLabels(slotData.paramNames);
 
   // Update local presets UI for this shader
   updateLocalPresetsUI();
@@ -540,8 +818,7 @@ export function loadGridShaderToEditor(slotIndex) {
   // Update save button state
   updateSaveButtonState();
 
-  const slotName = slotData.filePath ? slotData.filePath.split('/').pop().split('\\').pop() : `slot ${slotIndex + 1}`;
-  setStatus(`Editing ${slotName} (slot ${slotIndex + 1})`, 'success');
+  setStatus(`Editing ${slotName} (${typeLabel} slot ${slotIndex + 1})`, 'success');
 }
 
 export function playGridShader(slotIndex) {
@@ -559,13 +836,24 @@ export function playGridShader(slotIndex) {
   const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`);
   if (slot) slot.classList.add('active');
 
-  // Load the slot's params
+  // Check if this is a scene
+  const isScene = slotData.type === 'scene';
+  const slotName = slotData.filePath ? slotData.filePath.split('/').pop().split('\\').pop() : `Slot ${slotIndex + 1}`;
+
+  // Open in a new tab (or activate existing tab for this slot)
+  openInTab({
+    content: slotData.shaderCode,
+    filePath: slotData.filePath,
+    type: isScene ? 'scene' : 'shader',
+    title: slotName,
+    slotIndex: slotIndex,
+    activate: true
+  });
+
+  // Load speed to slider if present
   if (slotData.params) {
     loadParamsToSliders(slotData.params);
   }
-
-  // Update parameter labels with custom names
-  updateParamLabels(slotData.paramNames);
 
   // Update local presets UI for this shader
   updateLocalPresetsUI();
@@ -573,70 +861,68 @@ export function playGridShader(slotIndex) {
   // Update save button state
   updateSaveButtonState();
 
-  // Show in preview if enabled
-  if (state.previewEnabled) {
-    try {
-      state.renderer.compile(slotData.shaderCode);
-      state.renderer.resetTime();
-      // Generate dynamic UI for custom shader parameters
-      generateCustomParamUI();
-      // Load saved custom param values if available
-      if (slotData.customParams) {
-        state.renderer.setCustomParamValues(slotData.customParams);
-        generateCustomParamUI(); // Regenerate to reflect loaded values
-      }
-    } catch (err) {
-      setStatus(`Failed to compile shader: ${err.message}`, 'error');
-      return;
+  // Load saved custom param values if available (after tab is activated)
+  setTimeout(() => {
+    if (slotData.customParams && !isScene) {
+      state.renderer.setCustomParamValues(slotData.customParams);
+      generateCustomParamUI(); // Regenerate to reflect loaded values
     }
-  }
+  }, 100);
 
-  // Send to fullscreen window (if open)
+  // Batch all params for fullscreen to reduce IPC overhead
+  const allParams = {
+    ...(slotData.params || {}),
+    ...(slotData.customParams || state.renderer.getCustomParamValues())
+  };
+
+  // Send to fullscreen window (if open) with all params included
   const fullscreenState = {
     shaderCode: slotData.shaderCode,
     time: 0,
     frame: 0,
     isPlaying: true,
     channels: state.channelState,
-    params: slotData.params || state.renderer.getParams()
+    params: allParams,
+    renderMode: isScene ? 'scene' : 'shader'
   };
   window.electronAPI.sendShaderUpdate(fullscreenState);
   window.electronAPI.sendTimeSync({ time: 0, frame: 0, isPlaying: true });
 
-  // Send all legacy params to fullscreen
-  if (slotData.params) {
-    Object.entries(slotData.params).forEach(([name, value]) => {
-      window.electronAPI.sendParamUpdate({ name, value });
-    });
-  }
-
-  // Send custom params to fullscreen
-  if (slotData.customParams) {
-    Object.entries(slotData.customParams).forEach(([name, value]) => {
-      window.electronAPI.sendParamUpdate({ name, value });
-    });
+  // Send batched params in single IPC call (fullscreen will apply them from the state above,
+  // but we also send individually for any param listeners that expect per-param updates)
+  // Use a single batch call if available, otherwise fall back to individual calls
+  if (window.electronAPI.sendBatchParamUpdate) {
+    window.electronAPI.sendBatchParamUpdate(allParams);
   } else {
-    // Send default custom params from renderer
-    const customParams = state.renderer.getCustomParamValues();
-    Object.entries(customParams).forEach(([name, value]) => {
+    // Fall back to individual calls for backwards compatibility
+    Object.entries(allParams).forEach(([name, value]) => {
       window.electronAPI.sendParamUpdate({ name, value });
     });
   }
 
-  const slotName = slotData.filePath ? slotData.filePath.split('/').pop().split('\\').pop() : `slot ${slotIndex + 1}`;
-  setStatus(`Playing ${slotName}`, 'success');
+  const typeLabel = isScene ? 'scene' : 'shader';
+  setStatus(`Playing ${typeLabel}: ${slotName}`, 'success');
 }
 
 // Grid animation frame rate limiting (10fps = 100ms interval)
 const GRID_FRAME_INTERVAL = 100;
-let lastGridFrameTime = 0;
 
 // Track which slots are visible using IntersectionObserver
 const visibleSlots = new Set();
 let gridIntersectionObserver = null;
 
+// Cleanup IntersectionObserver
+function cleanupGridVisibilityObserver() {
+  if (gridIntersectionObserver) {
+    gridIntersectionObserver.disconnect();
+    gridIntersectionObserver = null;
+  }
+  visibleSlots.clear();
+}
+
 function initGridVisibilityObserver() {
-  if (gridIntersectionObserver) return;
+  // Cleanup existing observer first
+  cleanupGridVisibilityObserver();
 
   gridIntersectionObserver = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
@@ -664,30 +950,28 @@ export function startGridAnimation() {
   // Initialize visibility observer if not already done
   initGridVisibilityObserver();
 
-  function animateGrid(currentTime) {
-    state.gridAnimationId = requestAnimationFrame(animateGrid);
-
-    // Limit to 10fps to save CPU/GPU
-    if (currentTime - lastGridFrameTime < GRID_FRAME_INTERVAL) {
-      return;
-    }
-    lastGridFrameTime = currentTime;
-
+  // Use setTimeout instead of RAF for 10fps - more efficient since we don't need 60fps callbacks
+  function animateGrid() {
     // Only render slots that are currently visible
     for (const slotIndex of visibleSlots) {
       const slot = state.gridSlots[slotIndex];
       if (slot && slot.renderer) {
-        slot.renderer.setParams(slot.params);
+        slot.renderer.setSpeed(slot.params?.speed ?? 1);
         slot.renderer.render();
       }
     }
+
+    // Schedule next frame at 10fps interval
+    state.gridAnimationId = setTimeout(animateGrid, GRID_FRAME_INTERVAL);
   }
-  animateGrid(performance.now());
+
+  // Start the animation loop
+  animateGrid();
 }
 
 export function stopGridAnimation() {
   if (state.gridAnimationId) {
-    cancelAnimationFrame(state.gridAnimationId);
+    clearTimeout(state.gridAnimationId);
     state.gridAnimationId = null;
   }
 }
@@ -705,17 +989,17 @@ class MiniShaderRenderer {
     this.program = null;
     this.startTime = performance.now();
     this.uniforms = {};
-    this.params = null; // Will store slot params
+    this.speed = 1.0;
 
-    // Pre-allocated buffers to avoid GC pressure during render
-    this._colorArray = new Float32Array(30);  // 10 colors * 3 components
-    this._paramsArray = new Float32Array(5);  // 5 custom params
+    // Pre-allocated buffers with default values (for backward compatibility)
+    this._colorArray = new Float32Array(30).fill(1.0);  // 10 colors * 3 components, all white
+    this._paramsArray = new Float32Array([0.5, 0.5, 0.5, 0.5, 0.5]);  // 5 params at 0.5
 
     this.setupGeometry();
   }
 
-  setParams(params) {
-    this.params = params;
+  setSpeed(speed) {
+    this.speed = speed;
   }
 
   setupGeometry() {
@@ -733,6 +1017,10 @@ class MiniShaderRenderer {
 
   compile(fragmentSource) {
     const gl = this.gl;
+
+    // Parse custom @param comments and generate uniform declarations
+    const customParams = parseShaderParams(fragmentSource);
+    const customUniformDecls = generateUniformDeclarations(customParams);
 
     const vertexSource = `#version 300 es
       layout(location = 0) in vec2 position;
@@ -752,6 +1040,7 @@ class MiniShaderRenderer {
       uniform vec3 iColorRGB[10];
       uniform float iParams[5];
       uniform float iSpeed;
+      ${customUniformDecls}
       out vec4 outColor;
       ${fragmentSource}
       void main() { mainImage(outColor, gl_FragCoord.xy); }
@@ -793,6 +1082,13 @@ class MiniShaderRenderer {
       iSpeed: gl.getUniformLocation(program, 'iSpeed')
     };
 
+    // Store custom params and their uniform locations
+    this.customParams = customParams;
+    this.customUniformLocations = {};
+    for (const param of customParams) {
+      this.customUniformLocations[param.name] = gl.getUniformLocation(program, param.name);
+    }
+
     gl.deleteShader(vertexShader);
     gl.deleteShader(fragmentShader);
   }
@@ -801,8 +1097,7 @@ class MiniShaderRenderer {
     if (!this.program) return;
 
     const gl = this.gl;
-    const speed = this.params?.speed ?? 1;
-    const time = (performance.now() - this.startTime) / 1000 * speed;
+    const time = (performance.now() - this.startTime) / 1000 * this.speed;
 
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.useProgram(this.program);
@@ -810,25 +1105,58 @@ class MiniShaderRenderer {
     gl.uniform3f(this.uniforms.iResolution, this.canvas.width, this.canvas.height, 1);
     gl.uniform1f(this.uniforms.iTime, time);
 
-    // Use pre-allocated color array
-    for (let i = 0; i < 10; i++) {
-      this._colorArray[i * 3 + 0] = this.params?.[`r${i}`] ?? 1.0;
-      this._colorArray[i * 3 + 1] = this.params?.[`g${i}`] ?? 1.0;
-      this._colorArray[i * 3 + 2] = this.params?.[`b${i}`] ?? 1.0;
-    }
+    // Use pre-allocated arrays with default values (for backward compatibility)
     gl.uniform3fv(this.uniforms.iColorRGB, this._colorArray);
-
-    // Use pre-allocated params array
-    this._paramsArray[0] = this.params?.p0 ?? 0.5;
-    this._paramsArray[1] = this.params?.p1 ?? 0.5;
-    this._paramsArray[2] = this.params?.p2 ?? 0.5;
-    this._paramsArray[3] = this.params?.p3 ?? 0.5;
-    this._paramsArray[4] = this.params?.p4 ?? 0.5;
     gl.uniform1fv(this.uniforms.iParams, this._paramsArray);
+    gl.uniform1f(this.uniforms.iSpeed, this.speed);
 
-    gl.uniform1f(this.uniforms.iSpeed, speed);
+    // Set custom param uniforms with default values
+    for (const param of this.customParams || []) {
+      const loc = this.customUniformLocations[param.name];
+      if (loc === null) continue;
+
+      const value = param.default;
+      switch (param.glslBaseType) {
+        case 'float':
+          gl.uniform1f(loc, value);
+          break;
+        case 'int':
+          gl.uniform1i(loc, value);
+          break;
+        case 'vec2':
+          gl.uniform2fv(loc, value);
+          break;
+        case 'vec3':
+          gl.uniform3fv(loc, value);
+          break;
+        case 'vec4':
+          gl.uniform4fv(loc, value);
+          break;
+      }
+    }
 
     gl.bindVertexArray(this.vao);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  // Dispose WebGL resources to prevent memory leaks
+  dispose() {
+    const gl = this.gl;
+    if (!gl) return;
+
+    if (this.program) {
+      gl.deleteProgram(this.program);
+      this.program = null;
+    }
+    if (this.vao) {
+      gl.deleteVertexArray(this.vao);
+      this.vao = null;
+    }
+    // Note: VBO is created without storing reference, but WebGL garbage collects it
+    // when the VAO is deleted
+
+    this.uniforms = {};
+    this.customUniformLocations = {};
+    this.customParams = [];
   }
 }

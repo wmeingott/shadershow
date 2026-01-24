@@ -19,6 +19,15 @@ let targetRefreshRate = 60;
 let lastFrameTime = 0;
 let minFrameInterval = 0; // Will be set based on refresh rate
 
+// Tiled mode state
+let tiledMode = false;
+let tileRenderers = [];     // Array of TileRenderer instances
+let tileConfig = null;      // Current tile configuration
+let sharedGL = null;        // Shared WebGL context for tiled mode
+
+// Reused Date object to avoid allocation per frame
+const reusedDate = new Date();
+
 document.addEventListener('DOMContentLoaded', async () => {
   const canvas = document.getElementById('shader-canvas');
 
@@ -214,6 +223,9 @@ function renderLoop(currentTime) {
       gl.clearColor(0, 0, 0, 1);
       gl.clear(gl.COLOR_BUFFER_BIT);
     }
+  } else if (tiledMode) {
+    // Render tiled display
+    renderTiledFrame();
   } else {
     renderer.render();
   }
@@ -316,6 +328,15 @@ window.electronAPI.onParamUpdate((data) => {
   }
 });
 
+// Handle batched param updates from main window (more efficient)
+window.electronAPI.onBatchParamUpdate?.((params) => {
+  if (params && typeof params === 'object') {
+    Object.entries(params).forEach(([name, value]) => {
+      renderer.setParam(name, value);
+    });
+  }
+});
+
 // Handle preset sync from main window
 window.electronAPI.onPresetSync((data) => {
   // Apply params directly from sync message
@@ -365,3 +386,266 @@ async function loadChannel(index, channel) {
     console.error(`Failed to load channel ${index}:`, err);
   }
 }
+
+// =============================================================================
+// Tiled Mode Functions
+// =============================================================================
+
+// Initialize tiled mode with configuration
+function initTiledMode(config) {
+  const canvas = document.getElementById('shader-canvas');
+
+  tiledMode = true;
+  tileConfig = config;
+
+  // Get or create shared WebGL context
+  if (!sharedGL) {
+    sharedGL = canvas.getContext('webgl2', {
+      alpha: false,
+      antialias: false,
+      preserveDrawingBuffer: true
+    });
+  }
+
+  // Clear existing tile renderers
+  disposeTileRenderers();
+
+  // Calculate tile bounds
+  const bounds = calculateTileBounds(
+    canvas.width,
+    canvas.height,
+    config.layout.rows,
+    config.layout.cols,
+    config.layout.gaps
+  );
+
+  // Create TileRenderer for each tile
+  tileRenderers = bounds.map(b => new TileRenderer(sharedGL, b));
+
+  // Compile shaders for tiles that have assignments
+  if (config.tiles) {
+    config.tiles.forEach((tile, index) => {
+      if (tile && tile.shaderCode && index < tileRenderers.length) {
+        try {
+          tileRenderers[index].compile(tile.shaderCode);
+          if (tile.params) {
+            tileRenderers[index].setParams(tile.params);
+          }
+        } catch (err) {
+          console.error(`Failed to compile shader for tile ${index}:`, err);
+        }
+      }
+    });
+  }
+
+  console.log(`Tiled mode initialized: ${config.layout.rows}x${config.layout.cols}`);
+}
+
+// Calculate tile bounds in pixels
+function calculateTileBounds(canvasWidth, canvasHeight, rows, cols, gaps) {
+  const bounds = [];
+
+  const totalGapX = gaps * (cols - 1);
+  const totalGapY = gaps * (rows - 1);
+  const tileWidth = Math.floor((canvasWidth - totalGapX) / cols);
+  const tileHeight = Math.floor((canvasHeight - totalGapY) / rows);
+
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const tileIndex = row * cols + col;
+      const x = col * (tileWidth + gaps);
+      // WebGL has Y=0 at bottom, so flip the row order
+      const y = (rows - 1 - row) * (tileHeight + gaps);
+
+      bounds.push({
+        tileIndex,
+        x,
+        y,
+        width: tileWidth,
+        height: tileHeight
+      });
+    }
+  }
+
+  return bounds;
+}
+
+// Update tile layout (recalculate bounds)
+function updateTileLayout(layout) {
+  if (!tiledMode || !tileConfig) return;
+
+  const canvas = document.getElementById('shader-canvas');
+  tileConfig.layout = layout;
+
+  const bounds = calculateTileBounds(
+    canvas.width,
+    canvas.height,
+    layout.rows,
+    layout.cols,
+    layout.gaps
+  );
+
+  // Resize existing renderers or create new ones
+  const newCount = layout.rows * layout.cols;
+  const oldCount = tileRenderers.length;
+
+  // Update bounds for existing renderers
+  for (let i = 0; i < Math.min(oldCount, newCount); i++) {
+    tileRenderers[i].setBounds(bounds[i]);
+  }
+
+  // Create new renderers if needed
+  for (let i = oldCount; i < newCount; i++) {
+    tileRenderers.push(new TileRenderer(sharedGL, bounds[i]));
+  }
+
+  // Remove excess renderers
+  for (let i = newCount; i < oldCount; i++) {
+    tileRenderers[i].dispose();
+  }
+  tileRenderers.length = newCount;
+
+  // Update tile config tiles array
+  while (tileConfig.tiles.length < newCount) {
+    tileConfig.tiles.push({ gridSlotIndex: null, params: null, visible: true });
+  }
+  tileConfig.tiles.length = newCount;
+}
+
+// Assign a shader to a specific tile
+function assignTileShader(tileIndex, shaderCode, params) {
+  if (tileIndex < 0 || tileIndex >= tileRenderers.length) return;
+
+  try {
+    tileRenderers[tileIndex].compile(shaderCode);
+    if (params) {
+      tileRenderers[tileIndex].setParams(params);
+    }
+
+    // Update config
+    if (tileConfig && tileConfig.tiles && tileIndex < tileConfig.tiles.length) {
+      tileConfig.tiles[tileIndex] = {
+        ...tileConfig.tiles[tileIndex],
+        shaderCode,
+        params
+      };
+    }
+  } catch (err) {
+    console.error(`Failed to assign shader to tile ${tileIndex}:`, err);
+  }
+}
+
+// Update parameter for a specific tile
+function updateTileParam(tileIndex, name, value) {
+  if (tileIndex < 0 || tileIndex >= tileRenderers.length) return;
+
+  tileRenderers[tileIndex].setParam(name, value);
+}
+
+// Render all tiles
+function renderTiledFrame() {
+  if (!tiledMode || !sharedGL || tileRenderers.length === 0) return;
+
+  const canvas = document.getElementById('shader-canvas');
+  const gl = sharedGL;
+
+  // Clear entire canvas (gaps will show as black)
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.clearColor(0, 0, 0, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+
+  // Prepare shared state for all tiles
+  const now = performance.now();
+  const time = (now - shaderRenderer.startTime) / 1000;
+  const timeDelta = (now - shaderRenderer.lastFrameTime) / 1000;
+  shaderRenderer.lastFrameTime = now;
+
+  // Reuse Date object to avoid allocation per frame
+  reusedDate.setTime(Date.now());
+  const dateValues = new Float32Array([
+    reusedDate.getFullYear(),
+    reusedDate.getMonth(),
+    reusedDate.getDate(),
+    reusedDate.getHours() * 3600 + reusedDate.getMinutes() * 60 + reusedDate.getSeconds() + reusedDate.getMilliseconds() / 1000
+  ]);
+
+  // Update video/camera/audio textures
+  shaderRenderer.updateVideoTextures();
+
+  // Prepare channel resolutions array
+  const resolutions = new Float32Array(12);
+  for (let i = 0; i < 4; i++) {
+    resolutions[i * 3] = shaderRenderer.channelResolutions[i][0];
+    resolutions[i * 3 + 1] = shaderRenderer.channelResolutions[i][1];
+    resolutions[i * 3 + 2] = shaderRenderer.channelResolutions[i][2];
+  }
+
+  const sharedState = {
+    time,
+    timeDelta,
+    frame: shaderRenderer.frameCount,
+    mouse: shaderRenderer.mouse,
+    date: dateValues,
+    channelTextures: shaderRenderer.channelTextures,
+    channelResolutions: resolutions
+  };
+
+  // Render each visible tile
+  tileRenderers.forEach((tileRenderer, index) => {
+    const tileInfo = tileConfig?.tiles?.[index];
+    const isVisible = tileInfo?.visible !== false;
+
+    if (isVisible && tileRenderer.program) {
+      tileRenderer.render(sharedState);
+    }
+  });
+
+  if (shaderRenderer.isPlaying) {
+    shaderRenderer.frameCount++;
+  }
+}
+
+// Dispose all tile renderers
+function disposeTileRenderers() {
+  tileRenderers.forEach(tr => tr.dispose());
+  tileRenderers = [];
+}
+
+// Exit tiled mode
+function exitTiledMode() {
+  tiledMode = false;
+  disposeTileRenderers();
+  tileConfig = null;
+}
+
+// =============================================================================
+// Tiled Mode IPC Handlers
+// =============================================================================
+
+// Initialize tiled fullscreen mode
+window.electronAPI.onInitTiledFullscreen?.((config) => {
+  console.log('Received tiled fullscreen init:', config);
+  initTiledMode(config);
+});
+
+// Update tile layout
+window.electronAPI.onTileLayoutUpdate?.((layout) => {
+  updateTileLayout(layout);
+});
+
+// Assign shader to a tile
+window.electronAPI.onTileAssign?.((data) => {
+  const { tileIndex, shaderCode, params } = data;
+  assignTileShader(tileIndex, shaderCode, params);
+});
+
+// Update tile parameter
+window.electronAPI.onTileParamUpdate?.((data) => {
+  const { tileIndex, name, value } = data;
+  updateTileParam(tileIndex, name, value);
+});
+
+// Exit tiled mode
+window.electronAPI.onExitTiledMode?.(() => {
+  exitTiledMode();
+});

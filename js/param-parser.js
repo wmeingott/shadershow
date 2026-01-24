@@ -9,15 +9,16 @@
 //   vec2, vec2[N]     - 2D vector or array
 //   vec3, vec3[N]     - 3D vector or array (also used for colors)
 //   vec4, vec4[N]     - 4D vector or array
+//   color             - RGB color with color picker (alias for vec3)
 //
 // Examples:
 //   // @param brightness float 0.5 [0.0, 1.0] "Light intensity"
 //   // @param count int 5 [1, 10] "Number of items"
 //   // @param center vec2 0.5, 0.5 "Center position"
-//   // @param color vec3 1.0, 0.0, 0.0 "Main color"
+//   // @param tint color [1.0, 0.5, 0.0] "Main color"
 //   // @param colors vec3[10] 1.0, 1.0, 1.0 "Color palette"
 
-const PARAM_REGEX = /^\s*\/\/\s*@param\s+(\w+)\s+(int|float|vec[234])(\[(\d+)\])?\s*(.*)/;
+const PARAM_REGEX = /^\s*\/\/\s*@param\s+(\w+)\s+(int|float|vec[234]|color)(\[(\d+)\])?\s*(.*)/;
 
 // Parse a single value based on type
 function parseValue(valueStr, baseType) {
@@ -33,6 +34,7 @@ function parseValue(valueStr, baseType) {
         parseFloat(parts[0]) || 0.0,
         parseFloat(parts[1]) || 0.0
       ];
+    case 'color':
     case 'vec3':
       return [
         parseFloat(parts[0]) || 0.0,
@@ -64,6 +66,7 @@ function getDefaultValue(baseType, arraySize = null) {
     case 'vec2':
       defaultVal = [0.5, 0.5];
       break;
+    case 'color':
     case 'vec3':
       defaultVal = [1.0, 1.0, 1.0];
       break;
@@ -139,21 +142,27 @@ function parseParamLine(line) {
 
   const { defaultValue, min, max, description } = parseRest(rest, baseType, arraySize);
 
+  // "color" is an alias for vec3 in GLSL but has special UI handling
+  const isColor = baseType === 'color';
+  const glslBaseType = isColor ? 'vec3' : baseType;
+
   return {
     name,
-    type: baseType,
+    type: baseType,  // Keep original type for UI purposes
+    glslBaseType,    // Actual GLSL type
     arraySize,
     isArray: arraySize !== null,
+    isColor,         // Flag for color picker UI
     default: defaultValue,
     min,
     max,
     description,
     // Full GLSL type string
-    glslType: arraySize ? `${baseType}[${arraySize}]` : baseType,
+    glslType: arraySize ? `${glslBaseType}[${arraySize}]` : glslBaseType,
     // Uniform declaration
     uniformDecl: arraySize
-      ? `uniform ${baseType} ${name}[${arraySize}];`
-      : `uniform ${baseType} ${name};`
+      ? `uniform ${glslBaseType} ${name}[${arraySize}];`
+      : `uniform ${glslBaseType} ${name};`
   };
 }
 
@@ -162,16 +171,9 @@ export function parseShaderParams(shaderSource) {
   const params = [];
   const lines = shaderSource.split('\n');
 
+  // Parse all lines looking for @param comments
+  // Don't stop early - @param can appear anywhere in the file
   for (const line of lines) {
-    // Stop parsing when we hit non-comment, non-empty line
-    const trimmed = line.trim();
-    if (trimmed.length > 0 && !trimmed.startsWith('//') && !trimmed.startsWith('/*') && !trimmed.startsWith('*')) {
-      // Check if it's the start of actual code (not just empty or comment)
-      if (!trimmed.startsWith('*/')) {
-        break;
-      }
-    }
-
     const param = parseParamLine(line);
     if (param) {
       params.push(param);

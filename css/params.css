@@ -395,3 +395,73 @@
 .preset-btn.global-preset:hover {
   background: var(--accent-hover);
 }
+
+/* Color Picker Control */
+.color-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.color-picker-input {
+  width: 32px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.color-picker-input::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.color-picker-input::-webkit-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+
+.color-picker-input:hover {
+  border-color: var(--accent-color);
+}
+
+.color-sliders {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+
+.color-slider-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+}
+
+.color-slider-wrapper label {
+  font-size: 9px;
+  min-width: 10px;
+}
+
+.color-slider-wrapper input[type="range"] {
+  flex: 1;
+  width: 100%;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--bg-primary);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.color-slider-wrapper input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  background: var(--accent-color);
+  border-radius: 50%;
+  cursor: pointer;
+}

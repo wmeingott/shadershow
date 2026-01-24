@@ -10,10 +10,14 @@
 //   vec2, vec2[N]     - 2D vector or array
 //   vec3, vec3[N]     - 3D vector or array (also used for colors)
 //   vec4, vec4[N]     - 4D vector or array
+//   color             - RGB color with color picker (alias for vec3)
 // =============================================================================
 
+// Pre-compiled regex for shader error parsing (avoid recompiling on each error)
+const SHADER_ERROR_REGEX = /ERROR:\s*\d+:(\d+):\s*(.+)/;
+
 const ShaderParamParser = {
-  PARAM_REGEX: /^\s*\/\/\s*@param\s+(\w+)\s+(int|float|vec[234])(\[(\d+)\])?\s*(.*)/,
+  PARAM_REGEX: /^\s*\/\/\s*@param\s+(\w+)\s+(int|float|vec[234]|color)(\[(\d+)\])?\s*(.*)/,
 
   parseValue(valueStr, baseType) {
     const parts = valueStr.split(',').map(s => s.trim());
@@ -21,6 +25,7 @@ const ShaderParamParser = {
       case 'int': return parseInt(parts[0], 10) || 0;
       case 'float': return parseFloat(parts[0]) || 0.0;
       case 'vec2': return [parseFloat(parts[0]) || 0, parseFloat(parts[1]) || 0];
+      case 'color':
       case 'vec3': return [parseFloat(parts[0]) || 0, parseFloat(parts[1]) || 0, parseFloat(parts[2]) || 0];
       case 'vec4': return [parseFloat(parts[0]) || 0, parseFloat(parts[1]) || 0, parseFloat(parts[2]) || 0, parseFloat(parts[3]) || 0];
       default: return 0;
@@ -33,6 +38,7 @@ const ShaderParamParser = {
       case 'int': defaultVal = 0; break;
       case 'float': defaultVal = 0.5; break;
       case 'vec2': defaultVal = [0.5, 0.5]; break;
+      case 'color':
       case 'vec3': defaultVal = [1.0, 1.0, 1.0]; break;
       case 'vec4': defaultVal = [0.0, 0.0, 0.0, 1.0]; break;
       default: defaultVal = 0;
@@ -91,17 +97,23 @@ const ShaderParamParser = {
     const rest = match[5] || '';
     const { defaultValue, min, max, description } = this.parseRest(rest, baseType, arraySize);
 
+    // "color" is an alias for vec3 in GLSL
+    const isColor = baseType === 'color';
+    const glslBaseType = isColor ? 'vec3' : baseType;
+
     return {
       name,
       type: baseType,
+      glslBaseType,
       arraySize,
       isArray: arraySize !== null,
+      isColor,
       default: defaultValue,
       min,
       max,
       description,
-      glslType: arraySize ? `${baseType}[${arraySize}]` : baseType,
-      uniformDecl: arraySize ? `uniform ${baseType} ${name}[${arraySize}];` : `uniform ${baseType} ${name};`
+      glslType: arraySize ? `${glslBaseType}[${arraySize}]` : glslBaseType,
+      uniformDecl: arraySize ? `uniform ${glslBaseType} ${name}[${arraySize}];` : `uniform ${glslBaseType} ${name};`
     };
   },
 
@@ -109,11 +121,9 @@ const ShaderParamParser = {
     const params = [];
     const lines = shaderSource.split('\n');
 
+    // Parse all lines looking for @param comments
+    // Don't stop early - @param can appear anywhere in the file
     for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.length > 0 && !trimmed.startsWith('//') && !trimmed.startsWith('/*') && !trimmed.startsWith('*')) {
-        if (!trimmed.startsWith('*/')) break;
-      }
       const param = this.parseParamLine(line);
       if (param) params.push(param);
     }
@@ -166,6 +176,9 @@ class ShaderRenderer {
     // Mouse state
     this.mouse = { x: 0, y: 0, clickX: 0, clickY: 0, isDown: false };
 
+    // Store mouse event handlers for cleanup
+    this._mouseHandlers = {};
+
     // Textures for iChannel0-3
     this.channelTextures = [null, null, null, null];
     this.channelResolutions = [
@@ -196,6 +209,9 @@ class ShaderRenderer {
     // Pre-allocated buffers for render loop
     this._resolutionsArray = new Float32Array(12);
     this._audioBuffer = new Uint8Array(512 * 2);
+    this._dateObject = new Date();  // Reused Date object to avoid allocation per frame
+    this._cachedParams = null;      // Cached params result
+    this._paramsDirty = true;       // Flag to invalidate cache
 
     // Setup
     this.setupGeometry();
@@ -225,30 +241,54 @@ class ShaderRenderer {
   }
 
   setupMouseEvents() {
-    this.canvas.addEventListener('mousedown', (e) => {
+    // Store handlers for cleanup
+    this._mouseHandlers.mousedown = (e) => {
       const rect = this.canvas.getBoundingClientRect();
       const scaleX = this.canvas.width / rect.width;
       const scaleY = this.canvas.height / rect.height;
       this.mouse.clickX = (e.clientX - rect.left) * scaleX;
       this.mouse.clickY = this.canvas.height - (e.clientY - rect.top) * scaleY;
       this.mouse.isDown = true;
-    });
+    };
 
-    this.canvas.addEventListener('mouseup', () => {
+    this._mouseHandlers.mouseup = () => {
       this.mouse.isDown = false;
-    });
+    };
 
-    this.canvas.addEventListener('mousemove', (e) => {
+    this._mouseHandlers.mousemove = (e) => {
       const rect = this.canvas.getBoundingClientRect();
       const scaleX = this.canvas.width / rect.width;
       const scaleY = this.canvas.height / rect.height;
       this.mouse.x = (e.clientX - rect.left) * scaleX;
       this.mouse.y = this.canvas.height - (e.clientY - rect.top) * scaleY;
-    });
+    };
 
-    this.canvas.addEventListener('mouseleave', () => {
+    this._mouseHandlers.mouseleave = () => {
       this.mouse.isDown = false;
-    });
+    };
+
+    // Add listeners
+    this.canvas.addEventListener('mousedown', this._mouseHandlers.mousedown);
+    this.canvas.addEventListener('mouseup', this._mouseHandlers.mouseup);
+    this.canvas.addEventListener('mousemove', this._mouseHandlers.mousemove);
+    this.canvas.addEventListener('mouseleave', this._mouseHandlers.mouseleave);
+  }
+
+  // Cleanup mouse event listeners
+  cleanupMouseEvents() {
+    if (this._mouseHandlers.mousedown) {
+      this.canvas.removeEventListener('mousedown', this._mouseHandlers.mousedown);
+    }
+    if (this._mouseHandlers.mouseup) {
+      this.canvas.removeEventListener('mouseup', this._mouseHandlers.mouseup);
+    }
+    if (this._mouseHandlers.mousemove) {
+      this.canvas.removeEventListener('mousemove', this._mouseHandlers.mousemove);
+    }
+    if (this._mouseHandlers.mouseleave) {
+      this.canvas.removeEventListener('mouseleave', this._mouseHandlers.mouseleave);
+    }
+    this._mouseHandlers = {};
   }
 
   createDefaultTextures() {
@@ -558,38 +598,51 @@ class ShaderRenderer {
     const gl = this.gl;
 
     for (let i = 0; i < 4; i++) {
+      // Skip empty channels early to avoid unnecessary checks
+      const channelType = this.channelTypes[i];
+      if (channelType === 'empty' || channelType === 'image') {
+        continue;  // Static textures don't need per-frame updates
+      }
+
       // Update video/camera textures
-      if (this.channelVideoSources[i] && this.channelVideoSources[i].readyState >= 2) {
+      if (channelType === 'video' || channelType === 'camera') {
         const video = this.channelVideoSources[i];
-        gl.bindTexture(gl.TEXTURE_2D, this.channelTextures[i]);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+        if (video && video.readyState >= 2) {
+          gl.bindTexture(gl.TEXTURE_2D, this.channelTextures[i]);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+        }
+        continue;
       }
 
       // Update audio textures with FFT data
-      if (this.channelAudioSources[i]) {
+      if (channelType === 'audio') {
         const audio = this.channelAudioSources[i];
+        if (audio) {
+          // Get frequency data (FFT)
+          audio.analyser.getByteFrequencyData(audio.frequencyData);
 
-        // Get frequency data (FFT)
-        audio.analyser.getByteFrequencyData(audio.frequencyData);
+          // Get time domain data (waveform)
+          audio.analyser.getByteTimeDomainData(audio.timeDomainData);
 
-        // Get time domain data (waveform)
-        audio.analyser.getByteTimeDomainData(audio.timeDomainData);
+          // Combine into pre-allocated buffer (2 rows: FFT on row 0, waveform on row 1)
+          this._audioBuffer.set(audio.frequencyData, 0);      // Row 0: FFT
+          this._audioBuffer.set(audio.timeDomainData, 512);   // Row 1: Waveform
 
-        // Combine into pre-allocated buffer (2 rows: FFT on row 0, waveform on row 1)
-        this._audioBuffer.set(audio.frequencyData, 0);      // Row 0: FFT
-        this._audioBuffer.set(audio.timeDomainData, 512);   // Row 1: Waveform
-
-        // Update texture
-        gl.bindTexture(gl.TEXTURE_2D, this.channelTextures[i]);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, 512, 2, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, this._audioBuffer);
+          // Update texture
+          gl.bindTexture(gl.TEXTURE_2D, this.channelTextures[i]);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, 512, 2, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, this._audioBuffer);
+        }
+        continue;
       }
 
       // Update NDI textures
-      if (this.channelNDIData[i] && this.channelNDIData[i].needsUpdate) {
+      if (channelType === 'ndi') {
         const ndi = this.channelNDIData[i];
-        gl.bindTexture(gl.TEXTURE_2D, this.channelTextures[i]);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, ndi.width, ndi.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, ndi.data);
-        ndi.needsUpdate = false;
+        if (ndi && ndi.needsUpdate) {
+          gl.bindTexture(gl.TEXTURE_2D, this.channelTextures[i]);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, ndi.width, ndi.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, ndi.data);
+          ndi.needsUpdate = false;
+        }
       }
     }
   }
@@ -602,13 +655,21 @@ class ShaderRenderer {
     // Check custom params first
     if (this.customParamValues.hasOwnProperty(name)) {
       this.customParamValues[name] = value;
+      this._paramsDirty = true;
     } else if (this.params.hasOwnProperty(name)) {
       this.params[name] = value;
+      this._paramsDirty = true;
     }
   }
 
   getParams() {
-    return { ...this.params, ...this.customParamValues };
+    // Return cached params if not dirty
+    if (!this._paramsDirty && this._cachedParams) {
+      return this._cachedParams;
+    }
+    this._cachedParams = { ...this.params, ...this.customParamValues };
+    this._paramsDirty = false;
+    return this._cachedParams;
   }
 
   // Get the current shader's custom parameter definitions
@@ -628,6 +689,7 @@ class ShaderRenderer {
         this.customParamValues[name] = value;
       }
     }
+    this._paramsDirty = true;
   }
 
   // Set params including custom params (for loading slot params)
@@ -675,6 +737,7 @@ class ShaderRenderer {
       case 'vec2':
         gl.uniform2f(location, value[0], value[1]);
         break;
+      case 'color':
       case 'vec3':
         gl.uniform3f(location, value[0], value[1], value[2]);
         break;
@@ -697,6 +760,7 @@ class ShaderRenderer {
     this.customParams = ShaderParamParser.parse(fragmentSource);
     this.customParamValues = ShaderParamParser.createParamValues(this.customParams);
     this.customParamUniforms = {};
+    this._paramsDirty = true;  // Invalidate params cache on recompile
 
     // Generate uniform declarations for custom params
     const customUniformDecls = ShaderParamParser.generateUniformDeclarations(this.customParams);
@@ -823,8 +887,8 @@ class ShaderRenderer {
   }
 
   parseShaderError(error) {
-    // WebGL error format: ERROR: 0:LINE: message
-    const match = error.match(/ERROR:\s*\d+:(\d+):\s*(.+)/);
+    // WebGL error format: ERROR: 0:LINE: message (using pre-compiled regex)
+    const match = error.match(SHADER_ERROR_REGEX);
     if (match) {
       // Subtract wrapper lines (header before user code)
       // Count: #version + precision*2 + standard uniforms (13) + custom uniforms comment + out + empty lines
@@ -865,8 +929,9 @@ class ShaderRenderer {
       this.fpsLastTime = now;
     }
 
-    // Date uniform
-    const date = new Date();
+    // Date uniform (reuse Date object to avoid allocation per frame)
+    const date = this._dateObject;
+    date.setTime(Date.now());
     const dateValues = [
       date.getFullYear(),
       date.getMonth(),

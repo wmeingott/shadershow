@@ -1,26 +1,12 @@
 // Settings Dialog module
 import { state } from './state.js';
 import { setStatus } from './utils.js';
-import { applyParamRanges } from './params.js';
 
 let settingsKeyHandler = null;
 
 export async function showSettingsDialog() {
   // Get current settings
   const settings = await window.electronAPI.getSettings();
-
-  // Build parameter ranges HTML
-  const paramRangesHtml = [0, 1, 2, 3, 4].map(i => {
-    const range = state.paramRanges[`p${i}`] || { min: 0, max: 1 };
-    return `
-      <div class="param-range-row">
-        <label>P${i}</label>
-        <input type="number" id="settings-p${i}-min" value="${range.min}" step="0.1" placeholder="Min">
-        <span>to</span>
-        <input type="number" id="settings-p${i}-max" value="${range.max}" step="0.1" placeholder="Max">
-      </div>
-    `;
-  }).join('');
 
   // Create settings dialog overlay
   const overlay = document.createElement('div');
@@ -32,11 +18,6 @@ export async function showSettingsDialog() {
         <button class="close-btn" id="settings-close-btn">&times;</button>
       </div>
       <div class="settings-content">
-        <div class="settings-section">
-          <h3>Parameter Ranges</h3>
-          ${paramRangesHtml}
-        </div>
-
         <div class="settings-section">
           <h3>NDI Output</h3>
           <div class="setting-row">
@@ -140,20 +121,8 @@ function applySettings() {
     }
   }
 
-  // Collect parameter ranges
-  const newParamRanges = {};
-  for (let i = 0; i < 5; i++) {
-    const min = parseFloat(document.getElementById(`settings-p${i}-min`).value) || 0;
-    const max = parseFloat(document.getElementById(`settings-p${i}-max`).value) || 1;
-    newParamRanges[`p${i}`] = { min, max };
-  }
-
-  // Update local param ranges and apply to sliders
-  state.paramRanges = newParamRanges;
-  applyParamRanges();
-
   // Save to file
-  window.electronAPI.saveSettings({ ndiResolution, paramRanges: newParamRanges });
+  window.electronAPI.saveSettings({ ndiResolution });
 
   closeSettingsDialog();
   setStatus('Settings saved', 'success');

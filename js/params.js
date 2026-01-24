@@ -84,8 +84,10 @@ export function initMouseAssignment() {
 }
 
 export function loadParamsToSliders(params) {
+  if (!params) return;
+
   // Load speed if present
-  if (params && params.speed !== undefined) {
+  if (params.speed !== undefined) {
     const speedSlider = document.getElementById('param-speed');
     const speedValue = document.getElementById('param-speed-value');
     if (speedSlider) {
@@ -98,14 +100,21 @@ export function loadParamsToSliders(params) {
     }
   }
 
-  // Load all params to selected tile if in tiled mode
-  if (state.tiledPreviewEnabled && params) {
+  // Load custom params to renderer
+  if (state.renderer) {
     Object.entries(params).forEach(([name, value]) => {
       if (name !== 'speed') {
-        updateSelectedTileParam(name, value);
+        state.renderer.setParam(name, value);
+        // Also update selected tile if in tiled mode
+        if (state.tiledPreviewEnabled) {
+          updateSelectedTileParam(name, value);
+        }
       }
     });
   }
+
+  // Regenerate custom param UI to reflect loaded values
+  generateCustomParamUI();
 }
 
 export function updateParamLabels(paramNames) {

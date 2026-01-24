@@ -69,9 +69,9 @@ function updateSelectedTileParam(paramName, value) {
   if (!slotData.params) slotData.params = {};
   slotData.params[paramName] = value;
 
-  // Update the MiniShaderRenderer if it exists (only supports speed)
-  if (slotData.renderer && paramName === 'speed') {
-    slotData.renderer.setSpeed(value);
+  // Update the MiniShaderRenderer if it exists
+  if (slotData.renderer && slotData.renderer.setParam) {
+    slotData.renderer.setParam(paramName, value);
   }
 
   // Save state
@@ -502,9 +502,7 @@ function updateCustomParamValue(paramName, value, arrayIndex = null) {
     debouncedSaveGridState();
   }
 
-  // Also update selected tile's params if in tiled mode
-  // Note: MiniShaderRenderer doesn't support custom params, but we store them
-  // so they're applied when the tile is played in the main renderer
+  // Also update selected tile's renderer if in tiled mode
   if (state.tiledPreviewEnabled) {
     const tileIndex = state.selectedTileIndex;
     if (tileIndex >= 0 && tileIndex < tileState.tiles.length) {
@@ -512,8 +510,14 @@ function updateCustomParamValue(paramName, value, arrayIndex = null) {
       if (tile && tile.gridSlotIndex !== null) {
         const slotData = state.gridSlots[tile.gridSlotIndex];
         if (slotData) {
+          // Store the param value
           if (!slotData.customParams) slotData.customParams = {};
           slotData.customParams[paramName] = fullValue;
+
+          // Update the MiniShaderRenderer
+          if (slotData.renderer && slotData.renderer.setParam) {
+            slotData.renderer.setParam(paramName, fullValue);
+          }
         }
       }
     }

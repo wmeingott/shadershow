@@ -920,23 +920,24 @@ export function selectGridSlot(slotIndex) {
   const isScene = slotData.type === 'scene';
   const slotName = slotData.filePath ? slotData.filePath.split('/').pop().split('\\').pop() : `Slot ${slotIndex + 1}`;
 
-  // If tiled preview is enabled, assign shader to selected tile
+  // Switch render mode if needed
+  if (isScene) {
+    setRenderMode('scene');
+  } else {
+    setRenderMode('shader');
+  }
+
+  // Always compile the shader to state.renderer so we can read @param definitions
+  // and generate the correct parameter UI
+  try {
+    state.renderer.compile(slotData.shaderCode);
+  } catch (err) {
+    console.warn(`Failed to compile for preview:`, err.message);
+  }
+
+  // If tiled preview is enabled, also assign shader to selected tile
   if (state.tiledPreviewEnabled) {
     assignShaderToTile(slotIndex, state.selectedTileIndex);
-  } else {
-    // Switch render mode if needed and compile the shader/scene to main preview
-    if (isScene) {
-      setRenderMode('scene');
-    } else {
-      setRenderMode('shader');
-    }
-
-    // Compile the shader/scene to the main preview
-    try {
-      state.renderer.compile(slotData.shaderCode);
-    } catch (err) {
-      console.warn(`Failed to compile for preview:`, err.message);
-    }
   }
 
   // Load params to sliders (works for both tiled and non-tiled mode)
@@ -945,8 +946,15 @@ export function selectGridSlot(slotIndex) {
   }
 
   // Load custom params if available
-  if (slotData.customParams && !isScene && state.renderer?.setCustomParamValues) {
-    state.renderer.setCustomParamValues(slotData.customParams);
+  if (slotData.customParams && !isScene) {
+    // Load to main renderer
+    if (state.renderer?.setCustomParamValues) {
+      state.renderer.setCustomParamValues(slotData.customParams);
+    }
+    // Also load to MiniShaderRenderer for tiled preview
+    if (slotData.renderer?.setParams) {
+      slotData.renderer.setParams(slotData.customParams);
+    }
   }
 
   // Regenerate custom param UI based on the shader's @param definitions
@@ -1166,11 +1174,31 @@ class MiniShaderRenderer {
     this._colorArray = new Float32Array(30).fill(1.0);  // 10 colors * 3 components, all white
     this._paramsArray = new Float32Array([0.5, 0.5, 0.5, 0.5, 0.5]);  // 5 params at 0.5
 
+    // Custom param values storage
+    this.customParamValues = {};
+
     this.setupGeometry();
   }
 
   setSpeed(speed) {
     this.speed = speed;
+  }
+
+  // Set a custom parameter value
+  setParam(name, value) {
+    if (name === 'speed') {
+      this.setSpeed(value);
+    } else {
+      this.customParamValues[name] = value;
+    }
+  }
+
+  // Set multiple parameters at once
+  setParams(params) {
+    if (!params) return;
+    Object.entries(params).forEach(([name, value]) => {
+      this.setParam(name, value);
+    });
   }
 
   setupGeometry() {
@@ -1281,12 +1309,16 @@ class MiniShaderRenderer {
     gl.uniform1fv(this.uniforms.iParams, this._paramsArray);
     gl.uniform1f(this.uniforms.iSpeed, this.speed);
 
-    // Set custom param uniforms with default values
+    // Set custom param uniforms (use stored value or default)
     for (const param of this.customParams || []) {
       const loc = this.customUniformLocations[param.name];
       if (loc === null) continue;
 
-      const value = param.default;
+      // Use stored value if available, otherwise use default
+      const value = this.customParamValues[param.name] !== undefined
+        ? this.customParamValues[param.name]
+        : param.default;
+
       switch (param.glslBaseType) {
         case 'float':
           gl.uniform1f(loc, value);
@@ -1295,13 +1327,13 @@ class MiniShaderRenderer {
           gl.uniform1i(loc, value);
           break;
         case 'vec2':
-          gl.uniform2fv(loc, value);
+          gl.uniform2fv(loc, Array.isArray(value) ? value : [value, value]);
           break;
         case 'vec3':
-          gl.uniform3fv(loc, value);
+          gl.uniform3fv(loc, Array.isArray(value) ? value : [value, value, value]);
           break;
         case 'vec4':
-          gl.uniform4fv(loc, value);
+          gl.uniform4fv(loc, Array.isArray(value) ? value : [value, value, value, value]);
           break;
       }
     }

@@ -393,6 +393,16 @@ export function selectTile(tileIndex) {
       const wasTiledEnabled = state.tiledPreviewEnabled;
       state.tiledPreviewEnabled = false;
 
+      // Compile the shader to state.renderer so we can read @param definitions
+      const isScene = slotData.type === 'scene';
+      if (!isScene && slotData.shaderCode) {
+        try {
+          state.renderer.compile(slotData.shaderCode);
+        } catch (err) {
+          console.warn('Failed to compile shader for param UI:', err.message);
+        }
+      }
+
       // Load speed param to slider (use tile's params if set, otherwise slot's params)
       const params = tile.params || slotData.params || {};
       loadParamsToSliders(params);

@@ -214,3 +214,93 @@
 #fullscreen-fps.very-low {
   color: #e74c3c;
 }
+
+/* State Presets Panel */
+#state-presets-panel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  background-color: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+#state-presets-panel.hidden {
+  display: none;
+}
+
+.state-presets-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 100px;
+}
+
+.state-presets-header span:first-child {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.state-presets-hint {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.state-presets-bar {
+  display: flex;
+  gap: 4px;
+}
+
+.state-preset-btn {
+  width: 36px;
+  height: 28px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  position: relative;
+}
+
+.state-preset-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-color);
+  color: var(--text-primary);
+}
+
+.state-preset-btn.has-preset {
+  background: var(--bg-active);
+  border-color: var(--success-color);
+  color: var(--text-primary);
+}
+
+.state-preset-btn.has-preset::after {
+  content: '';
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 5px;
+  height: 5px;
+  background: var(--success-color);
+  border-radius: 50%;
+}
+
+.state-preset-btn.active {
+  background: var(--accent-color);
+  border-color: var(--accent-color);
+  color: white;
+}
+
+.state-preset-btn.active::after {
+  background: white;
+}
+
+#btn-tile-presets {
+  font-size: 11px;
+  font-weight: bold;
+}

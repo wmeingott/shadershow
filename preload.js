@@ -124,6 +124,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveTileState: (tileState) => ipcRenderer.send('save-tile-state', tileState),
   loadTileState: () => ipcRenderer.invoke('load-tile-state'),
 
+  // Tile preset persistence (full snapshots with shader code)
+  saveTilePresets: (presets) => ipcRenderer.send('save-tile-presets', presets),
+  loadTilePresets: () => ipcRenderer.invoke('load-tile-presets'),
+
   // Open tiled fullscreen
   openTiledFullscreen: (config) => ipcRenderer.send('open-tiled-fullscreen', config),
 

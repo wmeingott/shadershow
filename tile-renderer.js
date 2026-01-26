@@ -107,6 +107,9 @@ class TileRenderer {
       uniform sampler2D iChannel3;
       uniform vec3 iChannelResolution[4];
 
+      // Tile offset for coordinate adjustment
+      uniform vec2 iTileOffset;
+
       // Custom shader parameters (parsed from @param comments)
       ${customUniformDecls}
 
@@ -115,12 +118,17 @@ class TileRenderer {
       ${fragmentSource}
 
       void main() {
-        mainImage(outColor, gl_FragCoord.xy);
+        // Adjust gl_FragCoord to be relative to tile, not window
+        vec2 fragCoord = gl_FragCoord.xy - iTileOffset;
+        mainImage(outColor, fragCoord);
       }
     `;
 
     // Compile vertex shader
     const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+    if (!vertexShader) {
+      throw new Error('Failed to create vertex shader - WebGL context may be lost');
+    }
     gl.shaderSource(vertexShader, vertexSource);
     gl.compileShader(vertexShader);
 
@@ -132,6 +140,10 @@ class TileRenderer {
 
     // Compile fragment shader
     const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+    if (!fragmentShader) {
+      gl.deleteShader(vertexShader);
+      throw new Error('Failed to create fragment shader - WebGL context may be lost');
+    }
     gl.shaderSource(fragmentShader, wrappedFragment);
     gl.compileShader(fragmentShader);
 
@@ -178,7 +190,8 @@ class TileRenderer {
       iChannel1: gl.getUniformLocation(program, 'iChannel1'),
       iChannel2: gl.getUniformLocation(program, 'iChannel2'),
       iChannel3: gl.getUniformLocation(program, 'iChannel3'),
-      iChannelResolution: gl.getUniformLocation(program, 'iChannelResolution')
+      iChannelResolution: gl.getUniformLocation(program, 'iChannelResolution'),
+      iTileOffset: gl.getUniformLocation(program, 'iTileOffset')
     };
 
     // Cache uniform locations for custom parameters
@@ -285,6 +298,12 @@ class TileRenderer {
 
     const gl = this.gl;
     const { x, y, width, height } = this.bounds;
+
+    // Skip if bounds are invalid
+    if (!width || !height || width < 10 || height < 10) {
+      console.warn('TileRenderer: Invalid bounds, skipping render', this.bounds);
+      return;
+    }
     const {
       time,
       timeDelta,
@@ -294,6 +313,7 @@ class TileRenderer {
       channelTextures,
       channelResolutions
     } = sharedState;
+
 
     // Set viewport and scissor to this tile's region
     gl.viewport(x, y, width, height);
@@ -315,6 +335,9 @@ class TileRenderer {
     const mouseZ = mouse.isDown ? mouse.clickX : -mouse.clickX;
     const mouseW = mouse.isDown ? mouse.clickY : -mouse.clickY;
     gl.uniform4f(this.uniforms.iMouse, mouse.x, mouse.y, mouseZ, mouseW);
+
+    // Set tile offset for coordinate adjustment (gl_FragCoord is in window coords)
+    gl.uniform2f(this.uniforms.iTileOffset, x, y);
 
     // Set custom parameter uniforms
     this.setCustomUniforms();

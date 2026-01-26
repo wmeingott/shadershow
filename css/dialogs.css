@@ -408,6 +408,75 @@
   min-width: 40px;
 }
 
+/* Tile Presets Section */
+.tile-presets-section {
+  margin-top: 16px;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+}
+
+.tile-presets-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
+.tile-presets-bar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tile-preset-btn {
+  width: 40px;
+  height: 32px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  position: relative;
+}
+
+.tile-preset-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-color);
+  color: var(--text-primary);
+}
+
+.tile-preset-btn.has-preset {
+  background: var(--bg-active);
+  border-color: var(--success-color);
+  color: var(--text-primary);
+}
+
+.tile-preset-btn.has-preset::after {
+  content: '';
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 6px;
+  height: 6px;
+  background: var(--success-color);
+  border-radius: 50%;
+}
+
+.tile-preset-btn.active {
+  background: var(--accent-color);
+  border-color: var(--accent-color);
+  color: white;
+}
+
+.tile-preset-btn.active::after {
+  background: white;
+}
+
 /* Tile Preview Grid */
 .tile-preview-container {
   margin-top: 20px;

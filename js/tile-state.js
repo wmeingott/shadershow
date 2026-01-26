@@ -1,6 +1,13 @@
 // Tile State module - manages tiled display configuration
 // Each tile can independently render a shader from a grid slot
 
+// Tile presets - full snapshots of tiled display state
+// Each preset stores layout + all tile assignments with their shader code and params
+export const tilePresets = {
+  presets: [], // Array of up to 8 presets
+  activeIndex: null
+};
+
 export const tileState = {
   // Layout configuration
   layout: {
@@ -202,4 +209,131 @@ export function deserializeTileState(data) {
   if (tileState.tiles.length > expectedCount) {
     tileState.tiles.length = expectedCount;
   }
+}
+
+// =============================================================================
+// Tile Preset Functions
+// =============================================================================
+
+// Save current tiled state as a preset
+export function saveTilePreset(index, name, gridSlots) {
+  if (index < 0 || index > 7) return;
+
+  // Build full preset with shader code embedded
+  const preset = {
+    name: name || `Preset ${index + 1}`,
+    savedAt: Date.now(),
+    layout: { ...tileState.layout },
+    tiles: tileState.tiles.map(tile => {
+      if (tile.gridSlotIndex === null) {
+        return { gridSlotIndex: null, shaderCode: null, params: null, customParams: null, visible: true };
+      }
+      const slotData = gridSlots[tile.gridSlotIndex];
+      return {
+        gridSlotIndex: tile.gridSlotIndex,
+        shaderCode: slotData?.shaderCode || null,
+        params: tile.params ? { ...tile.params } : (slotData?.params ? { ...slotData.params } : null),
+        customParams: tile.customParams ? { ...tile.customParams } : (slotData?.customParams ? { ...slotData.customParams } : null),
+        visible: tile.visible !== false
+      };
+    })
+  };
+
+  // Ensure presets array is large enough
+  while (tilePresets.presets.length <= index) {
+    tilePresets.presets.push(null);
+  }
+  tilePresets.presets[index] = preset;
+  tilePresets.activeIndex = index;
+
+  return preset;
+}
+
+// Recall a tile preset
+export function recallTilePreset(index) {
+  if (index < 0 || index >= tilePresets.presets.length) return null;
+
+  const preset = tilePresets.presets[index];
+  if (!preset) return null;
+
+  // Apply layout
+  tileState.layout = { ...preset.layout };
+
+  // Apply tiles (just the grid slot indices and params, shader code is for fullscreen)
+  tileState.tiles = preset.tiles.map(t => ({
+    gridSlotIndex: t.gridSlotIndex,
+    params: t.params ? { ...t.params } : null,
+    customParams: t.customParams ? { ...t.customParams } : null,
+    visible: t.visible !== false
+  }));
+
+  tilePresets.activeIndex = index;
+  return preset;
+}
+
+// Get preset info for display
+export function getTilePresetInfo(index) {
+  if (index < 0 || index >= tilePresets.presets.length) return null;
+  const preset = tilePresets.presets[index];
+  if (!preset) return null;
+  return {
+    name: preset.name,
+    layout: preset.layout,
+    tileCount: preset.tiles.filter(t => t.gridSlotIndex !== null).length
+  };
+}
+
+// Clear a preset
+export function clearTilePreset(index) {
+  if (index >= 0 && index < tilePresets.presets.length) {
+    tilePresets.presets[index] = null;
+    if (tilePresets.activeIndex === index) {
+      tilePresets.activeIndex = null;
+    }
+  }
+}
+
+// Serialize presets for persistence (deep copy)
+export function serializeTilePresets() {
+  return {
+    presets: tilePresets.presets.map(p => {
+      if (!p) return null;
+      return {
+        name: p.name,
+        savedAt: p.savedAt,
+        layout: { ...p.layout },
+        tiles: p.tiles.map(t => ({
+          gridSlotIndex: t.gridSlotIndex,
+          shaderCode: t.shaderCode,
+          params: t.params ? { ...t.params } : null,
+          customParams: t.customParams ? { ...t.customParams } : null,
+          visible: t.visible
+        }))
+      };
+    }),
+    activeIndex: tilePresets.activeIndex
+  };
+}
+
+// Deserialize presets from saved data (deep copy)
+export function deserializeTilePresets(data) {
+  if (!data) return;
+  if (Array.isArray(data.presets)) {
+    tilePresets.presets = data.presets.map(p => {
+      if (!p) return null;
+      return {
+        name: p.name,
+        savedAt: p.savedAt,
+        layout: { ...p.layout },
+        tiles: p.tiles.map(t => ({
+          gridSlotIndex: t.gridSlotIndex,
+          shaderCode: t.shaderCode,
+          params: t.params ? { ...t.params } : null,
+          customParams: t.customParams ? { ...t.customParams } : null,
+          visible: t.visible
+        }))
+      };
+    });
+  }
+  tilePresets.activeIndex = data.activeIndex ?? null;
 }

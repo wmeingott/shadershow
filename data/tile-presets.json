@@ -1,0 +1,674 @@
+{
+  "presets": [
+    {
+      "name": "Preset 1",
+      "savedAt": 1769279315201,
+      "layout": {
+        "rows": 2,
+        "cols": 2,
+        "gaps": 0
+      },
+      "tiles": [
+        {
+          "gridSlotIndex": 3,
+          "shaderCode": "// Starfield with fractal geometry\n// Custom params: // @param name type [default] [min, max] \"description\"\n\n#define NUM_LAYERS 10.\n\nmat2 Rot(float a) {\n  float c = cos(a), s = sin(a);\n  return mat2(c, -s, s, c);\n}\n\nfloat Star(vec2 uv, float flare) {\n    float col = 0.;\n    float d = length(uv);\n    float m = .02/d;\n    \n    float rays = max(0., 1. - abs(uv.x * uv.y * 500.));\n    m += rays * flare;\n    uv *= Rot(3.1415/4.);\n    rays = max(0., 1. - abs(uv.x * uv.y * 500.));\n    m += rays * .3 * flare;\n    \n    m *= smoothstep(1., .2, d);\n\n    return m;\n}\n\nfloat Hash21(vec2 p) {\n  p = fract(p * vec2(123.34, 456.21));\n  p += dot(p, p+25.32);\n  \n  return fract(p.x*p.y);\n}\n\nvec3 StarLayer(vec2 uv) {\n    vec3 col = vec3(0.);\n    \n    vec2 gv = fract(uv) - 0.5;\n    vec2 id = floor(uv);\n    \n    for(int y = -1; y <= 1; y++ ) {\n        for(int x = -1; x <= 1; x++) {\n            vec2 offs = vec2(x, y);\n\n            float n = Hash21(id + offs);\n            float size = fract(n*345.32);\n            \n            vec2 p = vec2(n, fract(n*34.));\n            \n            float star = Star(gv - offs - p + .5, smoothstep(.8, 1., size) * .6);\n            \n            vec3 hueShift = fract(n*2345.2 + dot(uv /420.,texture(iChannel0, vec2(0.25, 0.)).rg))*vec3(.2, .3, .9)*123.2;\n\n            vec3 color = sin(hueShift) * .5 + .5;\n            color = color * vec3(1., .25, 1.+size);\n\n            star *= sin(iTime*3.+n*6.2831)*.4+1.;\n            col += star * size * color;\n        }\n    }\n    \n    return col;\n\n}\n\nvec2 N(float angle) {\n  return vec2(sin(angle), cos(angle));\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 uv = (fragCoord - 0.5*iResolution.xy)/iResolution.y;\n    vec2 M = (iMouse.xy - iResolution.xy*.5)/iResolution.y;\n    float t = iTime * .01;\n    \n    uv.x = abs(uv.x);\n    uv.y += tan((5./6.) * 3.1415) * .1;\n\n    vec2 n = N((5./6.) * 3.1415);\n    float d = dot(uv - vec2(.5, 0.), n);\n    uv -= n * max(0., d) * 2.;\n\n    // col += smoothstep(.01, .0, abs(d));\n\n    n = N((2./3.) * 3.1415);\n    float scale = 1.;\n    uv.x += 1.0 / 1.25;\n    for(int i=0; i<5; i++) {\n        scale *= 1.25;\n        uv *= 1.25;\n        uv.x -= 1.5;\n\n        uv.x = abs(uv.x);\n        uv.x -= 0.5;\n        uv -= n * min(0., dot(uv, n)) * 2.;\n    }\n\n \n    uv += M * 4.;\n\n    uv *= Rot(t);\n    vec3 col = vec3(0.);\n    \n    float layers = 20.;\n    \n    for(float i=0.; i < 1.; i+=1./NUM_LAYERS) {\n        float depth = fract(i+t);\n        float scale = mix(20., .5, depth);\n        float fade = depth * smoothstep(0., .9, depth);\n        col += StarLayer(uv * scale + i * 453.2) * fade;\n    }\n\n    fragColor = vec4(col,1.0);\n}",
+          "params": {
+            "red": 0.65,
+            "green": 0.09,
+            "blue": 0.21,
+            "red2": 1,
+            "green2": 1,
+            "blue2": 1,
+            "red3": 1,
+            "green3": 1,
+            "blue3": 1,
+            "speed": 1,
+            "param1": 0.5,
+            "param2": 0.5
+          },
+          "customParams": {},
+          "visible": true
+        },
+        {
+          "gridSlotIndex": 7,
+          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n *\n * Supported types: int, float, vec2, vec3, vec4, color\n *\n * Examples:\n *   // @param speed float 1.0 [0.0, 2.0] \"Animation speed\"\n *   // @param center vec2 0.5, 0.5 \"Center position\"\n *   // @param tint color [1.0, 0.5, 0.0] \"Tint color\"\n */\n\nvec3 palette(float d){\n\treturn mix(vec3(0.2,0.7,0.9),vec3(1.,0.,1.),d);\n}\n\nvec2 rotate(vec2 p,float a){\n\tfloat c = cos(a);\n    float s = sin(a);\n    return p*mat2(c,s,-s,c);\n}\n\nfloat map(vec3 p){\n    for( int i = 0; i<8; ++i){\n        float t = iTime*0.2;\n        p.xz =rotate(p.xz,t);\n        p.xy =rotate(p.xy,t*1.89);\n        p.xz = abs(p.xz);\n        p.xz-=.5;\n\t}\n\treturn dot(sign(p),p)/5.;\n}\n\nvec4 rm (vec3 ro, vec3 rd){\n    float t = 0.;\n    vec3 col = vec3(0.);\n    float d;\n    for(float i =0.; i<64.; i++){\n\t\tvec3 p = ro + rd*t;\n        d = map(p)*.5;\n        if(d<0.02){\n            break;\n        }\n        if(d>100.){\n        \tbreak;\n        }\n        //col+=vec3(0.6,0.8,0.8)/(400.*(d));\n        col+=palette(length(p)*.1)/(400.*(d));\n        t+=d;\n    }\n    return vec4(col,1./(d*100.));\n}\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 uv = (fragCoord-(iResolution.xy/2.))/iResolution.x;\n\tvec3 ro = vec3(0.,0.,-50.);\n    ro.xz = rotate(ro.xz,iTime);\n    vec3 cf = normalize(-ro);\n    vec3 cs = normalize(cross(cf,vec3(0.,1.,0.)));\n    vec3 cu = normalize(cross(cf,cs));\n    \n    vec3 uuv = ro+cf*3. + uv.x*cs + uv.y*cu;\n    \n    vec3 rd = normalize(uuv-ro);\n    \n    vec4 col = rm(ro,rd);\n    \n    \n    fragColor = col;\n}\n\n/** SHADERDATA\n{\n\t\"title\": \"fractal pyramid\",\n\t\"description\": \"\",\n\t\"model\": \"car\"\n}\n*/",
+          "params": {
+            "speed": 1,
+            "p0": 0.5,
+            "p1": 0.5,
+            "p2": 0.5,
+            "p3": 0.5,
+            "p4": 0.5,
+            "r0": 1,
+            "g0": 1,
+            "b0": 1,
+            "r1": 1,
+            "g1": 1,
+            "b1": 1,
+            "r2": 1,
+            "g2": 1,
+            "b2": 1,
+            "r3": 1,
+            "g3": 1,
+            "b3": 1,
+            "r4": 1,
+            "g4": 1,
+            "b4": 1,
+            "r5": 1,
+            "g5": 1,
+            "b5": 1,
+            "r6": 1,
+            "g6": 1,
+            "b6": 1,
+            "r7": 1,
+            "g7": 1,
+            "b7": 1,
+            "r8": 1,
+            "g8": 1,
+            "b8": 1,
+            "r9": 1,
+            "g9": 1,
+            "b9": 1
+          },
+          "customParams": {},
+          "visible": true
+        },
+        {
+          "gridSlotIndex": 8,
+          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n * Types: int, float, vec2, vec3, vec4, color\n */\n\n/*\n    \"Artifacts\" by @XorDev\n    \n    https://x.com/XorDev/status/2008361514684539306\n*/\nvoid mainImage( out vec4 O, vec2 I)\n{\n    //Iterator, raymarch depth and step distance\n    float i, z, d;\n    \n    //Raymarch sample point\n    vec3 p;\n    \n    //Clear fragColor and raymarch 77 steps\n    for(O*=i; i++<77.;\n        //Slowly step forward using the distance to a distorted z-plane\n        z += d = abs(p.z/30.+.2),\n        //Add color (attenuating with distance to surface)\n        O += vec4(z,z,9,1) / d,\n        //Compute the next sample point\n        p = z * normalize(vec3(I+I,0) - iResolution.xyy),\n        //Shift diagonally\n        p.xy += iTime)\n        \n        //Use blocky \"turbulence\" for the distortion\n        //https://mini.gmshaders.com/p/turbulence\n        for(d=0.; d++<9.; p+=sin(round(p)+d*3.).zxy);\n        \n    //Tanh tonemapping\n    //https://mini.gmshaders.com/p/func-tanh\n    O = tanh(O/8e4);\n}",
+          "params": {
+            "speed": 1,
+            "p0": 0.5,
+            "p1": 0.5,
+            "p2": 0.5,
+            "p3": 0.5,
+            "p4": 0.5,
+            "r0": 1,
+            "g0": 1,
+            "b0": 1,
+            "r1": 1,
+            "g1": 1,
+            "b1": 1,
+            "r2": 1,
+            "g2": 1,
+            "b2": 1,
+            "r3": 1,
+            "g3": 1,
+            "b3": 1,
+            "r4": 1,
+            "g4": 1,
+            "b4": 1,
+            "r5": 1,
+            "g5": 1,
+            "b5": 1,
+            "r6": 1,
+            "g6": 1,
+            "b6": 1,
+            "r7": 1,
+            "g7": 1,
+            "b7": 1,
+            "r8": 1,
+            "g8": 1,
+            "b8": 1,
+            "r9": 1,
+            "g9": 1,
+            "b9": 1
+          },
+          "customParams": {},
+          "visible": true
+        },
+        {
+          "gridSlotIndex": 2,
+          "shaderCode": "// Stage Lights Array Simulation - OPTIMIZED\n// Creates an array of animated stage lights with volumetric fog\n\n// @param showGround float 0.5 [0.0, 1.0] \"Show ground (>0.5)\"\n// @param lightHeight float 0.5 [0.0, 1.0] \"Light height\"\n// @param lightDepth float 0.5 [0.0, 1.0] \"Light depth\"\n// @param light1 color [1.0, 0.0, 0.0] \"Light 1\"\n// @param light2 color [0.0, 1.0, 0.0] \"Light 2\"\n// @param light3 color [0.0, 0.0, 1.0] \"Light 3\"\n// @param light4 color [1.0, 1.0, 0.0] \"Light 4\"\n// @param light5 color [1.0, 0.0, 1.0] \"Light 5\"\n// @param light6 color [0.0, 1.0, 1.0] \"Light 6\"\n// @param light7 color [1.0, 0.5, 0.0] \"Light 7\"\n// @param light8 color [0.5, 0.0, 1.0] \"Light 8\"\n\n#define NUM_LIGHTS 8\n#define PI 3.14159265359\n#define MAX_STEPS 88  // Reduziert von ~100\n\n// Vereinfachte Noise-Funktion\nfloat hash(float n) {\n    return fract(sin(n) * 43758.5453123);\n}\n\n// Schnellerer Noise - weniger Operationen\nfloat noise2(vec3 x) {\n    vec3 p = floor(x);\n    vec3 f = fract(x);\n    f = f * f * (3.0 - 2.0 * f);\n    \n    float n = p.x + p.y * 57.0 + 113.0 * p.z;\n    float a = hash(n);\n    float b = hash(n + 1.0);\n    float c = hash(n + 57.0);\n    float d = hash(n + 58.0);\n    float e = hash(n + 113.0);\n    float f1 = hash(n + 114.0);\n    float g = hash(n + 170.0);\n    float h = hash(n + 171.0);\n    \n    return mix(mix(mix(a, b, f.x), mix(c, d, f.x), f.y),\n               mix(mix(e, f1, f.x), mix(g, h, f.x), f.y), f.z);\n}\n\nfloat noise(vec3 x){\n  return 1.0;\n}\n// Vorberechnete Lichtdaten\nstruct Light {\n    vec3 pos;\n    vec3 dir;\n    vec3 color;\n    float angle;\n    float intensity;\n};\n\n// Lichtparameter einmal pro Frame berechnen\nvoid setupLights(out Light lights[NUM_LIGHTS]) {\n    // Build color array from named parameters\n    vec3 lightColors[NUM_LIGHTS];\n    lightColors[0] = light1;\n    lightColors[1] = light2;\n    lightColors[2] = light3;\n    lightColors[3] = light4;\n    lightColors[4] = light5;\n    lightColors[5] = light6;\n    lightColors[6] = light7;\n    lightColors[7] = light8;\n\n    for (int j = 0; j < NUM_LIGHTS; j++) {\n        float lightIndex = float(j);\n        float phase = lightIndex * PI * 2.0 / float(NUM_LIGHTS);\n        float swing = sin(iTime * 0.5 + phase) * 0.3;\n        float tilt = cos(iTime * 0.7 + phase * 1.5) * 0.2;\n\n        lights[j].pos = vec3(-3.5 + lightIndex * 1.0, 3.0 * lightHeight + 3.0, 10.0 * lightDepth - 10.0);\n        lights[j].dir = normalize(vec3(swing, -0.8 + tilt, 1.0));\n        lights[j].angle = 0.3 + 0.1 * sin(iTime + phase);\n\n        // Flicker\n        float flicker = 0.9 + 0.1 * sin(iTime * 20.0 + lightIndex * 7.0);\n        lights[j].intensity = 2.0 * flicker;\n        lights[j].color = lightColors[j];\n    }\n}\n\n// Optimierte Spotlight-Berechnung\nvec3 spotlightFast(vec3 pos, Light light, float fog) {\n    vec3 toLight = light.pos - pos;\n    float dist2 = dot(toLight, toLight);  // Quadrat statt length()\n    vec3 lightVec = toLight * inversesqrt(dist2);\n    \n    float spotEffect = dot(lightVec, -light.dir);\n    float spotCutoff = cos(light.angle);\n    \n    if (spotEffect < spotCutoff) return vec3(0.0);\n    \n    float edge = smoothstep(spotCutoff, 1.0, spotEffect);\n    float dist = sqrt(dist2);\n    float attenuation = 1.0 / (1.0 + 0.1 * dist + 0.01 * dist2);\n    \n    return light.color * (edge * attenuation * fog * light.intensity);\n}\n\n// Optimiertes Ray Marching\nvec3 volumetricLighting(vec3 ro, vec3 rd, float maxDist, Light lights[NUM_LIGHTS]) {\n    vec3 color = vec3(0.0);\n    \n    // Adaptive Schrittweite\n    float stepSize = maxDist / float(MAX_STEPS);\n    stepSize = max(stepSize, 0.15);  // Minimum 0.15\n    \n    float t = stepSize * 0.5;  // Start mit halber Schrittweite (besseres Sampling)\n    \n    for (int i = 0; i < MAX_STEPS; i++) {\n        if (t >= maxDist) break;\n        \n        vec3 pos = ro + rd * t;\n        \n        // Fog nur einmal pro Schritt berechnen\n        float fog = 0.1 + noise(pos * 0.5 + vec3(0.0, -iTime * 0.1, 0.0)) * 0.05;\n        \n        // Alle Lichter akkumulieren\n        vec3 lightContrib = vec3(0.0);\n        for (int j = 0; j < NUM_LIGHTS; j++) {\n            lightContrib += spotlightFast(pos, lights[j], fog);\n        }\n        \n        color += lightContrib;\n        t += stepSize;\n    }\n    \n    return color * stepSize;\n}\n\nfloat groundPlane(vec3 ro, vec3 rd) {\n    return rd.y < 0.0 ? -ro.y / rd.y : -1.0;\n}\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;\n    \n    // Lichter einmal pro Pixel vorberechnen\n    Light lights[NUM_LIGHTS];\n    setupLights(lights);\n    \n    // Camera\n    vec3 ro = vec3(0.0, 1.5, 5.0);\n    vec3 forward = normalize(vec3(0.0, 1.0, 0.0) - ro);\n    vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), forward));\n    vec3 up = cross(forward, right);\n    vec3 rd = normalize(forward + uv.x * right + uv.y * up);\n    \n    // Background\n    vec3 color = vec3(0.02, 0.02, 0.05) * (1.0 - uv.y * 0.5);\n    \n    // Ground\n    float groundT = 0.0;\n    if(showGround >= 0.5){\n    groundT = groundPlane(ro, rd);\n    if (groundT > 0.0) {\n        vec3 groundPos = ro + rd * groundT;\n        vec2 checker = floor(groundPos.xz * 2.0);\n        float pattern = mod(checker.x + checker.y, 2.0);\n        color = mix(color, mix(vec3(0.05), vec3(0.1), pattern), exp(-groundT * 0.1));\n    }\n    }\n    // Volumetric lighting\n    color += volumetricLighting(ro, rd, groundT > 0.0 ? groundT : 10.0, lights);\n    \n    // Tonemapping + Gamma + Vignette kombiniert\n    color = pow(color / (1.0 + color), vec3(0.4545)) * (1.0 - dot(uv, uv) * 0.3);\n    \n    fragColor = vec4(color, 1.0);\n} ",
+          "params": {
+            "speed": 1,
+            "showGround": 0.5,
+            "lightHeight": 0.5,
+            "lightDepth": 0.5,
+            "light1": [
+              1,
+              1,
+              1
+            ],
+            "light2": [
+              1,
+              1,
+              1
+            ],
+            "light3": [
+              1,
+              1,
+              1
+            ],
+            "light4": [
+              1,
+              1,
+              1
+            ],
+            "light5": [
+              1,
+              1,
+              1
+            ],
+            "light6": [
+              1,
+              1,
+              1
+            ],
+            "light7": [
+              1,
+              1,
+              1
+            ],
+            "light8": [
+              1,
+              1,
+              1
+            ]
+          },
+          "customParams": {
+            "showGround": 0.5,
+            "lightHeight": 0.5,
+            "lightDepth": 0.5,
+            "light1": [
+              1,
+              1,
+              1
+            ],
+            "light2": [
+              1,
+              1,
+              1
+            ],
+            "light3": [
+              1,
+              1,
+              1
+            ],
+            "light4": [
+              1,
+              1,
+              1
+            ],
+            "light5": [
+              1,
+              1,
+              1
+            ],
+            "light6": [
+              1,
+              1,
+              1
+            ],
+            "light7": [
+              1,
+              1,
+              1
+            ],
+            "light8": [
+              1,
+              1,
+              1
+            ]
+          },
+          "visible": true
+        }
+      ]
+    },
+    {
+      "name": "Preset 2",
+      "savedAt": 1769280187901,
+      "layout": {
+        "rows": 2,
+        "cols": 2,
+        "gaps": 0
+      },
+      "tiles": [
+        {
+          "gridSlotIndex": 3,
+          "shaderCode": "// Starfield with fractal geometry\n// Custom params: // @param name type [default] [min, max] \"description\"\n\n#define NUM_LAYERS 10.\n\nmat2 Rot(float a) {\n  float c = cos(a), s = sin(a);\n  return mat2(c, -s, s, c);\n}\n\nfloat Star(vec2 uv, float flare) {\n    float col = 0.;\n    float d = length(uv);\n    float m = .02/d;\n    \n    float rays = max(0., 1. - abs(uv.x * uv.y * 500.));\n    m += rays * flare;\n    uv *= Rot(3.1415/4.);\n    rays = max(0., 1. - abs(uv.x * uv.y * 500.));\n    m += rays * .3 * flare;\n    \n    m *= smoothstep(1., .2, d);\n\n    return m;\n}\n\nfloat Hash21(vec2 p) {\n  p = fract(p * vec2(123.34, 456.21));\n  p += dot(p, p+25.32);\n  \n  return fract(p.x*p.y);\n}\n\nvec3 StarLayer(vec2 uv) {\n    vec3 col = vec3(0.);\n    \n    vec2 gv = fract(uv) - 0.5;\n    vec2 id = floor(uv);\n    \n    for(int y = -1; y <= 1; y++ ) {\n        for(int x = -1; x <= 1; x++) {\n            vec2 offs = vec2(x, y);\n\n            float n = Hash21(id + offs);\n            float size = fract(n*345.32);\n            \n            vec2 p = vec2(n, fract(n*34.));\n            \n            float star = Star(gv - offs - p + .5, smoothstep(.8, 1., size) * .6);\n            \n            vec3 hueShift = fract(n*2345.2 + dot(uv /420.,texture(iChannel0, vec2(0.25, 0.)).rg))*vec3(.2, .3, .9)*123.2;\n\n            vec3 color = sin(hueShift) * .5 + .5;\n            color = color * vec3(1., .25, 1.+size);\n\n            star *= sin(iTime*3.+n*6.2831)*.4+1.;\n            col += star * size * color;\n        }\n    }\n    \n    return col;\n\n}\n\nvec2 N(float angle) {\n  return vec2(sin(angle), cos(angle));\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 uv = (fragCoord - 0.5*iResolution.xy)/iResolution.y;\n    vec2 M = (iMouse.xy - iResolution.xy*.5)/iResolution.y;\n    float t = iTime * .01;\n    \n    uv.x = abs(uv.x);\n    uv.y += tan((5./6.) * 3.1415) * .1;\n\n    vec2 n = N((5./6.) * 3.1415);\n    float d = dot(uv - vec2(.5, 0.), n);\n    uv -= n * max(0., d) * 2.;\n\n    // col += smoothstep(.01, .0, abs(d));\n\n    n = N((2./3.) * 3.1415);\n    float scale = 1.;\n    uv.x += 1.0 / 1.25;\n    for(int i=0; i<5; i++) {\n        scale *= 1.25;\n        uv *= 1.25;\n        uv.x -= 1.5;\n\n        uv.x = abs(uv.x);\n        uv.x -= 0.5;\n        uv -= n * min(0., dot(uv, n)) * 2.;\n    }\n\n \n    uv += M * 4.;\n\n    uv *= Rot(t);\n    vec3 col = vec3(0.);\n    \n    float layers = 20.;\n    \n    for(float i=0.; i < 1.; i+=1./NUM_LAYERS) {\n        float depth = fract(i+t);\n        float scale = mix(20., .5, depth);\n        float fade = depth * smoothstep(0., .9, depth);\n        col += StarLayer(uv * scale + i * 453.2) * fade;\n    }\n\n    fragColor = vec4(col,1.0);\n}",
+          "params": {
+            "red": 0.65,
+            "green": 0.09,
+            "blue": 0.21,
+            "red2": 1,
+            "green2": 1,
+            "blue2": 1,
+            "red3": 1,
+            "green3": 1,
+            "blue3": 1,
+            "speed": 1,
+            "param1": 0.5,
+            "param2": 0.5
+          },
+          "customParams": {},
+          "visible": true
+        },
+        {
+          "gridSlotIndex": 7,
+          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n *\n * Supported types: int, float, vec2, vec3, vec4, color\n *\n * Examples:\n *   // @param speed float 1.0 [0.0, 2.0] \"Animation speed\"\n *   // @param center vec2 0.5, 0.5 \"Center position\"\n *   // @param tint color [1.0, 0.5, 0.0] \"Tint color\"\n */\n\nvec3 palette(float d){\n\treturn mix(vec3(0.2,0.7,0.9),vec3(1.,0.,1.),d);\n}\n\nvec2 rotate(vec2 p,float a){\n\tfloat c = cos(a);\n    float s = sin(a);\n    return p*mat2(c,s,-s,c);\n}\n\nfloat map(vec3 p){\n    for( int i = 0; i<8; ++i){\n        float t = iTime*0.2;\n        p.xz =rotate(p.xz,t);\n        p.xy =rotate(p.xy,t*1.89);\n        p.xz = abs(p.xz);\n        p.xz-=.5;\n\t}\n\treturn dot(sign(p),p)/5.;\n}\n\nvec4 rm (vec3 ro, vec3 rd){\n    float t = 0.;\n    vec3 col = vec3(0.);\n    float d;\n    for(float i =0.; i<64.; i++){\n\t\tvec3 p = ro + rd*t;\n        d = map(p)*.5;\n        if(d<0.02){\n            break;\n        }\n        if(d>100.){\n        \tbreak;\n        }\n        //col+=vec3(0.6,0.8,0.8)/(400.*(d));\n        col+=palette(length(p)*.1)/(400.*(d));\n        t+=d;\n    }\n    return vec4(col,1./(d*100.));\n}\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 uv = (fragCoord-(iResolution.xy/2.))/iResolution.x;\n\tvec3 ro = vec3(0.,0.,-50.);\n    ro.xz = rotate(ro.xz,iTime);\n    vec3 cf = normalize(-ro);\n    vec3 cs = normalize(cross(cf,vec3(0.,1.,0.)));\n    vec3 cu = normalize(cross(cf,cs));\n    \n    vec3 uuv = ro+cf*3. + uv.x*cs + uv.y*cu;\n    \n    vec3 rd = normalize(uuv-ro);\n    \n    vec4 col = rm(ro,rd);\n    \n    \n    fragColor = col;\n}\n\n/** SHADERDATA\n{\n\t\"title\": \"fractal pyramid\",\n\t\"description\": \"\",\n\t\"model\": \"car\"\n}\n*/",
+          "params": {
+            "speed": 1,
+            "p0": 0.5,
+            "p1": 0.5,
+            "p2": 0.5,
+            "p3": 0.5,
+            "p4": 0.5,
+            "r0": 1,
+            "g0": 1,
+            "b0": 1,
+            "r1": 1,
+            "g1": 1,
+            "b1": 1,
+            "r2": 1,
+            "g2": 1,
+            "b2": 1,
+            "r3": 1,
+            "g3": 1,
+            "b3": 1,
+            "r4": 1,
+            "g4": 1,
+            "b4": 1,
+            "r5": 1,
+            "g5": 1,
+            "b5": 1,
+            "r6": 1,
+            "g6": 1,
+            "b6": 1,
+            "r7": 1,
+            "g7": 1,
+            "b7": 1,
+            "r8": 1,
+            "g8": 1,
+            "b8": 1,
+            "r9": 1,
+            "g9": 1,
+            "b9": 1
+          },
+          "customParams": {},
+          "visible": true
+        },
+        {
+          "gridSlotIndex": 8,
+          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n * Types: int, float, vec2, vec3, vec4, color\n */\n\n/*\n    \"Artifacts\" by @XorDev\n    \n    https://x.com/XorDev/status/2008361514684539306\n*/\nvoid mainImage( out vec4 O, vec2 I)\n{\n    //Iterator, raymarch depth and step distance\n    float i, z, d;\n    \n    //Raymarch sample point\n    vec3 p;\n    \n    //Clear fragColor and raymarch 77 steps\n    for(O*=i; i++<77.;\n        //Slowly step forward using the distance to a distorted z-plane\n        z += d = abs(p.z/30.+.2),\n        //Add color (attenuating with distance to surface)\n        O += vec4(z,z,9,1) / d,\n        //Compute the next sample point\n        p = z * normalize(vec3(I+I,0) - iResolution.xyy),\n        //Shift diagonally\n        p.xy += iTime)\n        \n        //Use blocky \"turbulence\" for the distortion\n        //https://mini.gmshaders.com/p/turbulence\n        for(d=0.; d++<9.; p+=sin(round(p)+d*3.).zxy);\n        \n    //Tanh tonemapping\n    //https://mini.gmshaders.com/p/func-tanh\n    O = tanh(O/8e4);\n}",
+          "params": {
+            "speed": 1,
+            "p0": 0.5,
+            "p1": 0.5,
+            "p2": 0.5,
+            "p3": 0.5,
+            "p4": 0.5,
+            "r0": 1,
+            "g0": 1,
+            "b0": 1,
+            "r1": 1,
+            "g1": 1,
+            "b1": 1,
+            "r2": 1,
+            "g2": 1,
+            "b2": 1,
+            "r3": 1,
+            "g3": 1,
+            "b3": 1,
+            "r4": 1,
+            "g4": 1,
+            "b4": 1,
+            "r5": 1,
+            "g5": 1,
+            "b5": 1,
+            "r6": 1,
+            "g6": 1,
+            "b6": 1,
+            "r7": 1,
+            "g7": 1,
+            "b7": 1,
+            "r8": 1,
+            "g8": 1,
+            "b8": 1,
+            "r9": 1,
+            "g9": 1,
+            "b9": 1
+          },
+          "customParams": {},
+          "visible": true
+        },
+        {
+          "gridSlotIndex": 2,
+          "shaderCode": "// Stage Lights Array Simulation - OPTIMIZED\n// Creates an array of animated stage lights with volumetric fog\n\n// @param showGround float 0.5 [0.0, 1.0] \"Show ground (>0.5)\"\n// @param lightHeight float 0.5 [0.0, 1.0] \"Light height\"\n// @param lightDepth float 0.5 [0.0, 1.0] \"Light depth\"\n// @param light1 color [1.0, 0.0, 0.0] \"Light 1\"\n// @param light2 color [0.0, 1.0, 0.0] \"Light 2\"\n// @param light3 color [0.0, 0.0, 1.0] \"Light 3\"\n// @param light4 color [1.0, 1.0, 0.0] \"Light 4\"\n// @param light5 color [1.0, 0.0, 1.0] \"Light 5\"\n// @param light6 color [0.0, 1.0, 1.0] \"Light 6\"\n// @param light7 color [1.0, 0.5, 0.0] \"Light 7\"\n// @param light8 color [0.5, 0.0, 1.0] \"Light 8\"\n\n#define NUM_LIGHTS 8\n#define PI 3.14159265359\n#define MAX_STEPS 88  // Reduziert von ~100\n\n// Vereinfachte Noise-Funktion\nfloat hash(float n) {\n    return fract(sin(n) * 43758.5453123);\n}\n\n// Schnellerer Noise - weniger Operationen\nfloat noise2(vec3 x) {\n    vec3 p = floor(x);\n    vec3 f = fract(x);\n    f = f * f * (3.0 - 2.0 * f);\n    \n    float n = p.x + p.y * 57.0 + 113.0 * p.z;\n    float a = hash(n);\n    float b = hash(n + 1.0);\n    float c = hash(n + 57.0);\n    float d = hash(n + 58.0);\n    float e = hash(n + 113.0);\n    float f1 = hash(n + 114.0);\n    float g = hash(n + 170.0);\n    float h = hash(n + 171.0);\n    \n    return mix(mix(mix(a, b, f.x), mix(c, d, f.x), f.y),\n               mix(mix(e, f1, f.x), mix(g, h, f.x), f.y), f.z);\n}\n\nfloat noise(vec3 x){\n  return 1.0;\n}\n// Vorberechnete Lichtdaten\nstruct Light {\n    vec3 pos;\n    vec3 dir;\n    vec3 color;\n    float angle;\n    float intensity;\n};\n\n// Lichtparameter einmal pro Frame berechnen\nvoid setupLights(out Light lights[NUM_LIGHTS]) {\n    // Build color array from named parameters\n    vec3 lightColors[NUM_LIGHTS];\n    lightColors[0] = light1;\n    lightColors[1] = light2;\n    lightColors[2] = light3;\n    lightColors[3] = light4;\n    lightColors[4] = light5;\n    lightColors[5] = light6;\n    lightColors[6] = light7;\n    lightColors[7] = light8;\n\n    for (int j = 0; j < NUM_LIGHTS; j++) {\n        float lightIndex = float(j);\n        float phase = lightIndex * PI * 2.0 / float(NUM_LIGHTS);\n        float swing = sin(iTime * 0.5 + phase) * 0.3;\n        float tilt = cos(iTime * 0.7 + phase * 1.5) * 0.2;\n\n        lights[j].pos = vec3(-3.5 + lightIndex * 1.0, 3.0 * lightHeight + 3.0, 10.0 * lightDepth - 10.0);\n        lights[j].dir = normalize(vec3(swing, -0.8 + tilt, 1.0));\n        lights[j].angle = 0.3 + 0.1 * sin(iTime + phase);\n\n        // Flicker\n        float flicker = 0.9 + 0.1 * sin(iTime * 20.0 + lightIndex * 7.0);\n        lights[j].intensity = 2.0 * flicker;\n        lights[j].color = lightColors[j];\n    }\n}\n\n// Optimierte Spotlight-Berechnung\nvec3 spotlightFast(vec3 pos, Light light, float fog) {\n    vec3 toLight = light.pos - pos;\n    float dist2 = dot(toLight, toLight);  // Quadrat statt length()\n    vec3 lightVec = toLight * inversesqrt(dist2);\n    \n    float spotEffect = dot(lightVec, -light.dir);\n    float spotCutoff = cos(light.angle);\n    \n    if (spotEffect < spotCutoff) return vec3(0.0);\n    \n    float edge = smoothstep(spotCutoff, 1.0, spotEffect);\n    float dist = sqrt(dist2);\n    float attenuation = 1.0 / (1.0 + 0.1 * dist + 0.01 * dist2);\n    \n    return light.color * (edge * attenuation * fog * light.intensity);\n}\n\n// Optimiertes Ray Marching\nvec3 volumetricLighting(vec3 ro, vec3 rd, float maxDist, Light lights[NUM_LIGHTS]) {\n    vec3 color = vec3(0.0);\n    \n    // Adaptive Schrittweite\n    float stepSize = maxDist / float(MAX_STEPS);\n    stepSize = max(stepSize, 0.15);  // Minimum 0.15\n    \n    float t = stepSize * 0.5;  // Start mit halber Schrittweite (besseres Sampling)\n    \n    for (int i = 0; i < MAX_STEPS; i++) {\n        if (t >= maxDist) break;\n        \n        vec3 pos = ro + rd * t;\n        \n        // Fog nur einmal pro Schritt berechnen\n        float fog = 0.1 + noise(pos * 0.5 + vec3(0.0, -iTime * 0.1, 0.0)) * 0.05;\n        \n        // Alle Lichter akkumulieren\n        vec3 lightContrib = vec3(0.0);\n        for (int j = 0; j < NUM_LIGHTS; j++) {\n            lightContrib += spotlightFast(pos, lights[j], fog);\n        }\n        \n        color += lightContrib;\n        t += stepSize;\n    }\n    \n    return color * stepSize;\n}\n\nfloat groundPlane(vec3 ro, vec3 rd) {\n    return rd.y < 0.0 ? -ro.y / rd.y : -1.0;\n}\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;\n    \n    // Lichter einmal pro Pixel vorberechnen\n    Light lights[NUM_LIGHTS];\n    setupLights(lights);\n    \n    // Camera\n    vec3 ro = vec3(0.0, 1.5, 5.0);\n    vec3 forward = normalize(vec3(0.0, 1.0, 0.0) - ro);\n    vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), forward));\n    vec3 up = cross(forward, right);\n    vec3 rd = normalize(forward + uv.x * right + uv.y * up);\n    \n    // Background\n    vec3 color = vec3(0.02, 0.02, 0.05) * (1.0 - uv.y * 0.5);\n    \n    // Ground\n    float groundT = 0.0;\n    if(showGround >= 0.5){\n    groundT = groundPlane(ro, rd);\n    if (groundT > 0.0) {\n        vec3 groundPos = ro + rd * groundT;\n        vec2 checker = floor(groundPos.xz * 2.0);\n        float pattern = mod(checker.x + checker.y, 2.0);\n        color = mix(color, mix(vec3(0.05), vec3(0.1), pattern), exp(-groundT * 0.1));\n    }\n    }\n    // Volumetric lighting\n    color += volumetricLighting(ro, rd, groundT > 0.0 ? groundT : 10.0, lights);\n    \n    // Tonemapping + Gamma + Vignette kombiniert\n    color = pow(color / (1.0 + color), vec3(0.4545)) * (1.0 - dot(uv, uv) * 0.3);\n    \n    fragColor = vec4(color, 1.0);\n} ",
+          "params": {
+            "speed": 1,
+            "showGround": 0.5,
+            "lightHeight": 0.5,
+            "lightDepth": 0.5,
+            "light1": [
+              0.30980392156862746,
+              0.9803921568627451,
+              0.0196078431372549
+            ],
+            "light2": [
+              1,
+              0,
+              0
+            ],
+            "light3": [
+              0,
+              0,
+              1
+            ],
+            "light4": [
+              1,
+              0,
+              1
+            ],
+            "light5": [
+              1,
+              1,
+              1
+            ],
+            "light6": [
+              1,
+              1,
+              0
+            ],
+            "light7": [
+              0,
+              1,
+              1
+            ],
+            "light8": [
+              1,
+              1,
+              1
+            ]
+          },
+          "customParams": {
+            "showGround": 0.5,
+            "lightHeight": 0.5,
+            "lightDepth": 0.5,
+            "light1": [
+              0.30980392156862746,
+              0.9803921568627451,
+              0.0196078431372549
+            ],
+            "light2": [
+              1,
+              0,
+              0
+            ],
+            "light3": [
+              0,
+              0,
+              1
+            ],
+            "light4": [
+              1,
+              0,
+              1
+            ],
+            "light5": [
+              1,
+              1,
+              1
+            ],
+            "light6": [
+              1,
+              1,
+              0
+            ],
+            "light7": [
+              0,
+              1,
+              1
+            ],
+            "light8": [
+              1,
+              1,
+              1
+            ]
+          },
+          "visible": true
+        }
+      ]
+    },
+    {
+      "name": "Preset 3",
+      "savedAt": 1769430375649,
+      "layout": {
+        "rows": 2,
+        "cols": 2,
+        "gaps": 0
+      },
+      "tiles": [
+        {
+          "gridSlotIndex": 10,
+          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n * Types: int, float, vec2, vec3, vec4, color\n */\n\n#define A 9. // amplitude\n#define T (iTime/3e2)\n#define H(a) (cos(radians(vec3(180, 90, 0))+(a)*6.2832)*.5+.5)  // hue\n\nfloat map(vec3 u, float v)  // sdf\n{\n    float t = T,     // speed\n          l = 5.,    // loop to reduce clipping\n          f = 1e10, i = 0., y, z;\n    \n    u.xy = vec2(atan(u.x, u.y), length(u.xy));  // polar transform\n    u.x += t*v*3.1416*.7;  // counter rotation\n    \n    for (; i++<l;)\n    {\n        vec3 p = u;\n        y = round((p.y-i)/l)*l+i;\n        p.x *= y;\n        p.x -= y*y*t*3.1416;\n        p.x -= round(p.x/6.2832)*6.2832;\n        p.y -= y;\n        z = cos(y*t*6.2832)*.5 +.5;  // z wave\n        f = min(f, max(length(p.xy), -p.z -z*A) -.1 -z*.2 -p.z/1e2);  // tubes\n    }\n    return f;\n}\n\nvoid mainImage( out vec4 C, vec2 U )\n{\n    vec2 R = iResolution.xy, j,\n         M = iMouse.xy,\n         m = (M -R/2.)/R.y;\n    \n    if (iMouse.z < 1. && M.x+M.y < 10.) m = vec2(0, .5);\n    \n    vec3 o = vec3(0, 0, -130.),  // camera\n         u = normalize(vec3(U -R/2., R.y)),  // 3d coords\n         c = vec3(0),\n         p, k;\n    \n    float t = T,\n          v = -o.z/3.,  // pattern scale\n          i = 0., d = i,\n          s, f, z, r;\n    \n    bool b;\n    \n    for (; i++<70.;)  // raymarch\n    {\n        p = u*d +o;\n        p.xy /= v;           // scale down\n        r = length(p.xy);    // radius\n        z = abs(1. -r*r);    // z warp\n        b = r < 1.;          // inside?\n        if (b) z = sqrt(z);\n        p.xy /= z+1.;        // spherize\n        p.xy -= m;           // move with mouse\n        p.xy *= v;           // scale back up\n        p.xy -= cos(p.z/8. +t*3e2 +vec2(0, 1.5708) +z/2.)*.2;  // wave along z\n        \n        s = map(p, v);  // sdf\n        \n        r = length(p.xy);                  // new r\n        f = cos(round(r)*t*6.2832)*.5+.5;  // multiples\n        k = H(.2 -f/3. +t +p.z/2e2);       // color\n        if (b) k = 1.-k;                   // flip color\n        \n        // this stuff can go outside the raymarch,\n        // but accumulating it here produces softer edges\n        c += min(exp(s/-.05), s)        // shapes\n           * (f+.01)                    // shade pattern\n           * min(z, 1.)                 // darken edges\n           * sqrt(cos(r*6.2832)*.5 +.5) // shade between rows\n           * k*k;                       // color\n        \n        d += s*clamp(z, .3, .9);  // smaller steps towards sphere edge\n        if (s < 1e-3 || d > 1e3) break;\n    }\n    \n    // c += texture(iChannel0, u*d +o).rrr * vec3(0, .4, s)*s*z*.03;  // wavy aqua\n    c += min(exp(-p.z -f*A)*z*k*.01/s, 1.);  // light tips\n        \n    j = p.xy/v +m;  // 2d coords\n    c /= clamp(dot(j, j)*4., .04, 4.);  // brightness\n    \n    C = vec4(exp(log(c)/2.2), 1);\n}",
+          "params": {
+            "speed": 1,
+            "p0": 0.5,
+            "p1": 0.5,
+            "p2": 0.5,
+            "p3": 0.5,
+            "p4": 0.5,
+            "r0": 1,
+            "g0": 1,
+            "b0": 1,
+            "r1": 1,
+            "g1": 1,
+            "b1": 1,
+            "r2": 1,
+            "g2": 1,
+            "b2": 1,
+            "r3": 1,
+            "g3": 1,
+            "b3": 1,
+            "r4": 1,
+            "g4": 1,
+            "b4": 1,
+            "r5": 1,
+            "g5": 1,
+            "b5": 1,
+            "r6": 1,
+            "g6": 1,
+            "b6": 1,
+            "r7": 1,
+            "g7": 1,
+            "b7": 1,
+            "r8": 1,
+            "g8": 1,
+            "b8": 1,
+            "r9": 1,
+            "g9": 1,
+            "b9": 1
+          },
+          "customParams": {},
+          "visible": true
+        },
+        {
+          "gridSlotIndex": 6,
+          "shaderCode": "// Fractal tunnel effect\n// Based on shader from coyote => https://www.shadertoy.com/view/ltfGzS\n// Custom params: // @param name type [default] [min, max] \"description\"\n\n// matrix op\nmat3 getRotYMat(float a){return mat3(cos(a),0.,sin(a),0.,1.,0.,-sin(a),0.,cos(a));}\n//mat3 getRotZMat(float a){return mat3(cos(a),-sin(a),0.,sin(a),cos(a),0.,0.,0.,1.);}\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 s = iResolution.xy;\n    float t = iDate.w*.2, c,d,m;\n    vec3 p=vec3((2.*fragCoord.xy-s)/s.x,1.),r=p-p,q=r;\n    //p*=getRotZMat(-t);\n    p*=getRotYMat(-t);\n   \tq.zx += 10.+vec2(sin(t),cos(t))*3.;\n    for (float i=1.; i>0.; i-=.01) {\n        c=d=0.,m=1.;\n\t\tfor (int j = 0; j < 3 ; j++)\n            r=max(r*=r*=r*=r=mod(q*m+1.,2.)-1.,r.yzx),\n            d=max(d,( .29 -length(r)*.6)/m)*.8,\n            m*=1.1;\n\n        q+=p*d;\n        \n        c = i;\n\t    \n        if(d<1e-5) break;\n    }\n    \n    float k = dot(r,r+.15);\n    fragColor.rgb = vec3(1.,k,k/c)-.8;\n    \n}",
+          "params": {
+            "speed": 1,
+            "p0": 0.5,
+            "p1": 0.5,
+            "p2": 0.5,
+            "p3": 0.5,
+            "p4": 0.5,
+            "r0": 1,
+            "g0": 1,
+            "b0": 1,
+            "r1": 1,
+            "g1": 1,
+            "b1": 1,
+            "r2": 1,
+            "g2": 1,
+            "b2": 1,
+            "r3": 1,
+            "g3": 1,
+            "b3": 1,
+            "r4": 1,
+            "g4": 1,
+            "b4": 1,
+            "r5": 1,
+            "g5": 1,
+            "b5": 1,
+            "r6": 1,
+            "g6": 1,
+            "b6": 1,
+            "r7": 1,
+            "g7": 1,
+            "b7": 1,
+            "r8": 1,
+            "g8": 1,
+            "b8": 1,
+            "r9": 1,
+            "g9": 1,
+            "b9": 1
+          },
+          "customParams": {},
+          "visible": true
+        },
+        {
+          "gridSlotIndex": 9,
+          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n * Types: int, float, vec2, vec3, vec4, color\n */\n\n// genuary: Lights on/off. Make something that changes when you switch on or off the “digital” lights.\n\n// flight path, given z, get xy\n#define P(z) vec3(cos((z)*.01)*164.,cos((z)*.012)*164., z)\n\n// MENGERLAYER\n#define m(f, h)\\\n    s /= (f), \\\n    p = abs(fract(q/s)*s - s*.5), \\\n \td = min(d, min(max(p.x, p.y), \\\n               min(max(p.y, p.z), \\\n               max(p.x, p.z))) - s/(h))\n\nvoid mainImage(out vec4 o, vec2 u) {\n   \n    float i, T = iTime,d,s = 1.275,\n          j = (.05*dot(fract(sin(.7*T+u)), sin(u))),\n          f;\n    vec3  c,r = iResolution;\n    mat2 rot = mat2(cos(cos(T*.06)*4.+vec4(0,33,11,0)));\n    \n    // scale coords\n    u = (u+u - r.xy) / r.y;\n\n    // cinema bars\n    if (abs(u.y) > .75) { o = vec4(0); return; }\n    \n    // look around\n    u += vec2( sin(iTime)*.5, sin(iTime*.5)*.5 );\n    \n    // on-off frequency, changes color, too\n    f = (1.+tanh(cos(sin(T*T)*.05+T*.3)*3.)*13.);\n    \n    // set up ray origin, dir, look-at\n    vec3  q,p = P(T*32.),\n          Z = normalize( P(T*32.+4.) - p),\n          X = normalize(vec3(Z.z,0,-Z)),\n          D = vec3(rot*u, 1) * mat3(-X, cross(X, Z), Z);\n \n    for(;i++ < 64.;\n        // add grayscale color and foggy border\n        c += s + .4*dot(u,u) - f/s\n    )\n        // raymarch position\n        q = p += j + D * s,\n        // can play with initial dist (d) and scale (s)\n        d=9e9,s=2e2,\n\n        // apply some menger layers\n        m(1., 3.),\n        m(2., 4.),\n        m(9., 4.),\n        p += cos(p.yzx) * 1e1,\n        // -1 to 1 + min(gyroid, menger);\n        s = .02+.5*abs(sin(p.z*.2)+min(dot(sin(q/236.), cos(q.yzx/166.))*5., d)),\n        // restore p (m() macro modifies it)\n        p = q;\n    \n    \n    // tanh tone map, colorize, divide brightness\n    o.rgb = tanh(vec3(f,2,3)*c/1e4);\n\n}",
+          "params": {
+            "speed": 1,
+            "p0": 0.5,
+            "p1": 0.5,
+            "p2": 0.5,
+            "p3": 0.5,
+            "p4": 0.5,
+            "r0": 1,
+            "g0": 1,
+            "b0": 1,
+            "r1": 1,
+            "g1": 1,
+            "b1": 1,
+            "r2": 1,
+            "g2": 1,
+            "b2": 1,
+            "r3": 1,
+            "g3": 1,
+            "b3": 1,
+            "r4": 1,
+            "g4": 1,
+            "b4": 1,
+            "r5": 1,
+            "g5": 1,
+            "b5": 1,
+            "r6": 1,
+            "g6": 1,
+            "b6": 1,
+            "r7": 1,
+            "g7": 1,
+            "b7": 1,
+            "r8": 1,
+            "g8": 1,
+            "b8": 1,
+            "r9": 1,
+            "g9": 1,
+            "b9": 1
+          },
+          "customParams": {},
+          "visible": true
+        },
+        {
+          "gridSlotIndex": 2,
+          "shaderCode": "// Stage Lights Array Simulation - OPTIMIZED\n// Creates an array of animated stage lights with volumetric fog\n\n// @param showGround float 0.5 [0.0, 1.0] \"Show ground (>0.5)\"\n// @param lightHeight float 0.5 [0.0, 1.0] \"Light height\"\n// @param lightDepth float 0.5 [0.0, 1.0] \"Light depth\"\n// @param light1 color [1.0, 0.0, 0.0] \"Light 1\"\n// @param light2 color [0.0, 1.0, 0.0] \"Light 2\"\n// @param light3 color [0.0, 0.0, 1.0] \"Light 3\"\n// @param light4 color [1.0, 1.0, 0.0] \"Light 4\"\n// @param light5 color [1.0, 0.0, 1.0] \"Light 5\"\n// @param light6 color [0.0, 1.0, 1.0] \"Light 6\"\n// @param light7 color [1.0, 0.5, 0.0] \"Light 7\"\n// @param light8 color [0.5, 0.0, 1.0] \"Light 8\"\n\n#define NUM_LIGHTS 8\n#define PI 3.14159265359\n#define MAX_STEPS 88  // Reduziert von ~100\n\n// Vereinfachte Noise-Funktion\nfloat hash(float n) {\n    return fract(sin(n) * 43758.5453123);\n}\n\n// Schnellerer Noise - weniger Operationen\nfloat noise2(vec3 x) {\n    vec3 p = floor(x);\n    vec3 f = fract(x);\n    f = f * f * (3.0 - 2.0 * f);\n    \n    float n = p.x + p.y * 57.0 + 113.0 * p.z;\n    float a = hash(n);\n    float b = hash(n + 1.0);\n    float c = hash(n + 57.0);\n    float d = hash(n + 58.0);\n    float e = hash(n + 113.0);\n    float f1 = hash(n + 114.0);\n    float g = hash(n + 170.0);\n    float h = hash(n + 171.0);\n    \n    return mix(mix(mix(a, b, f.x), mix(c, d, f.x), f.y),\n               mix(mix(e, f1, f.x), mix(g, h, f.x), f.y), f.z);\n}\n\nfloat noise(vec3 x){\n  return 1.0;\n}\n// Vorberechnete Lichtdaten\nstruct Light {\n    vec3 pos;\n    vec3 dir;\n    vec3 color;\n    float angle;\n    float intensity;\n};\n\n// Lichtparameter einmal pro Frame berechnen\nvoid setupLights(out Light lights[NUM_LIGHTS]) {\n    // Build color array from named parameters\n    vec3 lightColors[NUM_LIGHTS];\n    lightColors[0] = light1;\n    lightColors[1] = light2;\n    lightColors[2] = light3;\n    lightColors[3] = light4;\n    lightColors[4] = light5;\n    lightColors[5] = light6;\n    lightColors[6] = light7;\n    lightColors[7] = light8;\n\n    for (int j = 0; j < NUM_LIGHTS; j++) {\n        float lightIndex = float(j);\n        float phase = lightIndex * PI * 2.0 / float(NUM_LIGHTS);\n        float swing = sin(iTime * 0.5 + phase) * 0.3;\n        float tilt = cos(iTime * 0.7 + phase * 1.5) * 0.2;\n\n        lights[j].pos = vec3(-3.5 + lightIndex * 1.0, 3.0 * lightHeight + 3.0, 10.0 * lightDepth - 10.0);\n        lights[j].dir = normalize(vec3(swing, -0.8 + tilt, 1.0));\n        lights[j].angle = 0.3 + 0.1 * sin(iTime + phase);\n\n        // Flicker\n        float flicker = 0.9 + 0.1 * sin(iTime * 20.0 + lightIndex * 7.0);\n        lights[j].intensity = 2.0 * flicker;\n        lights[j].color = lightColors[j];\n    }\n}\n\n// Optimierte Spotlight-Berechnung\nvec3 spotlightFast(vec3 pos, Light light, float fog) {\n    vec3 toLight = light.pos - pos;\n    float dist2 = dot(toLight, toLight);  // Quadrat statt length()\n    vec3 lightVec = toLight * inversesqrt(dist2);\n    \n    float spotEffect = dot(lightVec, -light.dir);\n    float spotCutoff = cos(light.angle);\n    \n    if (spotEffect < spotCutoff) return vec3(0.0);\n    \n    float edge = smoothstep(spotCutoff, 1.0, spotEffect);\n    float dist = sqrt(dist2);\n    float attenuation = 1.0 / (1.0 + 0.1 * dist + 0.01 * dist2);\n    \n    return light.color * (edge * attenuation * fog * light.intensity);\n}\n\n// Optimiertes Ray Marching\nvec3 volumetricLighting(vec3 ro, vec3 rd, float maxDist, Light lights[NUM_LIGHTS]) {\n    vec3 color = vec3(0.0);\n    \n    // Adaptive Schrittweite\n    float stepSize = maxDist / float(MAX_STEPS);\n    stepSize = max(stepSize, 0.15);  // Minimum 0.15\n    \n    float t = stepSize * 0.5;  // Start mit halber Schrittweite (besseres Sampling)\n    \n    for (int i = 0; i < MAX_STEPS; i++) {\n        if (t >= maxDist) break;\n        \n        vec3 pos = ro + rd * t;\n        \n        // Fog nur einmal pro Schritt berechnen\n        float fog = 0.1 + noise(pos * 0.5 + vec3(0.0, -iTime * 0.1, 0.0)) * 0.05;\n        \n        // Alle Lichter akkumulieren\n        vec3 lightContrib = vec3(0.0);\n        for (int j = 0; j < NUM_LIGHTS; j++) {\n            lightContrib += spotlightFast(pos, lights[j], fog);\n        }\n        \n        color += lightContrib;\n        t += stepSize;\n    }\n    \n    return color * stepSize;\n}\n\nfloat groundPlane(vec3 ro, vec3 rd) {\n    return rd.y < 0.0 ? -ro.y / rd.y : -1.0;\n}\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;\n    \n    // Lichter einmal pro Pixel vorberechnen\n    Light lights[NUM_LIGHTS];\n    setupLights(lights);\n    \n    // Camera\n    vec3 ro = vec3(0.0, 1.5, 5.0);\n    vec3 forward = normalize(vec3(0.0, 1.0, 0.0) - ro);\n    vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), forward));\n    vec3 up = cross(forward, right);\n    vec3 rd = normalize(forward + uv.x * right + uv.y * up);\n    \n    // Background\n    vec3 color = vec3(0.02, 0.02, 0.05) * (1.0 - uv.y * 0.5);\n    \n    // Ground\n    float groundT = 0.0;\n    if(showGround >= 0.5){\n    groundT = groundPlane(ro, rd);\n    if (groundT > 0.0) {\n        vec3 groundPos = ro + rd * groundT;\n        vec2 checker = floor(groundPos.xz * 2.0);\n        float pattern = mod(checker.x + checker.y, 2.0);\n        color = mix(color, mix(vec3(0.05), vec3(0.1), pattern), exp(-groundT * 0.1));\n    }\n    }\n    // Volumetric lighting\n    color += volumetricLighting(ro, rd, groundT > 0.0 ? groundT : 10.0, lights);\n    \n    // Tonemapping + Gamma + Vignette kombiniert\n    color = pow(color / (1.0 + color), vec3(0.4545)) * (1.0 - dot(uv, uv) * 0.3);\n    \n    fragColor = vec4(color, 1.0);\n} ",
+          "params": {
+            "speed": 1,
+            "showGround": 0.5,
+            "lightHeight": 0.5,
+            "lightDepth": 0.5,
+            "light1": [
+              0.30980392156862746,
+              0.9803921568627451,
+              0.0196078431372549
+            ],
+            "light2": [
+              1,
+              0,
+              0
+            ],
+            "light3": [
+              0,
+              0,
+              1
+            ],
+            "light4": [
+              1,
+              0,
+              1
+            ],
+            "light5": [
+              1,
+              1,
+              1
+            ],
+            "light6": [
+              1,
+              1,
+              0
+            ],
+            "light7": [
+              0,
+              1,
+              1
+            ],
+            "light8": [
+              1,
+              1,
+              1
+            ]
+          },
+          "customParams": {
+            "showGround": 0.5,
+            "lightHeight": 0.5,
+            "lightDepth": 0.5,
+            "light1": [
+              0.30980392156862746,
+              0.9803921568627451,
+              0.0196078431372549
+            ],
+            "light2": [
+              1,
+              0,
+              0
+            ],
+            "light3": [
+              0,
+              0,
+              1
+            ],
+            "light4": [
+              1,
+              0,
+              1
+            ],
+            "light5": [
+              1,
+              1,
+              1
+            ],
+            "light6": [
+              1,
+              1,
+              0
+            ],
+            "light7": [
+              0,
+              1,
+              1
+            ],
+            "light8": [
+              1,
+              1,
+              1
+            ]
+          },
+          "visible": true
+        }
+      ]
+    }
+  ],
+  "activeIndex": 2
+}

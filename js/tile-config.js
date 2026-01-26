@@ -3,7 +3,17 @@
 
 import { state } from './state.js';
 import { setStatus } from './utils.js';
-import { tileState, setLayout, assignTile as assignTileToState } from './tile-state.js';
+import {
+  tileState,
+  tilePresets,
+  setLayout,
+  assignTile as assignTileToState,
+  saveTilePreset,
+  recallTilePreset,
+  getTilePresetInfo,
+  serializeTilePresets,
+  deserializeTilePresets
+} from './tile-state.js';
 
 // Local tile configuration state
 let tileConfig = {
@@ -15,7 +25,7 @@ let selectedTileIndex = null;
 let draggedSlotIndex = null;
 
 // Initialize tile config dialog
-export function initTileConfig() {
+export async function initTileConfig() {
   const dialog = document.getElementById('tile-config-dialog');
   const closeBtn = document.getElementById('tile-config-close');
   const cancelBtn = document.getElementById('tile-config-cancel');
@@ -81,8 +91,14 @@ export function initTileConfig() {
     openTiledFullscreen();
   });
 
-  // Load saved state on startup
-  loadTileState();
+  // Initialize preset buttons
+  initPresetButtons();
+
+  // Load saved state on startup (MUST await to ensure state is ready before fullscreen)
+  await loadTileState();
+  await loadTilePresets();
+  updatePresetButtonStates();
+  console.log('[TileConfig] Tile state loaded, tileState.tiles:', tileState.tiles);
 }
 
 // Open the tile configuration dialog
@@ -263,6 +279,15 @@ function assignShaderToTile(tileIndex, gridSlotIndex) {
   // Sync to shared tileState module
   assignTileToState(tileIndex, gridSlotIndex, slotData.params);
 
+  // Sync to fullscreen window if open
+  if (state.tiledPreviewEnabled && slotData.shaderCode) {
+    const params = {
+      speed: slotData.params?.speed ?? 1,
+      ...(slotData.customParams || {})
+    };
+    window.electronAPI.assignTileShader?.(tileIndex, slotData.shaderCode, params);
+  }
+
   updatePreviewGrid();
   setStatus(`Assigned slot ${gridSlotIndex + 1} to tile ${tileIndex + 1}`, 'success');
 }
@@ -279,6 +304,11 @@ function clearTile(tileIndex) {
 
   // Sync to shared tileState module
   tileState.tiles[tileIndex] = { gridSlotIndex: null, params: null, visible: true };
+
+  // Sync clear to fullscreen window
+  if (state.tiledPreviewEnabled) {
+    window.electronAPI.assignTileShader?.(tileIndex, null, null);
+  }
 
   updatePreviewGrid();
 }
@@ -455,4 +485,226 @@ function syncToTileState() {
 // Export for use from menu
 export function showTileConfigDialog() {
   openTileConfigDialog();
+}
+
+// Initialize the toolbar state presets panel (separate from dialog)
+export function initToolbarPresetsPanel() {
+  const buttons = document.querySelectorAll('#state-presets-bar .state-preset-btn');
+
+  buttons.forEach(btn => {
+    const index = parseInt(btn.dataset.preset, 10);
+
+    btn.addEventListener('click', (e) => {
+      if (e.shiftKey) {
+        savePresetToSlot(index);
+      } else {
+        recallPresetFromSlot(index);
+      }
+      updateToolbarPresetButtons();
+    });
+
+    btn.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      clearPresetSlot(index);
+      updateToolbarPresetButtons();
+    });
+  });
+
+  // Initial state update
+  updateToolbarPresetButtons();
+}
+
+// Update toolbar preset button states (mirrors dialog buttons)
+export function updateToolbarPresetButtons() {
+  const buttons = document.querySelectorAll('#state-presets-bar .state-preset-btn');
+
+  buttons.forEach(btn => {
+    const index = parseInt(btn.dataset.preset, 10);
+    const info = getTilePresetInfo(index);
+
+    btn.classList.toggle('has-preset', !!info);
+    btn.classList.toggle('active', tilePresets.activeIndex === index);
+
+    if (info) {
+      btn.title = `${info.name} (${info.layout.cols}x${info.layout.rows}, ${info.tileCount} tiles)\nShift+Click to overwrite, Right-Click to clear`;
+    } else {
+      btn.title = `Empty slot\nShift+Click to save current state`;
+    }
+  });
+}
+
+// Toggle state presets panel visibility
+export function togglePresetsPanel() {
+  const panel = document.getElementById('state-presets-panel');
+  const btn = document.getElementById('btn-tile-presets');
+
+  panel.classList.toggle('hidden');
+  btn.classList.toggle('active', !panel.classList.contains('hidden'));
+
+  if (!panel.classList.contains('hidden')) {
+    updateToolbarPresetButtons();
+  }
+}
+
+// Export preset functions for external use (toolbar panel)
+export { updatePresetButtonStates };
+
+// =============================================================================
+// Tile Preset Functions
+// =============================================================================
+
+// Initialize preset button event handlers
+function initPresetButtons() {
+  const buttons = document.querySelectorAll('#tile-presets-bar .tile-preset-btn');
+
+  buttons.forEach(btn => {
+    const index = parseInt(btn.dataset.preset, 10);
+
+    btn.addEventListener('click', (e) => {
+      if (e.shiftKey) {
+        // Shift+Click: Save current state to this preset
+        savePresetToSlot(index);
+      } else {
+        // Click: Recall preset
+        recallPresetFromSlot(index);
+      }
+    });
+
+    // Right-click to clear
+    btn.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      clearPresetSlot(index);
+    });
+  });
+}
+
+// Save current tiled display state to a preset slot
+function savePresetToSlot(index) {
+  // Check if there's anything to save - read from shared tileState, not local tileConfig
+  const hasAnyTile = tileState.tiles.some(t => t.gridSlotIndex !== null);
+  if (!hasAnyTile) {
+    setStatus('No tiles assigned to save', 'error');
+    return;
+  }
+
+  // Save preset with shader code embedded (reads directly from tileState)
+  const preset = saveTilePreset(index, `Preset ${index + 1}`, state.gridSlots);
+
+  // Persist to file
+  persistTilePresets();
+
+  updatePresetButtonStates();
+  setStatus(`Saved state to preset ${index + 1}`, 'success');
+}
+
+// Recall a preset from a slot
+function recallPresetFromSlot(index) {
+  const preset = recallTilePreset(index);
+
+  if (!preset) {
+    setStatus(`Preset ${index + 1} is empty`, 'error');
+    return;
+  }
+
+  // Update local tileConfig from tileState
+  tileConfig.layout = { ...tileState.layout };
+  tileConfig.tiles = tileState.tiles.map(t => ({
+    gridSlotIndex: t.gridSlotIndex,
+    params: t.params ? { ...t.params } : null,
+    visible: t.visible !== false
+  }));
+
+  // Update UI
+  updateLayoutPresetUI();
+  updatePreviewGrid();
+
+  // If fullscreen is open, apply the preset there too
+  if (state.tiledPreviewEnabled) {
+    applyPresetToFullscreen(preset);
+  }
+
+  updatePresetButtonStates();
+  setStatus(`Recalled preset ${index + 1}`, 'success');
+}
+
+// Apply a preset to the fullscreen window
+function applyPresetToFullscreen(preset) {
+  // First update layout
+  window.electronAPI.updateTileLayout?.(preset.layout);
+
+  // Then assign each tile
+  preset.tiles.forEach((tile, tileIndex) => {
+    if (tile.shaderCode) {
+      const params = {
+        speed: tile.params?.speed ?? 1,
+        ...(tile.customParams || {})
+      };
+      window.electronAPI.assignTileShader?.(tileIndex, tile.shaderCode, params);
+    } else {
+      window.electronAPI.assignTileShader?.(tileIndex, null, null);
+    }
+  });
+}
+
+// Clear a preset slot
+function clearPresetSlot(index) {
+  const info = getTilePresetInfo(index);
+  if (!info) {
+    setStatus(`Preset ${index + 1} is already empty`, 'error');
+    return;
+  }
+
+  tilePresets.presets[index] = null;
+  if (tilePresets.activeIndex === index) {
+    tilePresets.activeIndex = null;
+  }
+
+  // Persist to file
+  persistTilePresets();
+
+  updatePresetButtonStates();
+  setStatus(`Cleared preset ${index + 1}`, 'success');
+}
+
+// Update preset button visual states (both dialog and toolbar)
+function updatePresetButtonStates() {
+  // Update dialog buttons
+  const dialogButtons = document.querySelectorAll('#tile-presets-bar .tile-preset-btn');
+
+  dialogButtons.forEach(btn => {
+    const index = parseInt(btn.dataset.preset, 10);
+    const info = getTilePresetInfo(index);
+
+    btn.classList.toggle('has-preset', !!info);
+    btn.classList.toggle('active', tilePresets.activeIndex === index);
+
+    // Update tooltip
+    if (info) {
+      btn.title = `${info.name} (${info.layout.cols}x${info.layout.rows}, ${info.tileCount} tiles)\nShift+Click to overwrite, Right-click to clear`;
+    } else {
+      btn.title = `Empty slot\nShift+Click to save current state`;
+    }
+  });
+
+  // Also update toolbar panel buttons
+  updateToolbarPresetButtons();
+}
+
+// Persist tile presets to file
+function persistTilePresets() {
+  const data = serializeTilePresets();
+  window.electronAPI.saveTilePresets(data);
+}
+
+// Load tile presets from file
+async function loadTilePresets() {
+  try {
+    const data = await window.electronAPI.loadTilePresets();
+    if (data) {
+      deserializeTilePresets(data);
+      console.log('[TileConfig] Loaded', tilePresets.presets.filter(p => p).length, 'tile presets');
+    }
+  } catch (err) {
+    console.error('Failed to load tile presets:', err);
+  }
 }

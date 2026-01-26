@@ -2,6 +2,10 @@ const { app, BrowserWindow, Menu, dialog, ipcMain, screen } = require('electron'
 const path = require('path');
 const fs = require('fs');
 const fsPromises = fs.promises;
+const zlib = require('zlib');
+const { promisify } = require('util');
+const gzip = promisify(zlib.gzip);
+const gunzip = promisify(zlib.gunzip);
 const NDISender = require('./ndi-sender');
 const NDIReceiver = require('./ndi-receiver');
 const SyphonSender = require('./syphon-sender');
@@ -43,6 +47,7 @@ const presetsFile = path.join(dataDir, 'presets.json');
 const settingsFile = path.join(dataDir, 'settings.json');
 const viewStateFile = path.join(dataDir, 'view-state.json');
 const tileStateFile = path.join(dataDir, 'tile-state.json');
+const tilePresetsFile = path.join(dataDir, 'tile-presets.json');
 
 // Track tiled mode state
 let tiledFullscreenWindow = null;
@@ -253,6 +258,15 @@ function createMenu() {
           label: 'Load Grid Presets...',
           accelerator: 'CmdOrCtrl+Alt+G',
           click: () => loadGridPresetsFrom()
+        },
+        { type: 'separator' },
+        {
+          label: 'Export Application State...',
+          click: () => exportApplicationState()
+        },
+        {
+          label: 'Import Application State...',
+          click: () => importApplicationState()
         },
         { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' }
@@ -1002,6 +1016,169 @@ async function loadGridPresetsFrom() {
   }
 }
 
+// =============================================================================
+// Application State Export/Import
+// =============================================================================
+
+// Recursively read all files in a directory into an object
+async function readDirectoryContents(dirPath, basePath = '') {
+  const contents = {};
+
+  if (!fs.existsSync(dirPath)) {
+    return contents;
+  }
+
+  const entries = await fsPromises.readdir(dirPath, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const entryPath = path.join(dirPath, entry.name);
+    const relativePath = basePath ? `${basePath}/${entry.name}` : entry.name;
+
+    if (entry.isDirectory()) {
+      // Recursively read subdirectory
+      const subContents = await readDirectoryContents(entryPath, relativePath);
+      Object.assign(contents, subContents);
+    } else if (entry.isFile()) {
+      // Read file content
+      try {
+        const data = await fsPromises.readFile(entryPath);
+        // Store as base64 for binary files, utf-8 for text
+        const isText = /\.(json|glsl|frag|vert|txt|jsx|js)$/i.test(entry.name);
+        contents[relativePath] = {
+          encoding: isText ? 'utf8' : 'base64',
+          content: isText ? data.toString('utf8') : data.toString('base64')
+        };
+      } catch (err) {
+        console.error(`Failed to read ${entryPath}:`, err);
+      }
+    }
+  }
+
+  return contents;
+}
+
+// Write files from an object back to a directory
+async function writeDirectoryContents(dirPath, contents) {
+  for (const [relativePath, fileData] of Object.entries(contents)) {
+    const fullPath = path.join(dirPath, relativePath);
+    const parentDir = path.dirname(fullPath);
+
+    // Ensure parent directory exists
+    await fsPromises.mkdir(parentDir, { recursive: true });
+
+    // Write file
+    const content = fileData.encoding === 'base64'
+      ? Buffer.from(fileData.content, 'base64')
+      : fileData.content;
+
+    await fsPromises.writeFile(fullPath, content);
+  }
+}
+
+async function exportApplicationState() {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    defaultPath: `shadershow-state-${new Date().toISOString().slice(0, 10)}.shadershow`,
+    filters: [
+      { name: 'ShaderShow State', extensions: ['shadershow'] },
+      { name: 'All Files', extensions: ['*'] }
+    ]
+  });
+
+  if (result.canceled || !result.filePath) {
+    return;
+  }
+
+  try {
+    // Read all files from data directory
+    const dataContents = await readDirectoryContents(dataDir);
+
+    // Build state bundle
+    const stateBundle = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      appVersion: app.getVersion(),
+      files: dataContents
+    };
+
+    // Convert to JSON and compress with gzip
+    const jsonData = JSON.stringify(stateBundle, null, 2);
+    const compressed = await gzip(Buffer.from(jsonData, 'utf8'));
+
+    // Write to file
+    await fsPromises.writeFile(result.filePath, compressed);
+
+    dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: 'Export Complete',
+      message: 'Application state exported successfully.',
+      detail: `Saved to: ${result.filePath}\n\nIncluded ${Object.keys(dataContents).length} files.`
+    });
+  } catch (err) {
+    dialog.showErrorBox('Export Error', `Failed to export application state: ${err.message}`);
+  }
+}
+
+async function importApplicationState() {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: [
+      { name: 'ShaderShow State', extensions: ['shadershow'] },
+      { name: 'All Files', extensions: ['*'] }
+    ]
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return;
+  }
+
+  const filePath = result.filePaths[0];
+
+  // Confirm before overwriting
+  const confirmResult = await dialog.showMessageBox(mainWindow, {
+    type: 'warning',
+    title: 'Import Application State',
+    message: 'This will replace your current application state.',
+    detail: 'All existing shaders, presets, and settings will be overwritten. This action cannot be undone.\n\nDo you want to continue?',
+    buttons: ['Cancel', 'Import'],
+    defaultId: 0,
+    cancelId: 0
+  });
+
+  if (confirmResult.response !== 1) {
+    return;
+  }
+
+  try {
+    // Read and decompress file
+    const compressed = await fsPromises.readFile(filePath);
+    const decompressed = await gunzip(compressed);
+    const stateBundle = JSON.parse(decompressed.toString('utf8'));
+
+    // Validate bundle
+    if (!stateBundle.version || !stateBundle.files) {
+      throw new Error('Invalid state file format');
+    }
+
+    // Write files to data directory
+    await writeDirectoryContents(dataDir, stateBundle.files);
+
+    dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: 'Import Complete',
+      message: 'Application state imported successfully.',
+      detail: `Imported ${Object.keys(stateBundle.files).length} files.\n\nPlease restart the application for changes to take effect.`,
+      buttons: ['Restart Now', 'Restart Later']
+    }).then(({ response }) => {
+      if (response === 0) {
+        app.relaunch();
+        app.exit(0);
+      }
+    });
+  } catch (err) {
+    dialog.showErrorBox('Import Error', `Failed to import application state: ${err.message}`);
+  }
+}
+
 function updateTitle() {
   const fileName = currentFilePath ? path.basename(currentFilePath) : 'Untitled';
   mainWindow.setTitle(`${fileName} - ShaderShow`);
@@ -1157,6 +1334,11 @@ function animate(context, time, deltaTime, params) {
 
 // Fullscreen state handler
 ipcMain.on('fullscreen-state', (event, shaderState) => {
+  console.log('[Main] Received fullscreen-state, tiledConfig:', shaderState?.tiledConfig ? 'present' : 'not present');
+  if (shaderState?.tiledConfig) {
+    console.log('[Main] tiledConfig layout:', shaderState.tiledConfig.layout);
+    console.log('[Main] tiledConfig tiles count:', shaderState.tiledConfig.tiles?.length);
+  }
   if (pendingFullscreenDisplay) {
     createFullscreenWindow(pendingFullscreenDisplay, shaderState);
     pendingFullscreenDisplay = null;
@@ -1678,6 +1860,29 @@ ipcMain.handle('load-tile-state', async () => {
     }
   } catch (err) {
     console.error('Failed to load tile state:', err);
+  }
+  return null;
+});
+
+// Save tile presets (full snapshots with embedded shader code)
+ipcMain.on('save-tile-presets', async (event, presets) => {
+  ensureDataDir();
+  try {
+    await fsPromises.writeFile(tilePresetsFile, JSON.stringify(presets, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to save tile presets:', err);
+  }
+});
+
+// Load tile presets
+ipcMain.handle('load-tile-presets', async () => {
+  try {
+    if (fs.existsSync(tilePresetsFile)) {
+      const data = fs.readFileSync(tilePresetsFile, 'utf-8');
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error('Failed to load tile presets:', err);
   }
   return null;
 });

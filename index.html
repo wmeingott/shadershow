@@ -54,6 +54,9 @@
         <button id="btn-tiled" title="Toggle Tiled Preview">
           <span class="icon">&#9638;</span>
         </button>
+        <button id="btn-tile-presets" title="Toggle State Presets">
+          <span class="icon">S</span>
+        </button>
         <button id="btn-blackout" title="Blackout Fullscreen (B)">
           <span class="icon">&#9679;</span>
         </button>
@@ -97,6 +100,24 @@
         <span id="fps-display">FPS: --</span>
         <span id="time-display">Time: 0.00s</span>
         <span id="frame-display">Frame: 0</span>
+      </div>
+    </div>
+
+    <!-- State Presets Panel (toggleable) -->
+    <div id="state-presets-panel" class="hidden">
+      <div class="state-presets-header">
+        <span>State Presets</span>
+        <span class="state-presets-hint">Shift+Click=Save, Click=Recall, Right-Click=Clear</span>
+      </div>
+      <div id="state-presets-bar" class="state-presets-bar">
+        <button class="state-preset-btn" data-preset="0">1</button>
+        <button class="state-preset-btn" data-preset="1">2</button>
+        <button class="state-preset-btn" data-preset="2">3</button>
+        <button class="state-preset-btn" data-preset="3">4</button>
+        <button class="state-preset-btn" data-preset="4">5</button>
+        <button class="state-preset-btn" data-preset="5">6</button>
+        <button class="state-preset-btn" data-preset="6">7</button>
+        <button class="state-preset-btn" data-preset="7">8</button>
       </div>
     </div>
 
@@ -238,6 +259,21 @@
             <label class="tile-config-label">Gap Size:</label>
             <input type="range" id="tile-gap-size" min="0" max="20" value="4">
             <span id="tile-gap-value">4px</span>
+          </div>
+
+          <!-- Tile Presets (save/recall full tiled display state) -->
+          <div class="tile-presets-section">
+            <div class="tile-presets-label">State Presets (Shift+Click to save, Click to recall):</div>
+            <div id="tile-presets-bar" class="tile-presets-bar">
+              <button class="tile-preset-btn" data-preset="0">1</button>
+              <button class="tile-preset-btn" data-preset="1">2</button>
+              <button class="tile-preset-btn" data-preset="2">3</button>
+              <button class="tile-preset-btn" data-preset="3">4</button>
+              <button class="tile-preset-btn" data-preset="4">5</button>
+              <button class="tile-preset-btn" data-preset="5">6</button>
+              <button class="tile-preset-btn" data-preset="6">7</button>
+              <button class="tile-preset-btn" data-preset="7">8</button>
+            </div>
           </div>
 
           <!-- Tile Preview Grid -->

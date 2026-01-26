@@ -184,6 +184,16 @@ function renderLoop(currentTime) {
 
 // Initialize with shader/scene state from main window
 window.electronAPI.onInitFullscreen((state) => {
+  console.log('[Fullscreen] Received init-fullscreen');
+  console.log('[Fullscreen] tiledConfig:', state.tiledConfig ? 'present' : 'not present');
+  if (state.tiledConfig) {
+    console.log('[Fullscreen] tiledConfig.layout:', state.tiledConfig.layout);
+    console.log('[Fullscreen] tiledConfig.tiles:', state.tiledConfig.tiles?.length, 'tiles');
+    state.tiledConfig.tiles?.forEach((t, i) => {
+      console.log(`[Fullscreen] Tile ${i}: slot=${t?.gridSlotIndex}, hasShader=${!!t?.shaderCode}`);
+    });
+  }
+
   // Switch renderer if mode specified
   if (state.renderMode) {
     renderMode = state.renderMode;
@@ -236,6 +246,11 @@ window.electronAPI.onInitFullscreen((state) => {
   activeLocalPresetIndex = state.activeLocalPresetIndex ?? null;
 
   createPresetButtons();
+
+  // Initialize tiled mode if configuration provided
+  if (state.tiledConfig) {
+    initTiledMode(state.tiledConfig);
+  }
 });
 
 // Handle shader/scene updates from main window
@@ -341,26 +356,55 @@ function initTiledMode(config) {
   tiledMode = true;
   tileConfig = config;
 
-  // Get or create shared WebGL context
+  // Use the same WebGL context as shaderRenderer (critical for texture sharing)
   if (!sharedGL) {
-    sharedGL = canvas.getContext('webgl2', {
-      alpha: false,
-      antialias: false,
-      preserveDrawingBuffer: true
-    });
+    sharedGL = shaderRenderer.gl;
   }
 
   // Clear existing tile renderers
   disposeTileRenderers();
 
-  // Calculate tile bounds
+  // Calculate tile bounds - use preview resolution aspect ratio if available
+  let renderWidth = canvas.width;
+  let renderHeight = canvas.height;
+  let offsetX = 0;
+  let offsetY = 0;
+
+  if (config.previewResolution) {
+    const previewAspect = config.previewResolution.width / config.previewResolution.height;
+    const canvasAspect = canvas.width / canvas.height;
+
+    if (canvasAspect > previewAspect) {
+      // Canvas is wider - pillarbox (black bars on sides)
+      renderWidth = Math.floor(canvas.height * previewAspect);
+      offsetX = Math.floor((canvas.width - renderWidth) / 2);
+    } else {
+      // Canvas is taller - letterbox (black bars on top/bottom)
+      renderHeight = Math.floor(canvas.width / previewAspect);
+      offsetY = Math.floor((canvas.height - renderHeight) / 2);
+    }
+    console.log(`Aspect ratio correction: preview=${previewAspect.toFixed(2)}, canvas=${canvasAspect.toFixed(2)}`);
+    console.log(`Render area: ${renderWidth}x${renderHeight} at offset (${offsetX},${offsetY})`);
+  }
+
+  // Store offset for rendering
+  tileConfig.renderOffset = { x: offsetX, y: offsetY };
+  tileConfig.renderSize = { width: renderWidth, height: renderHeight };
+
+  // Calculate tile bounds within the aspect-corrected area
   const bounds = calculateTileBounds(
-    canvas.width,
-    canvas.height,
+    renderWidth,
+    renderHeight,
     config.layout.rows,
     config.layout.cols,
     config.layout.gaps
   );
+
+  // Apply offset to bounds
+  bounds.forEach(b => {
+    b.x += offsetX;
+    b.y += offsetY;
+  });
 
   // Create TileRenderer for each tile
   tileRenderers = bounds.map(b => new TileRenderer(sharedGL, b));
@@ -380,8 +424,6 @@ function initTiledMode(config) {
       }
     });
   }
-
-  console.log(`Tiled mode initialized: ${config.layout.rows}x${config.layout.cols}`);
 }
 
 // Calculate tile bounds in pixels
@@ -459,6 +501,21 @@ function updateTileLayout(layout) {
 function assignTileShader(tileIndex, shaderCode, params) {
   if (tileIndex < 0 || tileIndex >= tileRenderers.length) return;
 
+  console.log(`assignTileShader: tile ${tileIndex}, hasShader: ${!!shaderCode}`);
+
+  // Handle clearing a tile
+  if (!shaderCode) {
+    tileRenderers[tileIndex].program = null;
+    if (tileConfig && tileConfig.tiles && tileIndex < tileConfig.tiles.length) {
+      tileConfig.tiles[tileIndex] = {
+        ...tileConfig.tiles[tileIndex],
+        shaderCode: null,
+        params: null
+      };
+    }
+    return;
+  }
+
   try {
     tileRenderers[tileIndex].compile(shaderCode);
     if (params) {
@@ -473,6 +530,7 @@ function assignTileShader(tileIndex, shaderCode, params) {
         params
       };
     }
+    console.log(`Tile ${tileIndex} shader updated successfully`);
   } catch (err) {
     console.error(`Failed to assign shader to tile ${tileIndex}:`, err);
   }
@@ -487,10 +545,43 @@ function updateTileParam(tileIndex, name, value) {
 
 // Render all tiles
 function renderTiledFrame() {
-  if (!tiledMode || !sharedGL || tileRenderers.length === 0) return;
-
   const canvas = document.getElementById('shader-canvas');
+
+  if (!tiledMode || !sharedGL || tileRenderers.length === 0) {
+    return;
+  }
+
   const gl = sharedGL;
+
+  // Recalculate bounds based on current canvas size (fixes resize issues)
+  const layout = tileConfig?.layout || { rows: 2, cols: 2, gaps: 4 };
+
+  // Get render area (with aspect ratio correction if configured)
+  let renderWidth = canvas.width;
+  let renderHeight = canvas.height;
+  let offsetX = 0;
+  let offsetY = 0;
+
+  if (tileConfig?.renderOffset && tileConfig?.renderSize) {
+    // Use saved aspect ratio correction
+    offsetX = tileConfig.renderOffset.x;
+    offsetY = tileConfig.renderOffset.y;
+    renderWidth = tileConfig.renderSize.width;
+    renderHeight = tileConfig.renderSize.height;
+  }
+
+  const freshBounds = calculateTileBounds(renderWidth, renderHeight, layout.rows, layout.cols, layout.gaps);
+
+  // Apply offset to bounds
+  freshBounds.forEach(b => {
+    b.x += offsetX;
+    b.y += offsetY;
+  });
+
+  // Update tile renderer bounds
+  for (let i = 0; i < tileRenderers.length && i < freshBounds.length; i++) {
+    tileRenderers[i].setBounds(freshBounds[i]);
+  }
 
   // Clear entire canvas (gaps will show as black)
   gl.viewport(0, 0, canvas.width, canvas.height);
@@ -534,14 +625,23 @@ function renderTiledFrame() {
   };
 
   // Render each visible tile
-  tileRenderers.forEach((tileRenderer, index) => {
+  let renderedCount = 0;
+
+  for (let index = 0; index < tileRenderers.length; index++) {
+    const tileRenderer = tileRenderers[index];
     const tileInfo = tileConfig?.tiles?.[index];
     const isVisible = tileInfo?.visible !== false;
 
+    // Render shader if available
     if (isVisible && tileRenderer.program) {
-      tileRenderer.render(sharedState);
+      try {
+        tileRenderer.render(sharedState);
+        renderedCount++;
+      } catch (err) {
+        console.error(`Tile ${index} render error:`, err);
+      }
     }
-  });
+  }
 
   if (shaderRenderer.isPlaying) {
     shaderRenderer.frameCount++;

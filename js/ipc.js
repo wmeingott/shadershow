@@ -8,6 +8,7 @@ import { recallLocalPreset } from './presets.js';
 import { loadParamsToSliders } from './params.js';
 import { updatePreviewFrameLimit, setRenderMode, detectRenderMode } from './renderer.js';
 import { createTab, openInTab, activeTabHasChanges, markTabSaved, getActiveTab } from './tabs.js';
+import { tileState } from './tile-state.js';
 
 export function initIPC() {
   // File operations
@@ -135,6 +136,44 @@ export function initIPC() {
       localPresets = state.gridSlots[state.activeGridSlot].presets || [];
     }
 
+    // Build tiled mode configuration if enabled
+    let tiledConfig = null;
+    console.log('Building fullscreen state, tiledPreviewEnabled:', state.tiledPreviewEnabled);
+    if (state.tiledPreviewEnabled) {
+      const tiles = tileState.tiles.map((tile) => {
+        if (!tile || tile.gridSlotIndex === null) {
+          return { gridSlotIndex: null, shaderCode: null, params: null, visible: true };
+        }
+        const slotData = state.gridSlots[tile.gridSlotIndex];
+        if (!slotData) {
+          return { gridSlotIndex: tile.gridSlotIndex, shaderCode: null, params: null, visible: tile.visible };
+        }
+        const params = {
+          speed: tile.params?.speed ?? slotData.params?.speed ?? 1,
+          ...(slotData.customParams || {}),
+          ...(tile.customParams || {})
+        };
+        return {
+          gridSlotIndex: tile.gridSlotIndex,
+          shaderCode: slotData.shaderCode,
+          params,
+          visible: tile.visible !== false
+        };
+      });
+      // Include preview resolution so fullscreen can match aspect ratio
+      const previewCanvas = document.getElementById('shader-canvas');
+      tiledConfig = {
+        layout: { ...tileState.layout },
+        tiles,
+        previewResolution: {
+          width: previewCanvas.width,
+          height: previewCanvas.height
+        }
+      };
+      console.log('Built tiledConfig:', tiledConfig);
+    }
+
+    console.log('Sending fullscreen state with tiledConfig:', tiledConfig ? 'yes' : 'no');
     const fullscreenState = {
       shaderCode: shaderCode,
       renderMode: state.renderMode,  // Include render mode for scene support
@@ -144,7 +183,8 @@ export function initIPC() {
       channels: state.channelState,
       params: state.renderer.getParams(),
       localPresets: localPresets,
-      activeLocalPresetIndex: state.activeLocalPresetIndex
+      activeLocalPresetIndex: state.activeLocalPresetIndex,
+      tiledConfig: tiledConfig  // Include tiled mode config
     };
     window.electronAPI.sendFullscreenState(fullscreenState);
   });

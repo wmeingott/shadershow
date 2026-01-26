@@ -162,6 +162,23 @@ class ShaderRenderer {
       throw new Error('WebGL 2 not supported');
     }
 
+    // Track context loss
+    this.contextLost = false;
+    this._lastShaderSource = null;
+
+    // Handle context loss events
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      this.contextLost = true;
+      console.warn('WebGL context lost');
+    });
+
+    canvas.addEventListener('webglcontextrestored', () => {
+      console.log('WebGL context restored, reinitializing...');
+      this.contextLost = false;
+      this.reinitialize();
+    });
+
     // State
     this.program = null;
     this.isPlaying = true;
@@ -238,6 +255,37 @@ class ShaderRenderer {
     gl.bindVertexArray(this.vao);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  }
+
+  // Reinitialize after context restore
+  reinitialize() {
+    this.program = null;
+    this.setupGeometry();
+    this.createDefaultTextures();
+
+    // Recompile last shader if available
+    if (this._lastShaderSource) {
+      try {
+        this.compile(this._lastShaderSource);
+      } catch (err) {
+        console.error('Failed to recompile shader after context restore:', err);
+      }
+    }
+  }
+
+  // Check if context is valid and try to recover if lost
+  ensureContext() {
+    if (this.contextLost) {
+      return false;
+    }
+
+    // Check if context is actually working
+    if (this.gl.isContextLost()) {
+      this.contextLost = true;
+      return false;
+    }
+
+    return true;
   }
 
   setupMouseEvents() {
@@ -756,6 +804,9 @@ class ShaderRenderer {
   compile(fragmentSource) {
     const gl = this.gl;
 
+    // Store for potential recompile after context restore
+    this._lastShaderSource = fragmentSource;
+
     // Parse custom parameters from shader source
     this.customParams = ShaderParamParser.parse(fragmentSource);
     this.customParamValues = ShaderParamParser.createParamValues(this.customParams);
@@ -805,6 +856,9 @@ class ShaderRenderer {
 
     // Compile vertex shader
     const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+    if (!vertexShader) {
+      throw new Error('Failed to create vertex shader - WebGL context may be lost');
+    }
     gl.shaderSource(vertexShader, vertexSource);
     gl.compileShader(vertexShader);
 
@@ -816,6 +870,10 @@ class ShaderRenderer {
 
     // Compile fragment shader
     const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+    if (!fragmentShader) {
+      gl.deleteShader(vertexShader);
+      throw new Error('Failed to create fragment shader - WebGL context may be lost');
+    }
     gl.shaderSource(fragmentShader, wrappedFragment);
     gl.compileShader(fragmentShader);
 
@@ -902,7 +960,7 @@ class ShaderRenderer {
   }
 
   render() {
-    if (!this.program) return;
+    if (!this.program) return null;
 
     const gl = this.gl;
     const now = performance.now();

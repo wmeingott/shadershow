@@ -62,8 +62,8 @@ function updateSelectedTileParam(paramName, value) {
   if (!tile.params) tile.params = {};
   tile.params[paramName] = value;
 
-  // Note: The slot's renderer is shared. Tile params are applied during render.
-  // No need to update renderer here - renderTiledPreview will apply tile params.
+  // Sync tile param to fullscreen
+  window.electronAPI.updateTileParam?.(tileIndex, paramName, value);
 
   // Save state
   debouncedSaveGridState();
@@ -502,7 +502,9 @@ function updateCustomParamValue(paramName, value, arrayIndex = null) {
         // Store the param value in the tile's own customParams
         if (!tile.customParams) tile.customParams = {};
         tile.customParams[paramName] = fullValue;
-        // Note: renderTiledPreview will apply tile's customParams during render
+
+        // Sync tile param to fullscreen
+        window.electronAPI.updateTileParam?.(tileIndex, paramName, fullValue);
       }
     }
   }

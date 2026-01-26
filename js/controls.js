@@ -4,7 +4,7 @@ import { saveActiveSlotShader, startGridAnimation, stopGridAnimation } from './s
 import { saveViewState } from './view-state.js';
 import { showSettingsDialog } from './settings.js';
 import { tileState, calculateTileBounds } from './tile-state.js';
-import { showTileConfigDialog } from './tile-config.js';
+import { showTileConfigDialog, initToolbarPresetsPanel, togglePresetsPanel } from './tile-config.js';
 
 export function initControls() {
   // New File button - show dialog
@@ -89,6 +89,13 @@ export function initControls() {
 
   // Double-click to open tile config dialog
   btnTiled.addEventListener('dblclick', showTileConfigDialog);
+
+  // Tile presets panel toggle button
+  const btnTilePresets = document.getElementById('btn-tile-presets');
+  btnTilePresets.addEventListener('click', togglePresetsPanel);
+
+  // Initialize the toolbar presets panel buttons
+  initToolbarPresetsPanel();
 
   // Settings button
   const btnSettings = document.getElementById('btn-settings');
@@ -410,6 +417,8 @@ export function toggleTiledPreview() {
     btnTiled.classList.add('active');
     btnTiled.title = 'Disable Tiled Preview (double-click for config)';
     initTileRenderers();
+    // Sync tiled mode to fullscreen
+    syncTiledModeToFullscreen();
   } else {
     btnTiled.classList.remove('active');
     btnTiled.title = 'Toggle Tiled Preview';
@@ -417,7 +426,47 @@ export function toggleTiledPreview() {
     // Hide tiled preview overlay by directly accessing DOM
     const overlay = document.getElementById('tiled-preview-canvas');
     if (overlay) overlay.style.display = 'none';
+    // Tell fullscreen to exit tiled mode
+    window.electronAPI.exitTiledMode?.();
   }
+}
+
+// Sync current tiled configuration to fullscreen window
+export function syncTiledModeToFullscreen() {
+  if (!state.tiledPreviewEnabled) return;
+
+  // Build tile configuration with shader code and params
+  const tiles = tileState.tiles.map((tile, index) => {
+    if (!tile || tile.gridSlotIndex === null) {
+      return { gridSlotIndex: null, shaderCode: null, params: null, visible: true };
+    }
+
+    const slotData = state.gridSlots[tile.gridSlotIndex];
+    if (!slotData) {
+      return { gridSlotIndex: tile.gridSlotIndex, shaderCode: null, params: null, visible: tile.visible };
+    }
+
+    // Merge slot and tile params
+    const params = {
+      speed: tile.params?.speed ?? slotData.params?.speed ?? 1,
+      ...(slotData.customParams || {}),
+      ...(tile.customParams || {})
+    };
+
+    return {
+      gridSlotIndex: tile.gridSlotIndex,
+      shaderCode: slotData.shaderCode,
+      params,
+      visible: tile.visible !== false
+    };
+  });
+
+  const config = {
+    layout: { ...tileState.layout },
+    tiles
+  };
+
+  window.electronAPI.initTiledFullscreen?.(config);
 }
 
 // Initialize tile renderers for preview

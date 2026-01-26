@@ -34,11 +34,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     initPresets();
     initResizer();
     initIPC();
-    initShaderGrid();
-    initTileConfig();
+    await initTileConfig();
 
-    // Compile the initial shader now that renderer is ready
+    // Compile the initial shader BEFORE loading grid slots to ensure main renderer
+    // has its WebGL context established first (grid slots create many WebGL contexts)
     compileShader();
+    console.log('Initial shader compiled');
+
+    // Now load grid slots (each creates a MiniShaderRenderer with its own context)
+    await initShaderGrid();
 
     // Restore saved view state
     await restoreViewState();
@@ -191,10 +195,14 @@ function renderLoop(currentTime) {
   let stats;
 
   // Check if tiled preview mode is enabled
-  if (state.tiledPreviewEnabled && tileState.tiles.length > 0) {
-    stats = renderTiledPreview();
-  } else {
-    stats = state.renderer.render();
+  try {
+    if (state.tiledPreviewEnabled && tileState.tiles.length > 0) {
+      stats = renderTiledPreview();
+    } else {
+      stats = state.renderer.render();
+    }
+  } catch (err) {
+    console.error('Render error:', err);
   }
 
   if (stats && state.previewEnabled) {
@@ -233,10 +241,11 @@ function renderTiledPreview() {
     tiledPreviewCanvas = document.createElement('canvas');
     tiledPreviewCanvas.id = 'tiled-preview-canvas';
     tiledPreviewCanvas.style.position = 'absolute';
-    tiledPreviewCanvas.style.top = '0';
-    tiledPreviewCanvas.style.left = '0';
-    tiledPreviewCanvas.style.width = '100%';
-    tiledPreviewCanvas.style.height = '100%';
+    tiledPreviewCanvas.style.top = '50%';
+    tiledPreviewCanvas.style.left = '50%';
+    tiledPreviewCanvas.style.transform = 'translate(-50%, -50%)';
+    tiledPreviewCanvas.style.maxWidth = '100%';
+    tiledPreviewCanvas.style.maxHeight = '100%';
     tiledPreviewCanvas.style.cursor = 'pointer';
     mainCanvas.parentElement.style.position = 'relative';
     mainCanvas.parentElement.appendChild(tiledPreviewCanvas);
@@ -304,29 +313,55 @@ function renderTiledPreview() {
     // Use slot's renderer but apply tile-specific params before rendering
     const miniRenderer = slotData.renderer;
 
-    // Reset custom params to defaults before applying tile-specific ones
-    // This ensures params from previous tiles don't bleed through
-    if (miniRenderer.resetCustomParams) {
-      miniRenderer.resetCustomParams();
-    }
+    try {
+      // Reset custom params to defaults before applying tile-specific ones
+      // This ensures params from previous tiles don't bleed through
+      if (miniRenderer.resetCustomParams) {
+        miniRenderer.resetCustomParams();
+      }
 
-    // Apply tile's params (speed and custom params)
-    const speed = tile.params?.speed ?? slotData.params?.speed ?? 1;
-    miniRenderer.setSpeed(speed);
+      // Apply tile's params (speed and custom params)
+      const speed = tile.params?.speed ?? slotData.params?.speed ?? 1;
+      miniRenderer.setSpeed(speed);
 
-    // Merge slot's custom params with tile's custom params (tile takes precedence)
-    // This ensures tile has access to all slot params plus its own overrides
-    const customParams = { ...(slotData.customParams || {}), ...(tile.customParams || {}) };
-    if (Object.keys(customParams).length > 0) {
-      miniRenderer.setParams(customParams);
-    }
+      // Merge slot's custom params with tile's custom params (tile takes precedence)
+      // This ensures tile has access to all slot params plus its own overrides
+      const customParams = { ...(slotData.customParams || {}), ...(tile.customParams || {}) };
+      if (Object.keys(customParams).length > 0) {
+        miniRenderer.setParams(customParams);
+      }
 
-    miniRenderer.render();
+      // Render at tile resolution for quality, then copy to overlay
+      // Save original canvas size (grid slot thumbnail size)
+      const origWidth = miniRenderer.canvas.width;
+      const origHeight = miniRenderer.canvas.height;
 
-    // Draw the mini canvas to the tile region
-    const miniCanvas = miniRenderer.canvas;
-    if (miniCanvas) {
-      ctx.drawImage(miniCanvas, drawX, drawY, bound.width, bound.height);
+      // Debug: log tile info once
+      if (!window._previewTileDbg) {
+        console.log(`[Preview] Canvas: ${canvasWidth}x${canvasHeight}, Tile ${i}: bound=(${bound.x},${bound.y},${bound.width},${bound.height}), draw=(${drawX},${drawY})`);
+      }
+
+      // Resize to tile dimensions for high-quality rendering
+      miniRenderer.setResolution(bound.width, bound.height);
+      miniRenderer.render();
+
+      // Draw the rendered tile to the overlay
+      const miniCanvas = miniRenderer.canvas;
+      if (miniCanvas) {
+        ctx.drawImage(miniCanvas, drawX, drawY);
+      }
+
+      // Restore original canvas size for grid thumbnail display
+      miniRenderer.setResolution(origWidth, origHeight);
+    } catch (err) {
+      console.error(`Tile ${i} render error:`, err);
+      ctx.fillStyle = '#3a1a1a';
+      ctx.fillRect(drawX, drawY, bound.width, bound.height);
+      ctx.fillStyle = '#ff6666';
+      ctx.font = '12px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('Error', drawX + bound.width / 2, drawY + bound.height / 2);
     }
   }
 
@@ -350,6 +385,8 @@ function renderTiledPreview() {
 
   // Show overlay canvas
   tiledPreviewCanvas.style.display = 'block';
+
+  window._previewTileDbg = true;  // Only log once
 
   return mainStats;
 }

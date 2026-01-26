@@ -288,12 +288,12 @@ function assignShaderToTile(slotIndex, tileIndex) {
   updateTileRenderer(tileIndex);
 
   // Sync to fullscreen if tiled mode is active
-  const allParams = {
-    ...(slotData.params || {}),
-    ...(slotData.customParams || {})
-  };
-  if (window.electronAPI.assignTileShader) {
-    window.electronAPI.assignTileShader(tileIndex, slotIndex, slotData.shaderCode, allParams);
+  if (state.tiledPreviewEnabled && slotData.shaderCode) {
+    const allParams = {
+      speed: slotData.params?.speed ?? 1,
+      ...(slotData.customParams || {})
+    };
+    window.electronAPI.assignTileShader?.(tileIndex, slotData.shaderCode, allParams);
   }
 
   // Save tile state
@@ -1178,14 +1178,72 @@ export function stopGridAnimation() {
   }
 }
 
-// Mini shader renderer for grid previews
+// Shared WebGL context for all MiniShaderRenderers
+// This avoids the "too many WebGL contexts" browser limit
+let sharedGLCanvas = null;
+let sharedGL = null;
+let sharedVAO = null;
+
+function getSharedGL() {
+  if (!sharedGL) {
+    sharedGLCanvas = document.createElement('canvas');
+    sharedGLCanvas.width = 160;
+    sharedGLCanvas.height = 90;
+    sharedGL = sharedGLCanvas.getContext('webgl2', {
+      alpha: false,
+      antialias: false,
+      preserveDrawingBuffer: true
+    });
+
+    if (!sharedGL) {
+      console.error('Failed to create shared WebGL2 context');
+      return null;
+    }
+
+    // Setup shared geometry (full-screen quad)
+    const vertices = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
+    const vbo = sharedGL.createBuffer();
+    sharedGL.bindBuffer(sharedGL.ARRAY_BUFFER, vbo);
+    sharedGL.bufferData(sharedGL.ARRAY_BUFFER, vertices, sharedGL.STATIC_DRAW);
+
+    sharedVAO = sharedGL.createVertexArray();
+    sharedGL.bindVertexArray(sharedVAO);
+    sharedGL.enableVertexAttribArray(0);
+    sharedGL.vertexAttribPointer(0, 2, sharedGL.FLOAT, false, 0, 0);
+
+    // Handle context loss on shared canvas
+    sharedGLCanvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      console.warn('Shared WebGL context lost');
+    });
+
+    sharedGLCanvas.addEventListener('webglcontextrestored', () => {
+      console.log('Shared WebGL context restored');
+      // Reinitialize geometry
+      const vertices = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
+      const vbo = sharedGL.createBuffer();
+      sharedGL.bindBuffer(sharedGL.ARRAY_BUFFER, vbo);
+      sharedGL.bufferData(sharedGL.ARRAY_BUFFER, vertices, sharedGL.STATIC_DRAW);
+      sharedVAO = sharedGL.createVertexArray();
+      sharedGL.bindVertexArray(sharedVAO);
+      sharedGL.enableVertexAttribArray(0);
+      sharedGL.vertexAttribPointer(0, 2, sharedGL.FLOAT, false, 0, 0);
+    });
+  }
+  return sharedGL;
+}
+
+// Mini shader renderer for grid previews - uses shared WebGL context
 export class MiniShaderRenderer {
   constructor(canvas) {
-    this.canvas = canvas;
-    this.gl = canvas.getContext('webgl2', { alpha: false, antialias: false });
+    this.canvas = canvas;  // Display canvas (will use 2D context to copy from shared)
+    this.ctx2d = canvas.getContext('2d');  // 2D context for copying rendered result
+    this.gl = getSharedGL();  // Use shared WebGL context
+    this.contextValid = !!this.gl;
 
     if (!this.gl) {
-      throw new Error('WebGL 2 not supported');
+      console.warn('Shared WebGL context not available');
+      return;
     }
 
     this.program = null;
@@ -1199,12 +1257,33 @@ export class MiniShaderRenderer {
 
     // Custom param values storage
     this.customParamValues = {};
-
-    this.setupGeometry();
   }
 
   setSpeed(speed) {
     this.speed = speed;
+  }
+
+  // Set resolution (resize display canvas)
+  setResolution(width, height) {
+    if (this.canvas.width !== width || this.canvas.height !== height) {
+      this.canvas.width = width;
+      this.canvas.height = height;
+      // Update 2D context after resize
+      this.ctx2d = this.canvas.getContext('2d');
+    }
+  }
+
+  // Get current resolution
+  getResolution() {
+    return { width: this.canvas.width, height: this.canvas.height };
+  }
+
+  // Resize shared canvas to match target resolution for rendering
+  _resizeSharedCanvas(width, height) {
+    if (sharedGLCanvas && (sharedGLCanvas.width !== width || sharedGLCanvas.height !== height)) {
+      sharedGLCanvas.width = width;
+      sharedGLCanvas.height = height;
+    }
   }
 
   // Set a custom parameter value
@@ -1229,20 +1308,12 @@ export class MiniShaderRenderer {
     this.customParamValues = {};
   }
 
-  setupGeometry() {
-    const gl = this.gl;
-    const vertices = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
-    const vbo = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
-
-    this.vao = gl.createVertexArray();
-    gl.bindVertexArray(this.vao);
-    gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-  }
-
   compile(fragmentSource) {
+    // Check if context is valid
+    if (!this.contextValid || !this.gl) {
+      throw new Error('WebGL context not available');
+    }
+
     const gl = this.gl;
 
     // Parse custom @param comments and generate uniform declarations
@@ -1274,19 +1345,31 @@ export class MiniShaderRenderer {
     `;
 
     const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+    if (!vertexShader) {
+      throw new Error('Failed to create vertex shader - WebGL context may be lost');
+    }
     gl.shaderSource(vertexShader, vertexSource);
     gl.compileShader(vertexShader);
 
     if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
-      throw new Error(gl.getShaderInfoLog(vertexShader));
+      const error = gl.getShaderInfoLog(vertexShader);
+      gl.deleteShader(vertexShader);
+      throw new Error(error);
     }
 
     const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+    if (!fragmentShader) {
+      gl.deleteShader(vertexShader);
+      throw new Error('Failed to create fragment shader - WebGL context may be lost');
+    }
     gl.shaderSource(fragmentShader, wrappedFragment);
     gl.compileShader(fragmentShader);
 
     if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
-      throw new Error(gl.getShaderInfoLog(fragmentShader));
+      const error = gl.getShaderInfoLog(fragmentShader);
+      gl.deleteShader(vertexShader);
+      gl.deleteShader(fragmentShader);
+      throw new Error(error);
     }
 
     const program = gl.createProgram();
@@ -1321,15 +1404,21 @@ export class MiniShaderRenderer {
   }
 
   render() {
-    if (!this.program) return;
+    if (!this.program || !this.contextValid || !this.gl || !sharedGLCanvas) return;
 
     const gl = this.gl;
+    const width = this.canvas.width;
+    const height = this.canvas.height;
+
+    // Resize shared canvas to match display canvas
+    this._resizeSharedCanvas(width, height);
+
     const time = (performance.now() - this.startTime) / 1000 * this.speed;
 
-    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    gl.viewport(0, 0, width, height);
     gl.useProgram(this.program);
 
-    gl.uniform3f(this.uniforms.iResolution, this.canvas.width, this.canvas.height, 1);
+    gl.uniform3f(this.uniforms.iResolution, width, height, 1);
     gl.uniform1f(this.uniforms.iTime, time);
 
     // Use pre-allocated arrays with default values (for backward compatibility)
@@ -1366,8 +1455,14 @@ export class MiniShaderRenderer {
       }
     }
 
-    gl.bindVertexArray(this.vao);
+    // Use shared VAO and draw
+    gl.bindVertexArray(sharedVAO);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+    // Copy rendered result from shared canvas to display canvas
+    if (this.ctx2d) {
+      this.ctx2d.drawImage(sharedGLCanvas, 0, 0, width, height);
+    }
   }
 
   // Dispose WebGL resources to prevent memory leaks
@@ -1375,16 +1470,14 @@ export class MiniShaderRenderer {
     const gl = this.gl;
     if (!gl) return;
 
+    // Only delete the program, not the shared VAO
     if (this.program) {
       gl.deleteProgram(this.program);
       this.program = null;
     }
-    if (this.vao) {
-      gl.deleteVertexArray(this.vao);
-      this.vao = null;
-    }
-    // Note: VBO is created without storing reference, but WebGL garbage collects it
-    // when the VAO is deleted
+
+    this.contextValid = false;
+    // Note: VAO is shared, don't delete it
 
     this.uniforms = {};
     this.customUniformLocations = {};

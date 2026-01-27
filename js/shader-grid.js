@@ -40,121 +40,245 @@ export function cleanupShaderGrid() {
   stopGridAnimation();
 }
 
+// Create a grid slot DOM element and wire up event listeners
+function createGridSlotElement(index) {
+  const slot = document.createElement('div');
+  slot.className = 'grid-slot';
+  slot.dataset.slot = index;
+  slot.setAttribute('draggable', 'true');
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 160;
+  canvas.height = 90;
+  slot.appendChild(canvas);
+
+  const numberSpan = document.createElement('span');
+  numberSpan.className = 'slot-number';
+  numberSpan.textContent = index + 1;
+  slot.appendChild(numberSpan);
+
+  // Store listeners for this slot
+  const listeners = [];
+
+  // Drag start - store source index
+  const dragstartHandler = (e) => {
+    dragSourceIndex = index;
+    slot.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', index.toString());
+  };
+  slot.addEventListener('dragstart', dragstartHandler);
+  listeners.push({ event: 'dragstart', handler: dragstartHandler });
+
+  // Drag end - cleanup
+  const dragendHandler = () => {
+    slot.classList.remove('dragging');
+    dragSourceIndex = null;
+    document.querySelectorAll('.grid-slot.drag-over').forEach(s => {
+      s.classList.remove('drag-over');
+    });
+  };
+  slot.addEventListener('dragend', dragendHandler);
+  listeners.push({ event: 'dragend', handler: dragendHandler });
+
+  // Drag over - allow drop
+  const dragoverHandler = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+  slot.addEventListener('dragover', dragoverHandler);
+  listeners.push({ event: 'dragover', handler: dragoverHandler });
+
+  // Drag enter - visual feedback
+  const dragenterHandler = (e) => {
+    e.preventDefault();
+    if (dragSourceIndex !== null && dragSourceIndex !== index) {
+      slot.classList.add('drag-over');
+    }
+  };
+  slot.addEventListener('dragenter', dragenterHandler);
+  listeners.push({ event: 'dragenter', handler: dragenterHandler });
+
+  // Drag leave - remove visual feedback
+  const dragleaveHandler = (e) => {
+    if (!slot.contains(e.relatedTarget)) {
+      slot.classList.remove('drag-over');
+    }
+  };
+  slot.addEventListener('dragleave', dragleaveHandler);
+  listeners.push({ event: 'dragleave', handler: dragleaveHandler });
+
+  // Drop - swap slots
+  const dropHandler = (e) => {
+    e.preventDefault();
+    slot.classList.remove('drag-over');
+    const fromIndex = parseInt(e.dataTransfer.getData('text/plain'), 10);
+    if (!isNaN(fromIndex) && fromIndex !== index) {
+      swapGridSlots(fromIndex, index);
+    }
+  };
+  slot.addEventListener('drop', dropHandler);
+  listeners.push({ event: 'drop', handler: dropHandler });
+
+  // Left click - select slot and load parameters
+  const clickHandler = () => {
+    if (state.gridSlots[index]) {
+      selectGridSlot(index);
+    }
+  };
+  slot.addEventListener('click', clickHandler);
+  listeners.push({ event: 'click', handler: clickHandler });
+
+  // Double click - open shader in editor tab
+  const dblclickHandler = () => {
+    if (state.gridSlots[index]) {
+      loadGridShaderToEditor(index);
+    }
+  };
+  slot.addEventListener('dblclick', dblclickHandler);
+  listeners.push({ event: 'dblclick', handler: dblclickHandler });
+
+  // Right click - context menu
+  const contextmenuHandler = (e) => {
+    e.preventDefault();
+    showGridContextMenu(e.clientX, e.clientY, index);
+  };
+  slot.addEventListener('contextmenu', contextmenuHandler);
+  listeners.push({ event: 'contextmenu', handler: contextmenuHandler });
+
+  slotEventListeners.set(slot, listeners);
+
+  return slot;
+}
+
+// Create the "Add Shader" button element
+function createAddButton() {
+  const btn = document.createElement('div');
+  btn.className = 'grid-slot grid-add-btn';
+  btn.title = 'Add shader to grid';
+
+  const plusSign = document.createElement('span');
+  plusSign.className = 'grid-add-plus';
+  plusSign.textContent = '+';
+  btn.appendChild(plusSign);
+
+  btn.addEventListener('click', async () => {
+    await addNewGridSlot();
+  });
+
+  return btn;
+}
+
+// Add a new empty slot and immediately prompt to load a shader
+async function addNewGridSlot() {
+  const newIndex = state.gridSlots.length;
+  state.gridSlots.push(null);
+
+  const container = document.getElementById('shader-grid-container');
+  const addBtn = container.querySelector('.grid-add-btn');
+
+  const slotEl = createGridSlotElement(newIndex);
+  container.insertBefore(slotEl, addBtn);
+
+  // Observe new slot for visibility
+  if (gridIntersectionObserver) {
+    gridIntersectionObserver.observe(slotEl);
+  }
+
+  // Prompt to load a shader
+  await loadShaderToSlot(newIndex);
+
+  // If user canceled, remove the empty slot
+  if (!state.gridSlots[newIndex]) {
+    removeGridSlotElement(newIndex);
+  }
+}
+
+// Remove a grid slot DOM element and compact state
+function removeGridSlotElement(index) {
+  // Dispose renderer
+  if (state.gridSlots[index] && state.gridSlots[index].renderer) {
+    if (state.gridSlots[index].renderer.dispose) {
+      state.gridSlots[index].renderer.dispose();
+    }
+  }
+
+  // Remove from state
+  state.gridSlots.splice(index, 1);
+
+  // Fix activeGridSlot reference
+  if (state.activeGridSlot === index) {
+    state.activeGridSlot = null;
+  } else if (state.activeGridSlot !== null && state.activeGridSlot > index) {
+    state.activeGridSlot--;
+  }
+
+  // Rebuild DOM (simpler than re-indexing all elements + listeners)
+  rebuildGridDOM();
+}
+
+// Rebuild all grid slot DOM elements from state
+function rebuildGridDOM() {
+  const container = document.getElementById('shader-grid-container');
+
+  // Cleanup existing listeners
+  slotEventListeners.forEach((listeners, slot) => {
+    listeners.forEach(({ event, handler }) => {
+      slot.removeEventListener(event, handler);
+    });
+  });
+  slotEventListeners.clear();
+  cleanupGridVisibilityObserver();
+
+  // Clear container
+  container.innerHTML = '';
+
+  // Recreate slot elements for each state entry
+  for (let i = 0; i < state.gridSlots.length; i++) {
+    const slotEl = createGridSlotElement(i);
+    container.appendChild(slotEl);
+
+    const data = state.gridSlots[i];
+    if (data) {
+      slotEl.classList.add('has-shader');
+      if (data.hasError) slotEl.classList.add('has-error');
+      if (state.activeGridSlot === i) slotEl.classList.add('active');
+
+      const fileName = data.filePath ? data.filePath.split('/').pop().split('\\').pop() : `Slot ${i + 1}`;
+      const typeLabel = data.type === 'scene' ? ' (scene)' : '';
+      slotEl.title = `Slot ${i + 1}: ${fileName}${typeLabel}`;
+
+      // Update renderer's canvas reference to the new DOM element
+      if (data.renderer) {
+        const newCanvas = slotEl.querySelector('canvas');
+        data.renderer.canvas = newCanvas;
+        data.renderer.ctx2d = newCanvas.getContext('2d');
+      }
+    }
+  }
+
+  // Add the "+" button at the end
+  container.appendChild(createAddButton());
+
+  // Reinitialize visibility observer
+  initGridVisibilityObserver();
+}
+
 export async function initShaderGrid() {
   // Cleanup any existing listeners first
   cleanupShaderGrid();
-
-  const slots = document.querySelectorAll('.grid-slot');
-
-  slots.forEach((slot, index) => {
-    const canvas = slot.querySelector('canvas');
-    canvas.width = 160;
-    canvas.height = 90;
-
-    // Enable dragging
-    slot.setAttribute('draggable', 'true');
-
-    // Store listeners for this slot
-    const listeners = [];
-
-    // Drag start - store source index
-    const dragstartHandler = (e) => {
-      dragSourceIndex = index;
-      slot.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', index.toString());
-    };
-    slot.addEventListener('dragstart', dragstartHandler);
-    listeners.push({ event: 'dragstart', handler: dragstartHandler });
-
-    // Drag end - cleanup
-    const dragendHandler = () => {
-      slot.classList.remove('dragging');
-      dragSourceIndex = null;
-      // Remove drag-over from all slots
-      document.querySelectorAll('.grid-slot.drag-over').forEach(s => {
-        s.classList.remove('drag-over');
-      });
-    };
-    slot.addEventListener('dragend', dragendHandler);
-    listeners.push({ event: 'dragend', handler: dragendHandler });
-
-    // Drag over - allow drop
-    const dragoverHandler = (e) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-    };
-    slot.addEventListener('dragover', dragoverHandler);
-    listeners.push({ event: 'dragover', handler: dragoverHandler });
-
-    // Drag enter - visual feedback
-    const dragenterHandler = (e) => {
-      e.preventDefault();
-      if (dragSourceIndex !== null && dragSourceIndex !== index) {
-        slot.classList.add('drag-over');
-      }
-    };
-    slot.addEventListener('dragenter', dragenterHandler);
-    listeners.push({ event: 'dragenter', handler: dragenterHandler });
-
-    // Drag leave - remove visual feedback
-    const dragleaveHandler = (e) => {
-      // Only remove if actually leaving the slot (not entering a child)
-      if (!slot.contains(e.relatedTarget)) {
-        slot.classList.remove('drag-over');
-      }
-    };
-    slot.addEventListener('dragleave', dragleaveHandler);
-    listeners.push({ event: 'dragleave', handler: dragleaveHandler });
-
-    // Drop - swap slots
-    const dropHandler = (e) => {
-      e.preventDefault();
-      slot.classList.remove('drag-over');
-      const fromIndex = parseInt(e.dataTransfer.getData('text/plain'), 10);
-      if (!isNaN(fromIndex) && fromIndex !== index) {
-        swapGridSlots(fromIndex, index);
-      }
-    };
-    slot.addEventListener('drop', dropHandler);
-    listeners.push({ event: 'drop', handler: dropHandler });
-
-    // Left click - select slot and load parameters
-    const clickHandler = () => {
-      if (state.gridSlots[index]) {
-        selectGridSlot(index);
-      }
-    };
-    slot.addEventListener('click', clickHandler);
-    listeners.push({ event: 'click', handler: clickHandler });
-
-    // Double click - open shader in editor tab
-    const dblclickHandler = () => {
-      if (state.gridSlots[index]) {
-        loadGridShaderToEditor(index);
-      }
-    };
-    slot.addEventListener('dblclick', dblclickHandler);
-    listeners.push({ event: 'dblclick', handler: dblclickHandler });
-
-    // Right click - context menu
-    const contextmenuHandler = (e) => {
-      e.preventDefault();
-      showGridContextMenu(e.clientX, e.clientY, index);
-    };
-    slot.addEventListener('contextmenu', contextmenuHandler);
-    listeners.push({ event: 'contextmenu', handler: contextmenuHandler });
-
-    // Store all listeners for this slot
-    slotEventListeners.set(slot, listeners);
-  });
 
   // Close context menu when clicking elsewhere
   documentClickHandler = hideContextMenu;
   document.addEventListener('click', documentClickHandler);
 
-  // Load saved grid state
+  // Load saved grid state (this will create DOM slots dynamically)
   await loadGridState();
+
+  // If no slots were loaded, rebuild DOM with just the add button
+  if (state.gridSlots.length === 0) {
+    rebuildGridDOM();
+  }
 }
 
 function showGridContextMenu(x, y, slotIndex) {
@@ -209,6 +333,22 @@ function showGridContextMenu(x, y, slotIndex) {
     });
   }
   menu.appendChild(clearItem);
+
+  // Remove slot option
+  const removeItem = document.createElement('div');
+  removeItem.className = 'context-menu-item';
+  removeItem.textContent = 'Remove Slot';
+  removeItem.addEventListener('click', async () => {
+    hideContextMenu();
+    // Delete the shader file first
+    await window.electronAPI.deleteShaderFromSlot(slotIndex);
+    removeGridSlotElement(slotIndex);
+    saveGridState();
+    // Re-save all shader files with updated indices
+    await resaveAllShaderFiles();
+    setStatus(`Removed slot ${slotIndex + 1}`, 'success');
+  });
+  menu.appendChild(removeItem);
 
   // Send to Tile submenu (only if has shader and tiles are configured)
   if (hasShader && tileState.tiles.length > 0) {
@@ -465,7 +605,7 @@ function updateSlotVisualState(index, slot) {
       : `Slot ${index + 1}: Current ${data.type === 'scene' ? 'scene' : 'shader'}`;
   } else {
     slot.classList.remove('has-shader');
-    slot.title = `Slot ${index + 1} - Right-click to assign shader`;
+    slot.title = `Slot ${index + 1} - Right-click for options`;
   }
 
   // Update active state
@@ -680,17 +820,26 @@ function assignFailedShaderToSlot(slotIndex, shaderCode, filePath, savedData = {
 }
 
 async function clearGridSlot(slotIndex) {
+  // Dispose renderer
+  if (state.gridSlots[slotIndex] && state.gridSlots[slotIndex].renderer) {
+    if (state.gridSlots[slotIndex].renderer.dispose) {
+      state.gridSlots[slotIndex].renderer.dispose();
+    }
+  }
+
   const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`);
   state.gridSlots[slotIndex] = null;
-  slot.classList.remove('has-shader');
-  slot.classList.remove('has-error');
-  slot.title = `Slot ${slotIndex + 1} - Right-click to assign shader`;
+  if (slot) {
+    slot.classList.remove('has-shader');
+    slot.classList.remove('has-error');
+    slot.title = `Slot ${slotIndex + 1} - Right-click to assign shader`;
 
-  // Clear canvas
-  const canvas = slot.querySelector('canvas');
-  const ctx = canvas.getContext('2d');
-  if (ctx) {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Clear canvas
+    const canvas = slot.querySelector('canvas');
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
   }
 
   // Delete shader file
@@ -793,28 +942,50 @@ export function saveGridState() {
 
 export async function loadGridState() {
   const gridState = await window.electronAPI.loadGridState();
-  if (!gridState || !Array.isArray(gridState)) return;
+  if (!gridState || !Array.isArray(gridState)) {
+    rebuildGridDOM();
+    return;
+  }
+
+  // Only load slots that have actual shader data (compact the array)
+  const compactState = [];
+  for (let i = 0; i < gridState.length; i++) {
+    if (gridState[i] && gridState[i].shaderCode) {
+      compactState.push(gridState[i]);
+    }
+  }
+
+  // Initialize state array with null entries for each slot we'll create
+  state.gridSlots = new Array(compactState.length).fill(null);
+
+  // Build DOM first so assignShaderToSlot can find the elements
+  rebuildGridDOM();
 
   let loadedCount = 0;
   const failedSlots = [];
 
-  for (let i = 0; i < Math.min(gridState.length, 32); i++) {
-    if (gridState[i] && gridState[i].shaderCode) {
-      try {
-        const isScene = gridState[i].type === 'scene';
-        if (isScene) {
-          await assignSceneToSlot(i, gridState[i].shaderCode, gridState[i].filePath, true, gridState[i].params, gridState[i].presets);
-        } else {
-          await assignShaderToSlot(i, gridState[i].shaderCode, gridState[i].filePath, true, gridState[i].params, gridState[i].presets, gridState[i].customParams);
-        }
-        loadedCount++;
-      } catch (err) {
-        // Store the shader anyway so user can edit it
-        assignFailedShaderToSlot(i, gridState[i].shaderCode, gridState[i].filePath, gridState[i]);
-        failedSlots.push(i + 1);
-        console.warn(`Failed to compile slot ${i + 1}:`, err.message);
+  for (let i = 0; i < compactState.length; i++) {
+    const slotData = compactState[i];
+    try {
+      const isScene = slotData.type === 'scene';
+      if (isScene) {
+        await assignSceneToSlot(i, slotData.shaderCode, slotData.filePath, true, slotData.params, slotData.presets);
+      } else {
+        await assignShaderToSlot(i, slotData.shaderCode, slotData.filePath, true, slotData.params, slotData.presets, slotData.customParams);
       }
+      loadedCount++;
+    } catch (err) {
+      // Store the shader anyway so user can edit it
+      assignFailedShaderToSlot(i, slotData.shaderCode, slotData.filePath, slotData);
+      failedSlots.push(i + 1);
+      console.warn(`Failed to compile slot ${i + 1}:`, err.message);
     }
+  }
+
+  // Re-save shader files with compacted indices if we compacted
+  if (compactState.length !== gridState.length) {
+    await resaveAllShaderFiles();
+    saveGridState();
   }
 
   if (failedSlots.length > 0) {
@@ -830,35 +1001,37 @@ export async function loadGridPresetsFromData(gridState, filePath) {
     return;
   }
 
-  // Clear all existing slots first
-  for (let i = 0; i < 32; i++) {
-    if (state.gridSlots[i]) {
-      const slot = document.querySelector(`.grid-slot[data-slot="${i}"]`);
-      state.gridSlots[i] = null;
-      slot.classList.remove('has-shader');
-      const canvas = slot.querySelector('canvas');
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // Dispose all existing renderers
+  for (let i = 0; i < state.gridSlots.length; i++) {
+    if (state.gridSlots[i] && state.gridSlots[i].renderer) {
+      if (state.gridSlots[i].renderer.dispose) {
+        state.gridSlots[i].renderer.dispose();
       }
     }
   }
 
+  // Compact: only keep entries with shader data
+  const compactState = gridState.filter(s => s && s.shaderCode);
+
+  // Reset state
+  state.gridSlots = new Array(compactState.length).fill(null);
+  state.activeGridSlot = null;
+  rebuildGridDOM();
+
   // Load new presets
   let loadedCount = 0;
-  for (let i = 0; i < Math.min(gridState.length, 32); i++) {
-    if (gridState[i] && gridState[i].shaderCode) {
-      try {
-        const isScene = gridState[i].type === 'scene';
-        if (isScene) {
-          await assignSceneToSlot(i, gridState[i].shaderCode, gridState[i].filePath, true, gridState[i].params, gridState[i].presets);
-        } else {
-          await assignShaderToSlot(i, gridState[i].shaderCode, gridState[i].filePath, true, gridState[i].params, gridState[i].presets, gridState[i].customParams);
-        }
-        loadedCount++;
-      } catch (err) {
-        console.warn(`Failed to load ${gridState[i].type || 'shader'} in slot ${i + 1}:`, err);
+  for (let i = 0; i < compactState.length; i++) {
+    const slotData = compactState[i];
+    try {
+      const isScene = slotData.type === 'scene';
+      if (isScene) {
+        await assignSceneToSlot(i, slotData.shaderCode, slotData.filePath, true, slotData.params, slotData.presets);
+      } else {
+        await assignShaderToSlot(i, slotData.shaderCode, slotData.filePath, true, slotData.params, slotData.presets, slotData.customParams);
       }
+      loadedCount++;
+    } catch (err) {
+      console.warn(`Failed to load ${slotData.type || 'shader'} in slot ${i + 1}:`, err);
     }
   }
 
@@ -866,6 +1039,7 @@ export async function loadGridPresetsFromData(gridState, filePath) {
   if (loadedCount > 0) {
     setStatus(`Loaded ${loadedCount} shader${loadedCount > 1 ? 's' : ''} from ${fileName}`, 'success');
     // Save as current state
+    await resaveAllShaderFiles();
     saveGridState();
   } else {
     setStatus(`No valid shaders found in ${fileName}`, 'error');
@@ -1106,6 +1280,22 @@ export function playGridShader(slotIndex) {
   setStatus(`Playing ${typeLabel}: ${slotName}`, 'success');
 }
 
+// Re-save all shader files with current indices (after removing/compacting slots)
+async function resaveAllShaderFiles() {
+  // Delete files at all indices up to a generous upper bound
+  // (covers previous larger grids being compacted)
+  const maxIndex = Math.max(state.gridSlots.length + 50, 100);
+  for (let i = 0; i < maxIndex; i++) {
+    await window.electronAPI.deleteShaderFromSlot(i);
+  }
+  // Save current files
+  for (let i = 0; i < state.gridSlots.length; i++) {
+    if (state.gridSlots[i] && state.gridSlots[i].shaderCode) {
+      await window.electronAPI.saveShaderToSlot(i, state.gridSlots[i].shaderCode);
+    }
+  }
+}
+
 // Grid animation frame rate limiting (10fps = 100ms interval)
 const GRID_FRAME_INTERVAL = 100;
 
@@ -1140,8 +1330,8 @@ function initGridVisibilityObserver() {
     threshold: 0.1 // Consider visible if at least 10% is showing
   });
 
-  // Observe all grid slots
-  document.querySelectorAll('.grid-slot').forEach(slot => {
+  // Observe all grid slots (exclude the add button)
+  document.querySelectorAll('.grid-slot:not(.grid-add-btn)').forEach(slot => {
     gridIntersectionObserver.observe(slot);
   });
 }

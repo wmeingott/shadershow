@@ -6,6 +6,8 @@ const zlib = require('zlib');
 const { promisify } = require('util');
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
+const { spawn } = require('child_process');
+const ffmpegPath = require('ffmpeg-static');
 const NDISender = require('./ndi-sender');
 const NDIReceiver = require('./ndi-receiver');
 const SyphonSender = require('./syphon-sender');
@@ -24,6 +26,28 @@ let ndiSourceCache = []; // Cached NDI sources for menu
 // Syphon output (macOS only)
 let syphonEnabled = false;
 let syphonSender = null;
+
+// Recording output (H.265 MP4 via FFmpeg)
+let recordingProcess = null;
+let recordingEnabled = false;
+let recordingResolution = { width: 1920, height: 1080, label: '1920x1080 (1080p)' };
+let recordingFlipBuffer = null;
+let recordingLastWidth = 0;
+let recordingLastHeight = 0;
+let recordingFilePath = null;
+
+// Recording resolution presets (same as NDI)
+const recordingResolutions = [
+  { width: 640, height: 360, label: '640x360 (360p)' },
+  { width: 854, height: 480, label: '854x480 (480p)' },
+  { width: 1280, height: 720, label: '1280x720 (720p)' },
+  { width: 1536, height: 864, label: '1536x864' },
+  { width: 1920, height: 1080, label: '1920x1080 (1080p)' },
+  { width: 2560, height: 1440, label: '2560x1440 (1440p)' },
+  { width: 3072, height: 1824, label: '3072x1824' },
+  { width: 3840, height: 2160, label: '3840x2160 (4K)' },
+  { width: 0, height: 0, label: 'Match Preview' }
+];
 
 // NDI resolution presets
 const ndiResolutions = [
@@ -343,7 +367,25 @@ function createMenu() {
             id: 'syphon-toggle',
             click: () => toggleSyphonOutput()
           }
-        ] : [])
+        ] : []),
+        { type: 'separator' },
+        {
+          label: 'Start Recording',
+          id: 'recording-toggle',
+          accelerator: 'CmdOrCtrl+Shift+R',
+          click: () => {
+            if (recordingEnabled) {
+              stopRecording();
+            } else {
+              startRecording();
+            }
+          }
+        },
+        {
+          label: 'Recording Resolution',
+          id: 'recording-resolution-menu',
+          submenu: buildRecordingResolutionSubmenu()
+        }
       ]
     }
   ];
@@ -367,6 +409,20 @@ function buildNDIResolutionSubmenu() {
     type: 'radio',
     checked: ndiResolution.label === res.label,
     click: () => setNDIResolution(res)
+  }));
+}
+
+function buildRecordingResolutionSubmenu() {
+  return recordingResolutions.map((res) => ({
+    label: res.label,
+    type: 'radio',
+    checked: recordingResolution.label === res.label,
+    click: () => {
+      recordingResolution = res;
+      console.log(`Recording resolution set to ${res.label}`);
+      saveSettingsToFile();
+      createMenu();
+    }
   }));
 }
 
@@ -991,6 +1047,204 @@ async function sendSyphonFrame(frameData) {
   }
 }
 
+// =============================================================================
+// Recording (H.265 MP4 via FFmpeg)
+// =============================================================================
+
+async function startRecording() {
+  if (recordingEnabled) {
+    return { error: 'Already recording' };
+  }
+
+  // Show save dialog
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: 'Save Recording',
+    defaultPath: `recording-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.mp4`,
+    filters: [
+      { name: 'MP4 Video', extensions: ['mp4'] }
+    ]
+  });
+
+  if (result.canceled || !result.filePath) {
+    return { canceled: true };
+  }
+
+  recordingFilePath = result.filePath;
+
+  // Resolve recording resolution (handle "Match Preview")
+  let recWidth = recordingResolution.width;
+  let recHeight = recordingResolution.height;
+
+  if (recWidth === 0 || recHeight === 0) {
+    // Match Preview - get from renderer via sync IPC
+    const previewRes = await new Promise((resolve) => {
+      ipcMain.once('preview-resolution-for-recording', (event, data) => {
+        resolve(data);
+      });
+      mainWindow.webContents.send('request-preview-resolution-for-recording');
+    });
+    recWidth = previewRes.width;
+    recHeight = previewRes.height;
+  }
+
+  // Ensure even dimensions (required by H.265)
+  recWidth = recWidth % 2 === 0 ? recWidth : recWidth + 1;
+  recHeight = recHeight % 2 === 0 ? recHeight : recHeight + 1;
+
+  // Choose encoder: hevc_videotoolbox on macOS, libx265 elsewhere
+  const isMac = process.platform === 'darwin';
+  const encoder = isMac ? 'hevc_videotoolbox' : 'libx265';
+
+  const ffmpegArgs = [
+    '-y',
+    '-f', 'rawvideo',
+    '-pixel_format', 'rgba',
+    '-video_size', `${recWidth}x${recHeight}`,
+    '-framerate', '60',
+    '-i', 'pipe:0',
+    '-c:v', encoder,
+    ...(isMac ? ['-preset', 'fast'] : ['-preset', 'fast', '-crf', '23']),
+    '-pix_fmt', 'yuv420p',
+    '-movflags', '+faststart',
+    recordingFilePath
+  ];
+
+  console.log(`Starting recording: ${ffmpegPath} ${ffmpegArgs.join(' ')}`);
+
+  recordingProcess = spawn(ffmpegPath, ffmpegArgs, {
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+
+  recordingProcess.stderr.on('data', (data) => {
+    // FFmpeg outputs progress info to stderr
+    const msg = data.toString();
+    if (msg.includes('Error') || msg.includes('error')) {
+      console.error('FFmpeg error:', msg);
+    }
+  });
+
+  recordingProcess.on('close', (code) => {
+    console.log(`FFmpeg exited with code ${code}`);
+    recordingEnabled = false;
+    recordingProcess = null;
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('recording-status', {
+        enabled: false,
+        filePath: recordingFilePath,
+        exitCode: code
+      });
+    }
+
+    updateRecordingMenu();
+  });
+
+  recordingProcess.on('error', (err) => {
+    console.error('FFmpeg spawn error:', err);
+    recordingEnabled = false;
+    recordingProcess = null;
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('recording-status', {
+        enabled: false,
+        error: err.message
+      });
+    }
+  });
+
+  // Handle broken pipe gracefully
+  recordingProcess.stdin.on('error', (err) => {
+    if (err.code !== 'EPIPE') {
+      console.error('FFmpeg stdin error:', err);
+    }
+  });
+
+  recordingEnabled = true;
+
+  mainWindow.webContents.send('recording-status', {
+    enabled: true,
+    width: recWidth,
+    height: recHeight,
+    filePath: recordingFilePath
+  });
+
+  updateRecordingMenu();
+
+  return {
+    filePath: recordingFilePath,
+    width: recWidth,
+    height: recHeight
+  };
+}
+
+function stopRecording() {
+  if (!recordingProcess) return;
+
+  console.log('Stopping recording...');
+
+  // Close stdin to signal FFmpeg to finalize the file
+  try {
+    recordingProcess.stdin.end();
+  } catch (err) {
+    console.error('Error closing FFmpeg stdin:', err);
+    // Force kill if stdin close fails
+    recordingProcess.kill('SIGTERM');
+  }
+
+  // The 'close' event handler above will update state and notify renderer
+}
+
+function sendRecordingFrame(frameData) {
+  if (!recordingProcess || !recordingEnabled) return;
+
+  try {
+    const { data, width, height } = frameData;
+
+    let sourceBuffer;
+    if (data instanceof Uint8Array || Buffer.isBuffer(data)) {
+      sourceBuffer = Buffer.from(data);
+    } else {
+      console.error('Recording frame: invalid data format');
+      return;
+    }
+
+    const rowSize = width * 4;
+    const bufferSize = width * height * 4;
+
+    // Reallocate flip buffer only if resolution changed
+    if (width !== recordingLastWidth || height !== recordingLastHeight) {
+      recordingFlipBuffer = Buffer.allocUnsafe(bufferSize);
+      recordingLastWidth = width;
+      recordingLastHeight = height;
+    }
+
+    // Flip vertically (WebGL readPixels gives bottom-to-top, video expects top-to-bottom)
+    for (let y = 0; y < height; y++) {
+      const srcOffset = (height - 1 - y) * rowSize;
+      const dstOffset = y * rowSize;
+      sourceBuffer.copy(recordingFlipBuffer, dstOffset, srcOffset, srcOffset + rowSize);
+    }
+
+    // Write to FFmpeg stdin
+    const canWrite = recordingProcess.stdin.write(recordingFlipBuffer);
+    if (!canWrite) {
+      // Back-pressure: wait for drain before writing more
+      // In practice, at 60fps this rarely happens
+      recordingProcess.stdin.once('drain', () => {});
+    }
+  } catch (err) {
+    console.error('Recording frame error:', err.message);
+  }
+}
+
+function updateRecordingMenu() {
+  const menu = Menu.getApplicationMenu();
+  const recordItem = menu.getMenuItemById('recording-toggle');
+  if (recordItem) {
+    recordItem.label = recordingEnabled ? 'Stop Recording' : 'Start Recording';
+  }
+}
+
 async function saveGridPresetsAs() {
   mainWindow.webContents.send('request-grid-state-for-save');
 }
@@ -1511,6 +1765,13 @@ ipcMain.handle('load-grid-state', async () => {
 
         if (!shaderCode) return null;
 
+        // Detect type from content if not saved in metadata
+        let type = slot.type || 'shader';
+        if (type === 'shader' && shaderCode.includes('function setup') &&
+            (shaderCode.includes('THREE') || shaderCode.includes('scene'))) {
+          type = 'scene';
+        }
+
         return {
           shaderCode,
           filePath: slot.filePath,
@@ -1518,25 +1779,29 @@ ipcMain.handle('load-grid-state', async () => {
           customParams: slot.customParams || {},
           presets: slot.presets || [],
           paramNames: slot.paramNames || {},
-          type: slot.type || 'shader'
+          type
         };
       });
 
       return state;
     } else {
-      // No metadata file - check for shader files
+      // No metadata file - scan for shader files dynamically
       const state = [];
-      for (let i = 0; i < 32; i++) {
+      let i = 0;
+      while (true) {
         const shaderFile = getShaderFilePath(i);
         if (fs.existsSync(shaderFile)) {
           try {
             const shaderCode = fs.readFileSync(shaderFile, 'utf-8');
-            state[i] = { shaderCode, filePath: null, params: {}, presets: [] };
+            const isScene = shaderCode.includes('function setup') &&
+              (shaderCode.includes('THREE') || shaderCode.includes('scene'));
+            state.push({ shaderCode, filePath: null, params: {}, presets: [], type: isScene ? 'scene' : 'shader' });
           } catch (err) {
-            state[i] = null;
+            // Skip files that can't be read
           }
+          i++;
         } else {
-          state[i] = null;
+          break;
         }
       }
       return state;
@@ -1651,6 +1916,24 @@ ipcMain.on('toggle-syphon', () => {
   toggleSyphonOutput();
 });
 
+// Recording IPC handlers
+ipcMain.handle('start-recording', async () => {
+  return await startRecording();
+});
+
+ipcMain.on('stop-recording', () => {
+  stopRecording();
+});
+
+ipcMain.on('recording-frame', (event, frameData) => {
+  sendRecordingFrame(frameData);
+});
+
+// Preview resolution for "Match Preview" recording option
+ipcMain.on('preview-resolution-for-recording', (event, data) => {
+  // Handled via ipcMain.once in startRecording
+});
+
 // Open fullscreen on primary display
 ipcMain.on('open-fullscreen-primary', () => {
   const displays = screen.getAllDisplays();
@@ -1675,6 +1958,8 @@ ipcMain.handle('get-settings', () => {
     ndiResolution: ndiResolution,
     ndiResolutions: ndiResolutions,
     ndiEnabled: ndiEnabled,
+    recordingResolution: recordingResolution,
+    recordingResolutions: recordingResolutions,
     paramRanges: paramRanges
   };
 });
@@ -1692,6 +1977,11 @@ ipcMain.on('save-settings', async (event, settings) => {
       }
       createMenu();
     }
+  }
+
+  // Handle recording resolution
+  if (settings.recordingResolution) {
+    recordingResolution = settings.recordingResolution;
   }
 
   // Save all settings including param ranges
@@ -1744,6 +2034,9 @@ function loadSettings() {
       if (data.ndiResolution) {
         ndiResolution = data.ndiResolution;
       }
+      if (data.recordingResolution) {
+        recordingResolution = data.recordingResolution;
+      }
     }
   } catch (err) {
     console.error('Failed to load settings:', err);
@@ -1764,6 +2057,7 @@ async function saveSettingsToFile(additionalData = {}) {
     const data = {
       ...existingData,
       ndiResolution: ndiResolution,
+      recordingResolution: recordingResolution,
       ...additionalData
     };
     await fsPromises.writeFile(settingsFile, JSON.stringify(data, null, 2), 'utf-8');
@@ -1981,6 +2275,17 @@ function openTiledFullscreen(config) {
     tiledModeActive = false;
   });
 }
+
+app.on('before-quit', () => {
+  // Finalize recording if active
+  if (recordingProcess) {
+    try {
+      recordingProcess.stdin.end();
+    } catch (err) {
+      recordingProcess.kill('SIGTERM');
+    }
+  }
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

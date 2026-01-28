@@ -712,6 +712,17 @@ export async function assignShaderToSlot(slotIndex, shaderCode, filePath, skipSa
   }
 }
 
+// Draw a static scene placeholder on a mini canvas
+function drawScenePlaceholder(ctx, width, height) {
+  ctx.fillStyle = '#0a0a1a';
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = '#6688cc';
+  ctx.font = 'bold 12px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('Scene', width / 2, height / 2);
+}
+
 // Assign a Three.js scene to a grid slot with a static snapshot
 async function assignSceneToSlot(slotIndex, sceneCode, filePath, skipSave = false, params = null, presets = null) {
   const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`);
@@ -724,63 +735,52 @@ async function assignSceneToSlot(slotIndex, sceneCode, filePath, skipSave = fals
   }
 
   // Use provided params or capture current params
-  const slotParams = params || state.renderer.getParams();
+  const slotParams = params || { speed: 1 };
 
-  try {
-    // Ensure scene renderer is available
+  if (skipSave) {
+    // During initial load, don't render snapshots on the main canvas —
+    // it would create a competing WebGL context and break ShaderRenderer
+    drawScenePlaceholder(ctx, canvas.width, canvas.height);
+  } else {
+    // Interactive assignment: try to render a snapshot
     const sceneRenderer = ensureSceneRenderer();
-    if (!sceneRenderer) {
-      throw new Error('ThreeSceneRenderer not available');
+    if (sceneRenderer) {
+      try {
+        sceneRenderer.compile(sceneCode);
+        sceneRenderer.resetTime();
+        sceneRenderer.render();
+
+        const mainCanvas = document.getElementById('shader-canvas');
+        ctx.drawImage(mainCanvas, 0, 0, mainCanvas.width, mainCanvas.height, 0, 0, canvas.width, canvas.height);
+      } catch (err) {
+        console.warn(`Scene snapshot failed for slot ${slotIndex + 1}:`, err.message);
+        drawScenePlaceholder(ctx, canvas.width, canvas.height);
+      }
+    } else {
+      drawScenePlaceholder(ctx, canvas.width, canvas.height);
     }
+  }
 
-    // Temporarily compile and render the scene to get a snapshot
-    sceneRenderer.compile(sceneCode);
-    sceneRenderer.resetTime();
+  // Store scene data (no mini renderer for scenes)
+  state.gridSlots[slotIndex] = {
+    shaderCode: sceneCode,
+    filePath,
+    renderer: null,
+    type: 'scene',
+    params: { ...slotParams },
+    presets: presets || []
+  };
 
-    // Render a single frame at time=0
-    sceneRenderer.render();
+  slot.classList.add('has-shader');
+  slot.classList.remove('has-error');
+  slot.title = filePath
+    ? `Slot ${slotIndex + 1}: ${filePath.split('/').pop().split('\\').pop()} (scene)`
+    : `Slot ${slotIndex + 1}: Current scene`;
 
-    // Get the main canvas (where scene was rendered)
-    const mainCanvas = document.getElementById('shader-canvas');
-
-    // Draw snapshot to the mini canvas
-    ctx.drawImage(mainCanvas, 0, 0, mainCanvas.width, mainCanvas.height, 0, 0, canvas.width, canvas.height);
-
-    // Store scene data (no renderer - just static snapshot)
-    state.gridSlots[slotIndex] = {
-      shaderCode: sceneCode,
-      filePath,
-      renderer: null,  // No mini renderer for scenes
-      type: 'scene',   // Mark as scene type
-      params: { ...slotParams },
-      presets: presets || []
-    };
-
-    slot.classList.add('has-shader');
-    slot.classList.remove('has-error');  // Clear any previous error state
-    slot.title = filePath
-      ? `Slot ${slotIndex + 1}: ${filePath.split('/').pop().split('\\').pop()} (scene)`
-      : `Slot ${slotIndex + 1}: Current scene`;
-
-    if (!skipSave) {
-      // Save scene code to individual file
-      await window.electronAPI.saveShaderToSlot(slotIndex, sceneCode);
-      setStatus(`Scene assigned to slot ${slotIndex + 1}`, 'success');
-      saveGridState();
-    }
-  } catch (err) {
-    // Draw error indicator on canvas
-    ctx.fillStyle = '#330000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#ff4444';
-    ctx.font = '10px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('Scene Error', canvas.width / 2, canvas.height / 2);
-
-    if (!skipSave) {
-      setStatus(`Failed to render scene for slot ${slotIndex + 1}: ${err.message}`, 'error');
-    }
-    throw err;
+  if (!skipSave) {
+    await window.electronAPI.saveShaderToSlot(slotIndex, sceneCode);
+    setStatus(`Scene assigned to slot ${slotIndex + 1}`, 'success');
+    saveGridState();
   }
 }
 

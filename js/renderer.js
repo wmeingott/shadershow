@@ -9,6 +9,7 @@ import { initIPC } from './ipc.js';
 import { restoreViewState } from './view-state.js';
 import { sendNDIFrame } from './ndi.js';
 import { sendSyphonFrame } from './syphon.js';
+import { sendRecordingFrame } from './recording.js';
 import { initTileConfig, showTileConfigDialog } from './tile-config.js';
 import { tileState, calculateTileBounds } from './tile-state.js';
 import { setStatus } from './utils.js';
@@ -125,6 +126,9 @@ export function setRenderMode(mode) {
   } else {
     state.renderer = state.shaderRenderer;
     state.editor.session.setMode('ace/mode/glsl');
+    // Reinitialize after Three.js has used the shared WebGL context —
+    // Three.js overwrites GL state (VAOs, programs, textures)
+    state.shaderRenderer.reinitialize();
   }
 
   const canvas = document.getElementById('shader-canvas');
@@ -175,8 +179,8 @@ function cacheRenderLoopElements() {
 function renderLoop(currentTime) {
   state.animationId = requestAnimationFrame(renderLoop);
 
-  // Render if preview is enabled OR if NDI/Syphon needs frames
-  const needsRender = state.previewEnabled || state.ndiEnabled || state.syphonEnabled;
+  // Render if preview is enabled OR if NDI/Syphon/Recording needs frames
+  const needsRender = state.previewEnabled || state.ndiEnabled || state.syphonEnabled || state.recordingEnabled;
 
   if (!needsRender) {
     // Still update time even when preview disabled (for fullscreen sync)
@@ -223,6 +227,12 @@ function renderLoop(currentTime) {
     sendSyphonFrame();
   }
   if (state.syphonEnabled) state.syphonFrameCounter++;
+
+  // Send frame to recording if enabled
+  if (state.recordingEnabled && state.recordingFrameCounter % state.recordingFrameSkip === 0) {
+    sendRecordingFrame();
+  }
+  if (state.recordingEnabled) state.recordingFrameCounter++;
 }
 
 // Cache for tiled preview canvas

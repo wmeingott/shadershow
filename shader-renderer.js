@@ -257,8 +257,19 @@ class ShaderRenderer {
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
   }
 
-  // Reinitialize after context restore
+  // Reinitialize after context restore or after another renderer (e.g. Three.js)
+  // has used the shared WebGL context
   reinitialize() {
+    const gl = this.gl;
+
+    // Reset GL state that Three.js may have changed
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.BLEND);
+    gl.disable(gl.CULL_FACE);
+    gl.disable(gl.SCISSOR_TEST);
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+
     this.program = null;
     this.setupGeometry();
     this.createDefaultTextures();

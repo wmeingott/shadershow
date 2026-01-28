@@ -37,6 +37,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   shaderRenderer = new ShaderRenderer(canvas);
   sceneRenderer = new ThreeSceneRenderer(canvas);
 
+  // ThreeSceneRenderer's constructor creates a THREE.WebGLRenderer on the
+  // shared canvas, which corrupts ShaderRenderer's GL state — restore it
+  shaderRenderer.reinitialize();
+
   // Default to shader renderer
   renderer = shaderRenderer;
 
@@ -258,7 +262,13 @@ window.electronAPI.onShaderUpdate((data) => {
   // Switch renderer if mode changed
   if (data.renderMode && data.renderMode !== renderMode) {
     renderMode = data.renderMode;
-    renderer = renderMode === 'scene' ? sceneRenderer : shaderRenderer;
+    if (renderMode === 'scene') {
+      renderer = sceneRenderer;
+    } else {
+      renderer = shaderRenderer;
+      // Reinitialize GL state after Three.js has used the shared WebGL context
+      shaderRenderer.reinitialize();
+    }
     renderer.setResolution(window.innerWidth, window.innerHeight);
   }
 

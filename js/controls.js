@@ -5,6 +5,7 @@ import { saveViewState } from './view-state.js';
 import { showSettingsDialog } from './settings.js';
 import { tileState, calculateTileBounds } from './tile-state.js';
 import { showTileConfigDialog, initToolbarPresetsPanel, togglePresetsPanel } from './tile-config.js';
+import { toggleRecording } from './recording.js';
 
 export function initControls() {
   // New File button - show dialog
@@ -74,6 +75,10 @@ export function initControls() {
   // NDI toggle button
   const btnNdi = document.getElementById('btn-ndi');
   btnNdi.addEventListener('click', toggleNDI);
+
+  // Recording toggle button
+  const btnRecord = document.getElementById('btn-record');
+  btnRecord.addEventListener('click', toggleRecording);
 
   // Fullscreen button
   const btnFullscreen = document.getElementById('btn-fullscreen');

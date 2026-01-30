@@ -81,6 +81,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendSyphonFrame: (frameData) => ipcRenderer.send('syphon-frame', frameData),
   toggleSyphon: () => ipcRenderer.send('toggle-syphon'),
 
+  // Recording output (H.265 MP4)
+  startRecording: () => ipcRenderer.invoke('start-recording'),
+  stopRecording: () => ipcRenderer.send('stop-recording'),
+  sendRecordingFrame: (frameData) => ipcRenderer.send('recording-frame', frameData),
+  onRecordingStatus: (callback) => ipcRenderer.on('recording-status', (event, data) => callback(data)),
+  onRequestPreviewResolutionForRecording: (callback) => ipcRenderer.on('request-preview-resolution-for-recording', () => callback()),
+  sendPreviewResolutionForRecording: (data) => ipcRenderer.send('preview-resolution-for-recording', data),
+
   // NDI input (sources as channel textures)
   findNDISources: () => ipcRenderer.invoke('find-ndi-sources'),
   setChannelNDI: (channel, source) => ipcRenderer.send('set-channel-ndi', { channel, source }),

@@ -1,3 +1,6 @@
+// Starfield with fractal geometry
+// Custom params: // @param name type [default] [min, max] "description"
+
 #define NUM_LAYERS 10.
 
 mat2 Rot(float a) {

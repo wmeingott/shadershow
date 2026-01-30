@@ -1,7 +1,7 @@
-// ShaderShow - Default Shader
-// A colorful animated pattern demonstrating Shadertoy uniforms
-//based on shader from coyote => https://www.shadertoy.com/view/ltfGzS
-
+// Fractal tunnel effect
+// Based on shader from coyote => https://www.shadertoy.com/view/ltfGzS
+// Custom params: // @param name type [default] [min, max] "description"
+// @param roomColor color [1.0, 0.3, 0.1] "Fire color"
 // matrix op
 mat3 getRotYMat(float a){return mat3(cos(a),0.,sin(a),0.,1.,0.,-sin(a),0.,cos(a));}
 //mat3 getRotZMat(float a){return mat3(cos(a),-sin(a),0.,sin(a),cos(a),0.,0.,0.,1.);}
@@ -28,6 +28,6 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     }
     
     float k = dot(r,r+.15);
-    fragColor.rgb = vec3(1.,k,k/c)-.8;
+    fragColor.rgb = vec3(1.,k,k/c) - (1. - roomColor);
     
 }

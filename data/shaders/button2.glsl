@@ -1,5 +1,6 @@
 // ShaderShow - Default Shader
 // A colorful animated pattern demonstrating Shadertoy uniforms
+// Custom params: // @param name type [default] [min, max] "description"
 
 vec3 palette(float t) {
     vec3 a = vec3(0.5, 0.5, 0.5);

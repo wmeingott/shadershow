@@ -73,7 +73,7 @@ void setupLights(out Light lights[NUM_LIGHTS]) {
         float swing = sin(iTime * 0.5 + phase) * 0.3;
         float tilt = cos(iTime * 0.7 + phase * 1.5) * 0.2;
 
-        lights[j].pos = vec3(-3.5 + lightIndex * 1.0, 3.0 * lightHeight + 3.0, 10.0 * lightDepth - 10.0);
+        lights[j].pos = vec3(-35.0 + lightIndex * 1.0, 3.0 * lightHeight + 3.0, 10.0 * lightDepth - 10.0);
         lights[j].dir = normalize(vec3(swing, -0.8 + tilt, 1.0));
         lights[j].angle = 0.3 + 0.1 * sin(iTime + phase);
 

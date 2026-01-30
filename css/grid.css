@@ -102,6 +102,34 @@
   color: var(--success-color);
 }
 
+/* Add shader button */
+.grid-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-style: dashed;
+  border-color: var(--border-color);
+  background-color: transparent;
+}
+
+.grid-add-btn:hover {
+  border-color: var(--accent-color);
+  background-color: rgba(0, 120, 212, 0.1);
+}
+
+.grid-add-plus {
+  font-size: 36px;
+  font-weight: 300;
+  color: var(--text-secondary);
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+}
+
+.grid-add-btn:hover .grid-add-plus {
+  color: var(--accent-color);
+}
+
 /* Context menu */
 .context-menu {
   position: fixed;

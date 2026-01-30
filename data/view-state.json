@@ -1,10 +1,10 @@
 {
-  "editorEnabled": false,
-  "previewEnabled": false,
+  "editorEnabled": true,
+  "previewEnabled": true,
   "gridEnabled": true,
   "paramsEnabled": true,
-  "editorWidth": "50%",
-  "resolution": "640x360",
+  "editorWidth": "53.6237%",
+  "resolution": "1920x1080",
   "customWidth": "1280",
   "customHeight": "720"
 }

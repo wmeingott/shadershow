@@ -48,6 +48,9 @@
         <button id="btn-ndi" title="Toggle NDI Output">
           <span class="icon">NDI</span>
         </button>
+        <button id="btn-record" title="Start Recording (Cmd+Shift+R)">
+          <span class="icon">REC</span>
+        </button>
         <button id="btn-fullscreen" title="Fullscreen Preview (Cmd+F)">
           <span class="icon">&#9974;</span>
         </button>
@@ -150,39 +153,8 @@
         <div id="bottom-row">
           <!-- Shader Grid Panel -->
           <div id="grid-panel" class="hidden">
-            <div class="shader-grid">
-              <div class="grid-slot" data-slot="0"><canvas></canvas><span class="slot-number">1</span></div>
-              <div class="grid-slot" data-slot="1"><canvas></canvas><span class="slot-number">2</span></div>
-              <div class="grid-slot" data-slot="2"><canvas></canvas><span class="slot-number">3</span></div>
-              <div class="grid-slot" data-slot="3"><canvas></canvas><span class="slot-number">4</span></div>
-              <div class="grid-slot" data-slot="4"><canvas></canvas><span class="slot-number">5</span></div>
-              <div class="grid-slot" data-slot="5"><canvas></canvas><span class="slot-number">6</span></div>
-              <div class="grid-slot" data-slot="6"><canvas></canvas><span class="slot-number">7</span></div>
-              <div class="grid-slot" data-slot="7"><canvas></canvas><span class="slot-number">8</span></div>
-              <div class="grid-slot" data-slot="8"><canvas></canvas><span class="slot-number">9</span></div>
-              <div class="grid-slot" data-slot="9"><canvas></canvas><span class="slot-number">10</span></div>
-              <div class="grid-slot" data-slot="10"><canvas></canvas><span class="slot-number">11</span></div>
-              <div class="grid-slot" data-slot="11"><canvas></canvas><span class="slot-number">12</span></div>
-              <div class="grid-slot" data-slot="12"><canvas></canvas><span class="slot-number">13</span></div>
-              <div class="grid-slot" data-slot="13"><canvas></canvas><span class="slot-number">14</span></div>
-              <div class="grid-slot" data-slot="14"><canvas></canvas><span class="slot-number">15</span></div>
-              <div class="grid-slot" data-slot="15"><canvas></canvas><span class="slot-number">16</span></div>
-              <div class="grid-slot" data-slot="16"><canvas></canvas><span class="slot-number">17</span></div>
-              <div class="grid-slot" data-slot="17"><canvas></canvas><span class="slot-number">18</span></div>
-              <div class="grid-slot" data-slot="18"><canvas></canvas><span class="slot-number">19</span></div>
-              <div class="grid-slot" data-slot="19"><canvas></canvas><span class="slot-number">20</span></div>
-              <div class="grid-slot" data-slot="20"><canvas></canvas><span class="slot-number">21</span></div>
-              <div class="grid-slot" data-slot="21"><canvas></canvas><span class="slot-number">22</span></div>
-              <div class="grid-slot" data-slot="22"><canvas></canvas><span class="slot-number">23</span></div>
-              <div class="grid-slot" data-slot="23"><canvas></canvas><span class="slot-number">24</span></div>
-              <div class="grid-slot" data-slot="24"><canvas></canvas><span class="slot-number">25</span></div>
-              <div class="grid-slot" data-slot="25"><canvas></canvas><span class="slot-number">26</span></div>
-              <div class="grid-slot" data-slot="26"><canvas></canvas><span class="slot-number">27</span></div>
-              <div class="grid-slot" data-slot="27"><canvas></canvas><span class="slot-number">28</span></div>
-              <div class="grid-slot" data-slot="28"><canvas></canvas><span class="slot-number">29</span></div>
-              <div class="grid-slot" data-slot="29"><canvas></canvas><span class="slot-number">30</span></div>
-              <div class="grid-slot" data-slot="30"><canvas></canvas><span class="slot-number">31</span></div>
-              <div class="grid-slot" data-slot="31"><canvas></canvas><span class="slot-number">32</span></div>
+            <div class="shader-grid" id="shader-grid-container">
+              <!-- Grid slots are created dynamically by shader-grid.js -->
             </div>
             <div class="grid-presets-section">
               <div class="grid-presets-title">Shader Presets</div>

@@ -41,6 +41,18 @@ export async function showSettingsDialog() {
         </div>
 
         <div class="settings-section">
+          <h3>Recording</h3>
+          <div class="setting-row">
+            <label>Resolution:</label>
+            <select id="settings-recording-resolution">
+              ${settings.recordingResolutions.map(res =>
+                `<option value="${res.label}" ${settings.recordingResolution.label === res.label ? 'selected' : ''}>${res.label}</option>`
+              ).join('')}
+            </select>
+          </div>
+        </div>
+
+        <div class="settings-section">
           <h3>Preview</h3>
           <div class="setting-row">
             <label>Resolution:</label>
@@ -121,8 +133,31 @@ function applySettings() {
     }
   }
 
+  // Parse recording resolution
+  const recResSelect = document.getElementById('settings-recording-resolution');
+  let recordingResolution;
+  if (recResSelect) {
+    const recLabel = recResSelect.value;
+    if (recLabel === 'Match Preview') {
+      recordingResolution = { width: 0, height: 0, label: 'Match Preview' };
+    } else {
+      const recMatch = recLabel.match(/(\d+)x(\d+)/);
+      if (recMatch) {
+        recordingResolution = {
+          width: parseInt(recMatch[1]),
+          height: parseInt(recMatch[2]),
+          label: recLabel
+        };
+      }
+    }
+  }
+
   // Save to file
-  window.electronAPI.saveSettings({ ndiResolution });
+  const settingsData = { ndiResolution };
+  if (recordingResolution) {
+    settingsData.recordingResolution = recordingResolution;
+  }
+  window.electronAPI.saveSettings(settingsData);
 
   closeSettingsDialog();
   setStatus('Settings saved', 'success');

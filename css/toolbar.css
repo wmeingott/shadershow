@@ -74,19 +74,21 @@
   margin: 0 4px;
 }
 
-#btn-ndi {
+#btn-ndi,
+#btn-record {
   font-size: 10px;
   font-weight: bold;
   padding: 6px 8px;
 }
 
-#btn-ndi.active {
+#btn-ndi.active,
+#btn-record.active {
   background-color: #e74c3c;
   border-color: #c0392b;
-  animation: ndi-pulse 1.5s ease-in-out infinite;
+  animation: output-pulse 1.5s ease-in-out infinite;
 }
 
-@keyframes ndi-pulse {
+@keyframes output-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.7; }
 }

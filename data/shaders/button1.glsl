@@ -1,10 +1,18 @@
+// Fire shader - Parametric flame effect
+
+// @param iterations float 0.5 [0.0, 1.0] "Iteration depth"
+// @param amplitude float 0.5 [0.0, 1.0] "Wave amplitude"
+// @param zoom float 0.5 [0.1, 1.0] "Zoom level"
+// @param fireColor color [1.0, 0.3, 0.1] "Fire color"
+
 /*
     @SnoopethDuckDuck -6 chars
     @Xor              -1 chars
-    
+
     Thanks! :D
-    
+
 */
+
 
 void mainImage(out vec4 o, vec2 u) {
     float f, i, r, e,
@@ -14,14 +22,14 @@ void mainImage(out vec4 o, vec2 u) {
         i++<1e2;
         f += r = .01 + abs(--r)*.1,
         o += 1. / r)
-        for(p = vec3((u-z.xy/(2. * 2.0 * iParams[2]))/z.y * f, f+t),
-            p += cos(t+p.yzx+p.zzx)*(.6 + 5.0 * iParams[1]),
+        for(p = vec3((u-z.xy/(2. * 2.0 * zoom))/z.y * f, f+t),
+            p += cos(t+p.yzx+p.zzx)*(.6 + 5.0 * amplitude),
             r =  cos(p.z),
-            e = 1.6 + iParams[0];
+            e = 1.6 + iterations;
             e < 32.;
             e += e )
             r += abs(dot(sin(t + p*e ), z/z)) / e;
-    o = tanh(vec4(iColorRGB[0],1) * o * o / f / 7e6);
+    o = tanh(vec4(fireColor,1) * o * o / f / 7e6);
 }
 
 

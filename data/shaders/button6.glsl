@@ -1,3 +1,6 @@
+// Colorful flames effect
+// Custom params: // @param name type [default] [min, max] "description"
+
 #define R iResolution.xy
 #define S smoothstep
 #define T texture

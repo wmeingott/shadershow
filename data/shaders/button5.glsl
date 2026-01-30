@@ -1,3 +1,5 @@
+// Custom params: // @param name type [default] [min, max] "description"
+
 /*
 
     Bumped Sinusoidal Warp

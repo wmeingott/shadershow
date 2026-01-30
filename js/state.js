@@ -17,6 +17,9 @@ export const state = {
   syphonEnabled: false,
   syphonFrameCounter: 0,
   syphonFrameSkip: 4,  // Send every Nth frame
+  recordingEnabled: false,
+  recordingFrameCounter: 0,
+  recordingFrameSkip: 1,  // Send every frame for 60fps recording
   blackoutEnabled: false,
 
   // Fullscreen tracking for adaptive preview framerate
@@ -28,8 +31,8 @@ export const state = {
   // Track channel state for fullscreen sync
   channelState: [null, null, null, null],
 
-  // Shader grid state
-  gridSlots: new Array(32).fill(null),
+  // Shader grid state (dynamic size - grows as slots are added)
+  gridSlots: [],
   gridAnimationId: null,
   activeGridSlot: null,
 

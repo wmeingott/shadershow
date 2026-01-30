@@ -225,6 +225,35 @@ export function initIPC() {
     }
   });
 
+  // Recording status
+  window.electronAPI.onRecordingStatus(({ enabled, filePath, exitCode, error }) => {
+    if (!enabled) {
+      state.recordingEnabled = false;
+      const btnRecord = document.getElementById('btn-record');
+      if (btnRecord) {
+        btnRecord.classList.remove('active');
+        btnRecord.title = 'Start Recording (Cmd+Shift+R)';
+      }
+      if (error) {
+        setStatus(`Recording error: ${error}`, 'error');
+      } else if (filePath && exitCode === 0) {
+        const fileName = filePath.split('/').pop().split('\\').pop();
+        setStatus(`Recording saved: ${fileName}`, 'success');
+      } else if (exitCode !== 0 && exitCode !== undefined) {
+        setStatus(`Recording finished with errors (exit code ${exitCode})`, 'error');
+      }
+    }
+  });
+
+  // Preview resolution request for recording "Match Preview" option
+  window.electronAPI.onRequestPreviewResolutionForRecording?.(() => {
+    const canvas = document.getElementById('shader-canvas');
+    window.electronAPI.sendPreviewResolutionForRecording({
+      width: canvas.width,
+      height: canvas.height
+    });
+  });
+
   // Syphon status (macOS only)
   window.electronAPI.onSyphonStatus(({ enabled, error }) => {
     state.syphonEnabled = enabled;

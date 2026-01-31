@@ -1,6 +1,17 @@
 const { app, BrowserWindow, Menu, dialog, ipcMain, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
+
+// GPU optimization flags for Linux with NVIDIA
+if (process.platform === 'linux') {
+  // Force hardware acceleration
+  app.commandLine.appendSwitch('enable-gpu-rasterization');
+  app.commandLine.appendSwitch('ignore-gpu-blocklist');
+  app.commandLine.appendSwitch('enable-zero-copy');
+
+  // Disable GPU process crash limit (helps with driver issues)
+  app.commandLine.appendSwitch('disable-gpu-process-crash-limit');
+}
 const fsPromises = fs.promises;
 const zlib = require('zlib');
 const { promisify } = require('util');
@@ -18,6 +29,7 @@ let currentFilePath = null;
 let ndiEnabled = false;
 let ndiSender = null;
 let ndiResolution = { width: 1920, height: 1080, label: '1920x1080 (1080p)' };
+let ndiFrameSkip = 4;  // Send every Nth frame (4 = 15fps at 60fps render, 1 = 60fps, 2 = 30fps)
 
 // NDI input receivers for channels (one per channel 0-3)
 let ndiReceivers = [null, null, null, null];
@@ -909,7 +921,7 @@ let ndiLastHeight = 0;
 async function sendNDIFrame(frameData) {
   if (ndiSender && ndiEnabled) {
     try {
-      const { data, width, height } = frameData;
+      const { data, width, height, flipped } = frameData;
 
       // Handle both raw Uint8Array and legacy base64 format
       let sourceBuffer;
@@ -923,6 +935,13 @@ async function sendNDIFrame(frameData) {
         return;
       }
 
+      // If already flipped by renderer (async PBO readback), send directly
+      if (flipped) {
+        await ndiSender.sendFrame(sourceBuffer, width, height);
+        return;
+      }
+
+      // Otherwise flip vertically (sync readback path)
       const rowSize = width * 4;
       const bufferSize = width * height * 4;
 
@@ -1958,6 +1977,7 @@ ipcMain.handle('get-settings', () => {
     ndiResolution: ndiResolution,
     ndiResolutions: ndiResolutions,
     ndiEnabled: ndiEnabled,
+    ndiFrameSkip: ndiFrameSkip,
     recordingResolution: recordingResolution,
     recordingResolutions: recordingResolutions,
     paramRanges: paramRanges
@@ -1977,6 +1997,13 @@ ipcMain.on('save-settings', async (event, settings) => {
       }
       createMenu();
     }
+  }
+
+  // Handle NDI frame skip
+  if (typeof settings.ndiFrameSkip === 'number' && settings.ndiFrameSkip >= 1) {
+    ndiFrameSkip = Math.floor(settings.ndiFrameSkip);
+    // Notify renderer to update its frame skip value
+    mainWindow.webContents.send('ndi-frame-skip-changed', ndiFrameSkip);
   }
 
   // Handle recording resolution
@@ -2037,6 +2064,9 @@ function loadSettings() {
       if (data.recordingResolution) {
         recordingResolution = data.recordingResolution;
       }
+      if (typeof data.ndiFrameSkip === 'number' && data.ndiFrameSkip >= 1) {
+        ndiFrameSkip = data.ndiFrameSkip;
+      }
     }
   } catch (err) {
     console.error('Failed to load settings:', err);
@@ -2057,6 +2087,7 @@ async function saveSettingsToFile(additionalData = {}) {
     const data = {
       ...existingData,
       ndiResolution: ndiResolution,
+      ndiFrameSkip: ndiFrameSkip,
       recordingResolution: recordingResolution,
       ...additionalData
     };

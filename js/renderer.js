@@ -4,7 +4,7 @@ import { initEditor, compileShader } from './editor.js';
 import { initControls, initResizer } from './controls.js';
 import { initParams, initMouseAssignment, loadParamsToSliders, generateCustomParamUI } from './params.js';
 import { initPresets } from './presets.js';
-import { initShaderGrid } from './shader-grid.js';
+import { initShaderGrid, MiniShaderRenderer } from './shader-grid.js';
 import { initIPC } from './ipc.js';
 import { restoreViewState } from './view-state.js';
 import { sendNDIFrame } from './ndi.js';
@@ -217,20 +217,23 @@ function renderLoop(currentTime) {
   }
 
   // Send frame to NDI output if enabled (skip frames to reduce load)
+  // Use setTimeout(0) to defer readPixels outside the critical render path
   if (state.ndiEnabled && state.ndiFrameCounter % state.ndiFrameSkip === 0) {
-    sendNDIFrame();
+    setTimeout(sendNDIFrame, 0);
   }
   if (state.ndiEnabled) state.ndiFrameCounter++;
 
   // Send frame to Syphon output if enabled (skip frames to reduce load)
+  // Use setTimeout(0) to defer readPixels outside the critical render path
   if (state.syphonEnabled && state.syphonFrameCounter % state.syphonFrameSkip === 0) {
-    sendSyphonFrame();
+    setTimeout(sendSyphonFrame, 0);
   }
   if (state.syphonEnabled) state.syphonFrameCounter++;
 
   // Send frame to recording if enabled
+  // Use setTimeout(0) to defer readPixels outside the critical render path
   if (state.recordingEnabled && state.recordingFrameCounter % state.recordingFrameSkip === 0) {
-    sendRecordingFrame();
+    setTimeout(sendRecordingFrame, 0);
   }
   if (state.recordingEnabled) state.recordingFrameCounter++;
 }
@@ -239,8 +242,10 @@ function renderLoop(currentTime) {
 let tiledPreviewCanvas = null;
 let tiledPreviewCtx = null;
 let cachedTileBounds = null;  // Cache tile bounds for click detection
+let tiledCtxInitialized = false;  // Track if 2D context properties are set
 
 // Render tiled preview using MiniShaderRenderers from grid slots
+// OPTIMIZED: Avoids per-frame canvas resizing and reduces GPU->CPU syncs
 function renderTiledPreview() {
   const mainCanvas = document.getElementById('shader-canvas');
   const canvasWidth = mainCanvas.width;
@@ -264,22 +269,43 @@ function renderTiledPreview() {
     tiledPreviewCanvas.addEventListener('click', handleTileClick);
   }
 
-  // Sync canvas size
+  // Sync canvas size (reset context initialization flag if size changed)
   if (tiledPreviewCanvas.width !== canvasWidth || tiledPreviewCanvas.height !== canvasHeight) {
     tiledPreviewCanvas.width = canvasWidth;
     tiledPreviewCanvas.height = canvasHeight;
+    tiledPreviewCtx = null;
+    tiledCtxInitialized = false;
   }
 
   // Get 2D context
   if (!tiledPreviewCtx) {
     tiledPreviewCtx = tiledPreviewCanvas.getContext('2d');
+    tiledCtxInitialized = false;
   }
 
   const ctx = tiledPreviewCtx;
 
+  // Initialize 2D context properties once (avoid per-frame font parsing)
+  if (!tiledCtxInitialized) {
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    tiledCtxInitialized = true;
+  }
+
   // Calculate tile bounds and cache for click detection
   const bounds = calculateTileBounds(canvasWidth, canvasHeight);
   cachedTileBounds = bounds;
+
+  // OPTIMIZATION: Find max tile dimensions and ensure shared canvas is sized once
+  let maxTileWidth = 0;
+  let maxTileHeight = 0;
+  for (const bound of bounds) {
+    if (bound.width > maxTileWidth) maxTileWidth = bound.width;
+    if (bound.height > maxTileHeight) maxTileHeight = bound.height;
+  }
+  // Ensure shared WebGL canvas is large enough for all tiles (avoids per-tile resizing)
+  MiniShaderRenderer.ensureSharedCanvasSize(maxTileWidth, maxTileHeight);
 
   // Clear with gap color
   ctx.fillStyle = '#0d0d0d';
@@ -302,11 +328,8 @@ function renderTiledPreview() {
       ctx.fillStyle = '#1a1a1a';
       ctx.fillRect(drawX, drawY, bound.width, bound.height);
 
-      // Draw tile number
+      // Draw tile number (font already set)
       ctx.fillStyle = '#444';
-      ctx.font = '14px monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
       ctx.fillText(`${i + 1}`, drawX + bound.width / 2, drawY + bound.height / 2);
       continue;
     }
@@ -325,7 +348,6 @@ function renderTiledPreview() {
 
     try {
       // Reset custom params to defaults before applying tile-specific ones
-      // This ensures params from previous tiles don't bleed through
       if (miniRenderer.resetCustomParams) {
         miniRenderer.resetCustomParams();
       }
@@ -335,42 +357,25 @@ function renderTiledPreview() {
       miniRenderer.setSpeed(speed);
 
       // Merge slot's custom params with tile's custom params (tile takes precedence)
-      // This ensures tile has access to all slot params plus its own overrides
       const customParams = { ...(slotData.customParams || {}), ...(tile.customParams || {}) };
       if (Object.keys(customParams).length > 0) {
         miniRenderer.setParams(customParams);
       }
-
-      // Render at tile resolution for quality, then copy to overlay
-      // Save original canvas size (grid slot thumbnail size)
-      const origWidth = miniRenderer.canvas.width;
-      const origHeight = miniRenderer.canvas.height;
 
       // Debug: log tile info once
       if (!window._previewTileDbg) {
         console.log(`[Preview] Canvas: ${canvasWidth}x${canvasHeight}, Tile ${i}: bound=(${bound.x},${bound.y},${bound.width},${bound.height}), draw=(${drawX},${drawY})`);
       }
 
-      // Resize to tile dimensions for high-quality rendering
-      miniRenderer.setResolution(bound.width, bound.height);
-      miniRenderer.render();
+      // OPTIMIZED: Use renderDirect to avoid canvas resizing per tile
+      // This renders directly to the overlay context without thrashing shared canvas size
+      miniRenderer.renderDirect(ctx, drawX, drawY, bound.width, bound.height);
 
-      // Draw the rendered tile to the overlay
-      const miniCanvas = miniRenderer.canvas;
-      if (miniCanvas) {
-        ctx.drawImage(miniCanvas, drawX, drawY);
-      }
-
-      // Restore original canvas size for grid thumbnail display
-      miniRenderer.setResolution(origWidth, origHeight);
     } catch (err) {
       console.error(`Tile ${i} render error:`, err);
       ctx.fillStyle = '#3a1a1a';
       ctx.fillRect(drawX, drawY, bound.width, bound.height);
       ctx.fillStyle = '#ff6666';
-      ctx.font = '12px monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
       ctx.fillText('Error', drawX + bound.width / 2, drawY + bound.height / 2);
     }
   }
@@ -391,6 +396,11 @@ function renderTiledPreview() {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.fillText(`Tile ${state.selectedTileIndex + 1}`, selX + 6, selY + 4);
+
+    // Restore default font for next frame's empty tiles
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
   }
 
   // Show overlay canvas

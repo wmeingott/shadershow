@@ -1344,7 +1344,15 @@ export function startGridAnimation() {
 
   // Use setTimeout instead of RAF for 10fps - more efficient since we don't need 60fps callbacks
   function animateGrid() {
-    // Only render slots that are currently visible
+    // Skip rendering if grid panel is not visible (hidden via UI toggle)
+    // This prevents wasted GPU work when grid is collapsed
+    if (!state.gridEnabled) {
+      // Keep the timer running but don't render - will resume when grid shown
+      state.gridAnimationId = setTimeout(animateGrid, GRID_FRAME_INTERVAL);
+      return;
+    }
+
+    // Only render slots that are currently visible (via IntersectionObserver)
     for (const slotIndex of visibleSlots) {
       const slot = state.gridSlots[slotIndex];
       if (slot && slot.renderer) {
@@ -1476,6 +1484,28 @@ export class MiniShaderRenderer {
     }
   }
 
+  // Ensure shared canvas is at least the given size (for tiled preview batching)
+  static ensureSharedCanvasSize(width, height) {
+    if (!sharedGLCanvas) {
+      getSharedGL();  // Initialize if needed
+    }
+    if (sharedGLCanvas) {
+      // Only resize if current size is smaller (avoid thrashing)
+      if (sharedGLCanvas.width < width || sharedGLCanvas.height < height) {
+        sharedGLCanvas.width = Math.max(sharedGLCanvas.width, width);
+        sharedGLCanvas.height = Math.max(sharedGLCanvas.height, height);
+      }
+    }
+  }
+
+  // Get the shared canvas for direct access
+  static getSharedCanvas() {
+    if (!sharedGLCanvas) {
+      getSharedGL();
+    }
+    return sharedGLCanvas;
+  }
+
   // Set a custom parameter value
   setParam(name, value) {
     if (name === 'speed') {
@@ -1603,9 +1633,42 @@ export class MiniShaderRenderer {
     // Resize shared canvas to match display canvas
     this._resizeSharedCanvas(width, height);
 
+    // Render using internal method
+    this._renderInternal(gl, width, height);
+
+    // Copy rendered result from shared canvas to display canvas
+    if (this.ctx2d) {
+      this.ctx2d.drawImage(sharedGLCanvas, 0, 0, width, height);
+    }
+  }
+
+  // Render directly to a target 2D context at specified position
+  // This avoids canvas resizing and reduces GPU->CPU syncs for tiled preview
+  renderDirect(targetCtx, destX, destY, destWidth, destHeight) {
+    if (!this.program || !this.contextValid || !this.gl || !sharedGLCanvas) return;
+
+    const gl = this.gl;
+
+    // Use viewport to render at destination size without resizing shared canvas
+    // The shared canvas should already be sized large enough
+    gl.viewport(0, 0, destWidth, destHeight);
+
+    // Render using internal method
+    this._renderInternal(gl, destWidth, destHeight);
+
+    // Copy from shared canvas to target context at destination position
+    // Source rect is bottom-left of shared canvas at destWidth x destHeight
+    targetCtx.drawImage(
+      sharedGLCanvas,
+      0, sharedGLCanvas.height - destHeight, destWidth, destHeight,  // Source rect
+      destX, destY, destWidth, destHeight  // Dest rect
+    );
+  }
+
+  // Internal render method - sets uniforms and draws
+  _renderInternal(gl, width, height) {
     const time = (performance.now() - this.startTime) / 1000 * this.speed;
 
-    gl.viewport(0, 0, width, height);
     gl.useProgram(this.program);
 
     gl.uniform3f(this.uniforms.iResolution, width, height, 1);
@@ -1648,11 +1711,6 @@ export class MiniShaderRenderer {
     // Use shared VAO and draw
     gl.bindVertexArray(sharedVAO);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-    // Copy rendered result from shared canvas to display canvas
-    if (this.ctx2d) {
-      this.ctx2d.drawImage(sharedGLCanvas, 0, 0, width, height);
-    }
   }
 
   // Dispose WebGL resources to prevent memory leaks

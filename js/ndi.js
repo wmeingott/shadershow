@@ -1,6 +1,4 @@
-// NDI module - optimized for performance
-// Sends raw pixel data to main process (no base64 encoding)
-// Flip is done in main process using native Buffer operations
+// NDI module - sends frames to main process for NDI output
 import { state } from './state.js';
 
 // Reusable buffer to avoid allocation overhead

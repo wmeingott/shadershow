@@ -1,0 +1,13 @@
+{
+  "ndiResolution": {
+    "width": 1920,
+    "height": 1080,
+    "label": "1920x1080 (1080p)"
+  },
+  "ndiFrameSkip": 2,
+  "recordingResolution": {
+    "width": 1920,
+    "height": 1080,
+    "label": "1920x1080 (1080p)"
+  }
+}

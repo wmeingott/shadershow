@@ -1,7 +1,9 @@
 // Load platform-appropriate NDI library
+// grandiose-mac supports macOS and Linux with bundled NDI libraries
+// Windows falls back to grandiose which uses system-installed NDI
 let grandiose;
 try {
-  if (process.platform === 'darwin') {
+  if (process.platform === 'darwin' || process.platform === 'linux') {
     grandiose = require('grandiose-mac');
   } else {
     grandiose = require('grandiose');

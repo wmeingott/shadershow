@@ -75,6 +75,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendPreviewResolution: (data) => ipcRenderer.send('preview-resolution', data),
   toggleNDI: () => ipcRenderer.send('toggle-ndi'),
   openFullscreen: () => ipcRenderer.send('open-fullscreen-primary'),
+  onNDIFrameSkipChanged: (callback) => ipcRenderer.on('ndi-frame-skip-changed', (event, data) => callback(data)),
 
   // Syphon output (macOS only)
   onSyphonStatus: (callback) => ipcRenderer.on('syphon-status', (event, data) => callback(data)),
@@ -140,5 +141,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openTiledFullscreen: (config) => ipcRenderer.send('open-tiled-fullscreen', config),
 
   // Menu handlers for tile config
-  onOpenTileConfig: (callback) => ipcRenderer.on('open-tile-config', () => callback())
+  onOpenTileConfig: (callback) => ipcRenderer.on('open-tile-config', () => callback()),
+
+  // Claude AI
+  sendClaudePrompt: (data) => ipcRenderer.send('claude-prompt', data),
+  onClaudeStreamChunk: (callback) => ipcRenderer.on('claude-stream-chunk', (event, data) => callback(data)),
+  onClaudeStreamEnd: (callback) => ipcRenderer.on('claude-stream-end', (event, data) => callback(data)),
+  onClaudeError: (callback) => ipcRenderer.on('claude-error', (event, data) => callback(data)),
+  cancelClaudeRequest: () => ipcRenderer.send('claude-cancel'),
+  saveClaudeKey: (key, model) => ipcRenderer.invoke('save-claude-key', key, model),
+  hasClaudeKey: () => ipcRenderer.invoke('has-claude-key'),
+  getClaudeSettings: () => ipcRenderer.invoke('get-claude-settings'),
+  testClaudeKey: (key) => ipcRenderer.invoke('test-claude-key', key)
 });

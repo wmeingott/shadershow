@@ -10,7 +10,17 @@ import { updatePreviewFrameLimit, setRenderMode, detectRenderMode } from './rend
 import { createTab, openInTab, activeTabHasChanges, markTabSaved, getActiveTab } from './tabs.js';
 import { tileState } from './tile-state.js';
 
-export function initIPC() {
+export async function initIPC() {
+  // Load initial settings (including ndiFrameSkip)
+  try {
+    const settings = await window.electronAPI.getSettings();
+    if (settings.ndiFrameSkip) {
+      state.ndiFrameSkip = settings.ndiFrameSkip;
+    }
+  } catch (err) {
+    console.warn('Failed to load initial settings:', err);
+  }
+
   // File operations
   window.electronAPI.onFileOpened(({ content, filePath }) => {
     // Detect render mode from file extension/content
@@ -223,6 +233,14 @@ export function initIPC() {
       btnNdi.title = 'Toggle NDI Output';
       setStatus('NDI output stopped', 'success');
     }
+  });
+
+  // NDI frame skip changed
+  window.electronAPI.onNDIFrameSkipChanged?.((frameSkip) => {
+    state.ndiFrameSkip = frameSkip;
+    const fpsMap = { 1: 60, 2: 30, 3: 20, 4: 15, 6: 10 };
+    const fps = fpsMap[frameSkip] || Math.round(60 / frameSkip);
+    setStatus(`NDI frame rate set to ${fps} fps`, 'success');
   });
 
   // Recording status

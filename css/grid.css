@@ -8,9 +8,81 @@
   justify-content: flex-start;
   background-color: var(--bg-primary);
   padding: 12px;
+  padding-top: 8px;
   overflow-y: auto;
   overflow-x: hidden;
   gap: 12px;
+}
+
+/* =============================================================================
+   Shader Grid Tabs
+   ============================================================================= */
+
+.shader-grid-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 0 8px 0;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.shader-grid-tab {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px 4px 0 0;
+  cursor: pointer;
+  transition: all 0.15s;
+  user-select: none;
+  position: relative;
+  margin-bottom: -1px;
+}
+
+.shader-grid-tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--accent-color);
+}
+
+.shader-grid-tab.active {
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border-color: var(--accent-color);
+  border-bottom-color: var(--bg-primary);
+  z-index: 1;
+}
+
+.shader-grid-tab.add-tab {
+  padding: 6px 12px;
+  font-size: 16px;
+  font-weight: 300;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px dashed var(--border-color);
+}
+
+.shader-grid-tab.add-tab:hover {
+  color: var(--accent-color);
+  border-color: var(--accent-color);
+  background: rgba(0, 120, 212, 0.1);
+}
+
+/* Inline rename input */
+.shader-tab-rename-input {
+  padding: 2px 6px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--bg-primary);
+  border: 1px solid var(--accent-color);
+  border-radius: 2px;
+  color: var(--text-primary);
+  width: 100px;
+  outline: none;
 }
 
 .shader-grid {

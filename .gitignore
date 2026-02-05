@@ -48,3 +48,5 @@ yarn-error.log*
 ndi/*.pkg
 ndi/*.dmg
 ndi/*.exe
+
+data/claude-key.json

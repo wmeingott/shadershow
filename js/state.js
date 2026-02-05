@@ -32,9 +32,13 @@ export const state = {
   channelState: [null, null, null, null],
 
   // Shader grid state (dynamic size - grows as slots are added)
-  gridSlots: [],
+  gridSlots: [],  // Current active tab's slots (reference to shaderTabs[activeShaderTab].slots)
   gridAnimationId: null,
   activeGridSlot: null,
+
+  // Tabbed shader grid state
+  shaderTabs: [{ name: 'My Shaders', slots: [] }],
+  activeShaderTab: 0,
 
   // Parameter presets (local only - per shader)
   activeLocalPresetIndex: null,

@@ -12,6 +12,294 @@ import { updateTileRenderer, refreshTileRenderers } from './controls.js';
 
 // Track drag state
 let dragSourceIndex = null;
+let tabContextMenuHandler = null;
+
+// =============================================================================
+// Tab Management
+// =============================================================================
+
+// Build the shader grid tab bar
+function buildTabBar() {
+  const gridPanel = document.getElementById('grid-panel');
+  let tabBar = document.getElementById('shader-grid-tabs');
+
+  if (!tabBar) {
+    tabBar = document.createElement('div');
+    tabBar.id = 'shader-grid-tabs';
+    tabBar.className = 'shader-grid-tabs';
+    gridPanel.insertBefore(tabBar, gridPanel.firstChild);
+  }
+
+  tabBar.innerHTML = '';
+
+  // Create tabs for each shader tab
+  state.shaderTabs.forEach((tab, index) => {
+    const tabEl = document.createElement('div');
+    tabEl.className = `shader-grid-tab${index === state.activeShaderTab ? ' active' : ''}`;
+    tabEl.dataset.tabIndex = index;
+    tabEl.textContent = tab.name;
+    tabEl.title = `${tab.name} (${tab.slots.filter(s => s).length} shaders)`;
+
+    // Click to switch tab
+    tabEl.addEventListener('click', () => switchShaderTab(index));
+
+    // Right-click for tab context menu
+    tabEl.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      showTabContextMenu(e.clientX, e.clientY, index);
+    });
+
+    // Double-click to rename
+    tabEl.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      renameShaderTab(index);
+    });
+
+    tabBar.appendChild(tabEl);
+  });
+
+  // Add "+" button to create new tab
+  const addTabBtn = document.createElement('div');
+  addTabBtn.className = 'shader-grid-tab add-tab';
+  addTabBtn.textContent = '+';
+  addTabBtn.title = 'Add new shader tab';
+  addTabBtn.addEventListener('click', addNewShaderTab);
+  tabBar.appendChild(addTabBtn);
+}
+
+// Switch to a different shader tab
+export function switchShaderTab(tabIndex) {
+  if (tabIndex < 0 || tabIndex >= state.shaderTabs.length) return;
+
+  // Stop grid animation while switching
+  stopGridAnimation();
+
+  // Cleanup current tab's renderers from DOM
+  cleanupGridVisibilityObserver();
+
+  // Update active tab
+  state.activeShaderTab = tabIndex;
+  state.gridSlots = state.shaderTabs[tabIndex].slots;
+  state.activeGridSlot = null;
+
+  // Rebuild DOM for new tab
+  rebuildGridDOM();
+
+  // Rebuild tab bar to update active state
+  buildTabBar();
+
+  // Restart animation if grid is visible
+  if (state.gridEnabled) {
+    startGridAnimation();
+  }
+
+  // Update presets UI
+  updateLocalPresetsUI();
+  updateSaveButtonState();
+
+  setStatus(`Switched to "${state.shaderTabs[tabIndex].name}"`, 'success');
+}
+
+// Add a new shader tab
+function addNewShaderTab() {
+  const newName = `Tab ${state.shaderTabs.length + 1}`;
+  state.shaderTabs.push({ name: newName, slots: [] });
+
+  // Switch to new tab
+  switchShaderTab(state.shaderTabs.length - 1);
+
+  // Save state
+  saveGridState();
+
+  setStatus(`Created new tab "${newName}"`, 'success');
+}
+
+// Rename a shader tab
+function renameShaderTab(tabIndex) {
+  const tab = state.shaderTabs[tabIndex];
+  if (!tab) return;
+
+  // Create inline input for renaming
+  const tabBar = document.getElementById('shader-grid-tabs');
+  const tabEl = tabBar.querySelector(`[data-tab-index="${tabIndex}"]`);
+  if (!tabEl) return;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'shader-tab-rename-input';
+  input.value = tab.name;
+
+  const finishRename = () => {
+    const newName = input.value.trim() || tab.name;
+    tab.name = newName;
+    buildTabBar();
+    saveGridState();
+  };
+
+  input.addEventListener('blur', finishRename);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      input.blur();
+    } else if (e.key === 'Escape') {
+      input.value = tab.name;
+      input.blur();
+    }
+  });
+
+  tabEl.textContent = '';
+  tabEl.appendChild(input);
+  input.focus();
+  input.select();
+}
+
+// Delete a shader tab
+async function deleteShaderTab(tabIndex) {
+  if (state.shaderTabs.length <= 1) {
+    setStatus('Cannot delete the last tab', 'error');
+    return;
+  }
+
+  const tab = state.shaderTabs[tabIndex];
+  const shaderCount = tab.slots.filter(s => s).length;
+
+  if (shaderCount > 0) {
+    // Confirm deletion
+    if (!confirm(`Delete "${tab.name}" with ${shaderCount} shader(s)?`)) {
+      return;
+    }
+  }
+
+  // Dispose renderers in this tab
+  for (const slot of tab.slots) {
+    if (slot && slot.renderer && slot.renderer.dispose) {
+      slot.renderer.dispose();
+    }
+  }
+
+  // Remove the tab
+  state.shaderTabs.splice(tabIndex, 1);
+
+  // Adjust active tab if needed
+  if (state.activeShaderTab >= state.shaderTabs.length) {
+    state.activeShaderTab = state.shaderTabs.length - 1;
+  } else if (state.activeShaderTab === tabIndex) {
+    // Stay at same index (which is now the next tab)
+    state.activeShaderTab = Math.min(tabIndex, state.shaderTabs.length - 1);
+  }
+
+  // Update gridSlots reference
+  state.gridSlots = state.shaderTabs[state.activeShaderTab].slots;
+
+  // Rebuild UI
+  rebuildGridDOM();
+  buildTabBar();
+  saveGridState();
+
+  setStatus(`Deleted tab "${tab.name}"`, 'success');
+}
+
+// Show tab context menu
+function showTabContextMenu(x, y, tabIndex) {
+  hideContextMenu();
+  hideTabContextMenu();
+
+  const menu = document.createElement('div');
+  menu.className = 'context-menu';
+  menu.id = 'tab-context-menu';
+
+  // Rename option
+  const renameItem = document.createElement('div');
+  renameItem.className = 'context-menu-item';
+  renameItem.textContent = 'Rename Tab';
+  renameItem.addEventListener('click', () => {
+    hideTabContextMenu();
+    renameShaderTab(tabIndex);
+  });
+  menu.appendChild(renameItem);
+
+  // Delete option (disabled if only one tab)
+  const deleteItem = document.createElement('div');
+  deleteItem.className = `context-menu-item${state.shaderTabs.length <= 1 ? ' disabled' : ''}`;
+  deleteItem.textContent = 'Delete Tab';
+  if (state.shaderTabs.length > 1) {
+    deleteItem.addEventListener('click', () => {
+      hideTabContextMenu();
+      deleteShaderTab(tabIndex);
+    });
+  }
+  menu.appendChild(deleteItem);
+
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+  document.body.appendChild(menu);
+
+  // Adjust position if off screen
+  const rect = menu.getBoundingClientRect();
+  if (rect.right > window.innerWidth) {
+    menu.style.left = `${window.innerWidth - rect.width - 5}px`;
+  }
+  if (rect.bottom > window.innerHeight) {
+    menu.style.top = `${window.innerHeight - rect.height - 5}px`;
+  }
+
+  // Close on click outside
+  tabContextMenuHandler = (e) => {
+    if (!menu.contains(e.target)) {
+      hideTabContextMenu();
+    }
+  };
+  setTimeout(() => document.addEventListener('click', tabContextMenuHandler), 0);
+}
+
+function hideTabContextMenu() {
+  const menu = document.getElementById('tab-context-menu');
+  if (menu) menu.remove();
+  if (tabContextMenuHandler) {
+    document.removeEventListener('click', tabContextMenuHandler);
+    tabContextMenuHandler = null;
+  }
+}
+
+// Move a shader to another tab
+async function moveShaderToTab(slotIndex, targetTabIndex) {
+  if (targetTabIndex === state.activeShaderTab) return;
+  if (targetTabIndex < 0 || targetTabIndex >= state.shaderTabs.length) return;
+
+  const sourceTab = state.shaderTabs[state.activeShaderTab];
+  const targetTab = state.shaderTabs[targetTabIndex];
+  const slotData = sourceTab.slots[slotIndex];
+
+  if (!slotData) {
+    setStatus('No shader to move', 'error');
+    return;
+  }
+
+  // Add to target tab
+  targetTab.slots.push(slotData);
+
+  // Remove from source tab (and dispose renderer)
+  sourceTab.slots.splice(slotIndex, 1);
+
+  // Fix activeGridSlot if needed
+  if (state.activeGridSlot === slotIndex) {
+    state.activeGridSlot = null;
+  } else if (state.activeGridSlot > slotIndex) {
+    state.activeGridSlot--;
+  }
+
+  // Update gridSlots reference
+  state.gridSlots = sourceTab.slots;
+
+  // Rebuild DOM
+  rebuildGridDOM();
+  saveGridState();
+
+  // Re-save shader files with updated indices
+  await resaveAllShaderFiles();
+
+  setStatus(`Moved shader to "${targetTab.name}"`, 'success');
+}
 
 // Store event listeners for cleanup (to prevent memory leaks)
 const slotEventListeners = new Map();
@@ -221,6 +509,9 @@ function removeGridSlotElement(index) {
 function rebuildGridDOM() {
   const container = document.getElementById('shader-grid-container');
 
+  // Build tab bar first
+  buildTabBar();
+
   // Cleanup existing listeners
   slotEventListeners.forEach((listeners, slot) => {
     listeners.forEach(({ event, handler }) => {
@@ -349,6 +640,44 @@ function showGridContextMenu(x, y, slotIndex) {
     setStatus(`Removed slot ${slotIndex + 1}`, 'success');
   });
   menu.appendChild(removeItem);
+
+  // Move to Tab submenu (only if has shader and more than one tab)
+  if (hasShader && state.shaderTabs.length > 1) {
+    const separator1 = document.createElement('div');
+    separator1.className = 'context-menu-separator';
+    menu.appendChild(separator1);
+
+    // Create "Move to Tab" submenu container
+    const tabSubmenu = document.createElement('div');
+    tabSubmenu.className = 'context-menu-item has-submenu';
+    tabSubmenu.textContent = 'Move to Tab';
+
+    const tabSubmenuArrow = document.createElement('span');
+    tabSubmenuArrow.className = 'submenu-arrow';
+    tabSubmenuArrow.textContent = '\u25b6';
+    tabSubmenu.appendChild(tabSubmenuArrow);
+
+    const tabSubmenuContent = document.createElement('div');
+    tabSubmenuContent.className = 'context-submenu';
+
+    for (let i = 0; i < state.shaderTabs.length; i++) {
+      if (i === state.activeShaderTab) continue; // Skip current tab
+
+      const tabItem = document.createElement('div');
+      tabItem.className = 'context-menu-item';
+      tabItem.textContent = state.shaderTabs[i].name;
+
+      tabItem.addEventListener('click', () => {
+        hideContextMenu();
+        moveShaderToTab(slotIndex, i);
+      });
+
+      tabSubmenuContent.appendChild(tabItem);
+    }
+
+    tabSubmenu.appendChild(tabSubmenuContent);
+    menu.appendChild(tabSubmenu);
+  }
 
   // Send to Tile submenu (only if has shader and tiles are configured)
   if (hasShader && tileState.tiles.length > 0) {
@@ -926,27 +1255,123 @@ export function updateSaveButtonState() {
 }
 
 export function saveGridState() {
-  const gridState = state.gridSlots.map(slot => {
-    if (!slot) return null;
-    // Don't include shaderCode - it's saved to individual files
-    return {
-      filePath: slot.filePath,
-      params: slot.params,
-      customParams: slot.customParams || {},  // Custom shader parameters
-      presets: slot.presets || [],
-      type: slot.type || 'shader'  // 'shader' or 'scene'
-    };
-  });
+  // Save all tabs with embedded shader code
+  const tabsState = state.shaderTabs.map(tab => ({
+    name: tab.name,
+    slots: tab.slots.map(slot => {
+      if (!slot) return null;
+      return {
+        shaderCode: slot.shaderCode,  // Include shader code for tabbed format
+        filePath: slot.filePath,
+        params: slot.params,
+        customParams: slot.customParams || {},
+        presets: slot.presets || [],
+        type: slot.type || 'shader'
+      };
+    })
+  }));
+
+  const gridState = {
+    version: 2,  // New format version for tabs
+    activeTab: state.activeShaderTab,
+    tabs: tabsState
+  };
+
   window.electronAPI.saveGridState(gridState);
 }
 
 export async function loadGridState() {
-  const gridState = await window.electronAPI.loadGridState();
-  if (!gridState || !Array.isArray(gridState)) {
+  const savedState = await window.electronAPI.loadGridState();
+
+  // Handle empty state
+  if (!savedState) {
+    state.shaderTabs = [{ name: 'My Shaders', slots: [] }];
+    state.activeShaderTab = 0;
+    state.gridSlots = state.shaderTabs[0].slots;
     rebuildGridDOM();
     return;
   }
 
+  // Check if this is the new tabbed format (version 2) or old array format
+  if (savedState.version === 2 && savedState.tabs) {
+    // New tabbed format
+    await loadTabbedGridState(savedState);
+  } else if (Array.isArray(savedState)) {
+    // Old format - migrate to new tabbed format
+    await loadLegacyGridState(savedState);
+  } else {
+    // Unknown format, start fresh
+    state.shaderTabs = [{ name: 'My Shaders', slots: [] }];
+    state.activeShaderTab = 0;
+    state.gridSlots = state.shaderTabs[0].slots;
+    rebuildGridDOM();
+  }
+}
+
+// Load new tabbed format
+async function loadTabbedGridState(savedState) {
+  state.shaderTabs = [];
+  let totalLoaded = 0;
+  const allFailedSlots = [];
+
+  for (let tabIndex = 0; tabIndex < savedState.tabs.length; tabIndex++) {
+    const tabData = savedState.tabs[tabIndex];
+    const tab = { name: tabData.name || `Tab ${tabIndex + 1}`, slots: [] };
+
+    // Compact: only keep slots with shader data
+    const compactSlots = (tabData.slots || []).filter(s => s && s.shaderCode);
+
+    // Initialize slots array
+    tab.slots = new Array(compactSlots.length).fill(null);
+    state.shaderTabs.push(tab);
+
+    // Temporarily set as active for loading (so assignShaderToSlot works)
+    state.activeShaderTab = tabIndex;
+    state.gridSlots = tab.slots;
+
+    // Build DOM for this tab
+    rebuildGridDOM();
+
+    // Load shaders into this tab
+    for (let i = 0; i < compactSlots.length; i++) {
+      const slotData = compactSlots[i];
+      try {
+        const isScene = slotData.type === 'scene';
+        if (isScene) {
+          await assignSceneToSlot(i, slotData.shaderCode, slotData.filePath, true, slotData.params, slotData.presets);
+        } else {
+          await assignShaderToSlot(i, slotData.shaderCode, slotData.filePath, true, slotData.params, slotData.presets, slotData.customParams);
+        }
+        totalLoaded++;
+      } catch (err) {
+        assignFailedShaderToSlot(i, slotData.shaderCode, slotData.filePath, slotData);
+        allFailedSlots.push(`${tab.name}:${i + 1}`);
+        console.warn(`Failed to compile ${tab.name} slot ${i + 1}:`, err.message);
+      }
+    }
+  }
+
+  // If no tabs were loaded, create default
+  if (state.shaderTabs.length === 0) {
+    state.shaderTabs = [{ name: 'My Shaders', slots: [] }];
+  }
+
+  // Restore active tab
+  state.activeShaderTab = Math.min(savedState.activeTab || 0, state.shaderTabs.length - 1);
+  state.gridSlots = state.shaderTabs[state.activeShaderTab].slots;
+
+  // Rebuild DOM for active tab
+  rebuildGridDOM();
+
+  if (allFailedSlots.length > 0) {
+    setStatus(`Restored ${totalLoaded} items, ${allFailedSlots.length} failed`, 'success');
+  } else if (totalLoaded > 0) {
+    setStatus(`Restored ${totalLoaded} item${totalLoaded > 1 ? 's' : ''} across ${state.shaderTabs.length} tab${state.shaderTabs.length > 1 ? 's' : ''}`, 'success');
+  }
+}
+
+// Load old array format and migrate to tabs
+async function loadLegacyGridState(gridState) {
   // Only load slots that have actual shader data (compact the array)
   const compactState = [];
   for (let i = 0; i < gridState.length; i++) {
@@ -955,8 +1380,10 @@ export async function loadGridState() {
     }
   }
 
-  // Initialize state array with null entries for each slot we'll create
-  state.gridSlots = new Array(compactState.length).fill(null);
+  // Create single "My Shaders" tab with all slots
+  state.shaderTabs = [{ name: 'My Shaders', slots: new Array(compactState.length).fill(null) }];
+  state.activeShaderTab = 0;
+  state.gridSlots = state.shaderTabs[0].slots;
 
   // Build DOM first so assignShaderToSlot can find the elements
   rebuildGridDOM();
@@ -982,16 +1409,13 @@ export async function loadGridState() {
     }
   }
 
-  // Re-save shader files with compacted indices if we compacted
-  if (compactState.length !== gridState.length) {
-    await resaveAllShaderFiles();
-    saveGridState();
-  }
+  // Save in new format
+  saveGridState();
 
   if (failedSlots.length > 0) {
-    setStatus(`Restored ${loadedCount} items, ${failedSlots.length} failed to compile (slots: ${failedSlots.join(', ')})`, 'error');
+    setStatus(`Migrated ${loadedCount} items, ${failedSlots.length} failed to compile (slots: ${failedSlots.join(', ')})`, 'success');
   } else if (loadedCount > 0) {
-    setStatus(`Restored ${loadedCount} item${loadedCount > 1 ? 's' : ''} from saved state`, 'success');
+    setStatus(`Migrated ${loadedCount} item${loadedCount > 1 ? 's' : ''} to tabbed format`, 'success');
   }
 }
 

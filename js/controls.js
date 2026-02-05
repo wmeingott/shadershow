@@ -6,6 +6,7 @@ import { showSettingsDialog } from './settings.js';
 import { tileState, calculateTileBounds } from './tile-state.js';
 import { showTileConfigDialog, initToolbarPresetsPanel, togglePresetsPanel } from './tile-config.js';
 import { toggleRecording } from './recording.js';
+import { showAIAssistantDialog, initAIShortcut } from './claude-ai.js';
 
 export function initControls() {
   // New File button - show dialog
@@ -105,6 +106,15 @@ export function initControls() {
   // Settings button
   const btnSettings = document.getElementById('btn-settings');
   btnSettings.addEventListener('click', showSettingsDialog);
+
+  // AI Assistant button
+  const btnAI = document.getElementById('btn-ai');
+  if (btnAI) {
+    btnAI.addEventListener('click', showAIAssistantDialog);
+  }
+
+  // Initialize AI keyboard shortcut (Ctrl+Shift+A)
+  initAIShortcut();
 
   // Save shader button
   const btnSaveShader = document.getElementById('btn-save-shader');

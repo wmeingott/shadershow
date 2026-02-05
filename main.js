@@ -1,6 +1,7 @@
 const { app, BrowserWindow, Menu, dialog, ipcMain, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
 
 // GPU optimization flags for Linux with NVIDIA
 if (process.platform === 'linux') {
@@ -84,6 +85,12 @@ const settingsFile = path.join(dataDir, 'settings.json');
 const viewStateFile = path.join(dataDir, 'view-state.json');
 const tileStateFile = path.join(dataDir, 'tile-state.json');
 const tilePresetsFile = path.join(dataDir, 'tile-presets.json');
+const claudeKeyFile = path.join(dataDir, 'claude-key.json');
+
+// Claude AI state
+let claudeApiKey = null;
+let claudeModel = 'claude-sonnet-4-20250514';
+let claudeActiveRequest = null;
 
 // Track tiled mode state
 let tiledFullscreenWindow = null;
@@ -1729,33 +1736,74 @@ ipcMain.on('open-fullscreen-with-shader', (event, shaderState) => {
   createFullscreenWindow(display, shaderState);
 });
 
-// Save grid state (metadata only - shader code saved separately)
+// Save grid state (supports both legacy array format and new tabbed format)
 ipcMain.on('save-grid-state', async (event, gridState) => {
   ensureDataDir();
   try {
-    // Save metadata without shader code (shader code is in individual files)
-    const metadata = gridState.map((slot, index) => {
-      if (!slot) return null;
-      return {
-        filePath: slot.filePath,
-        params: slot.params,
-        presets: slot.presets || []
+    // Check if this is the new tabbed format (version 2)
+    if (gridState.version === 2 && gridState.tabs) {
+      // New tabbed format - save with embedded shader code
+      const saveData = {
+        version: 2,
+        activeTab: gridState.activeTab,
+        tabs: gridState.tabs.map(tab => ({
+          name: tab.name,
+          slots: tab.slots.map((slot, index) => {
+            if (!slot) return null;
+            // Get shader code from the slot's file if available
+            const shaderFile = getShaderFilePath(index);
+            let shaderCode = null;
+            if (fs.existsSync(shaderFile)) {
+              try {
+                shaderCode = fs.readFileSync(shaderFile, 'utf-8');
+              } catch (err) {
+                // ignore
+              }
+            }
+            return {
+              shaderCode: shaderCode,
+              filePath: slot.filePath,
+              params: slot.params,
+              customParams: slot.customParams || {},
+              presets: slot.presets || [],
+              type: slot.type || 'shader'
+            };
+          })
+        }))
       };
-    });
-    await fsPromises.writeFile(gridStateFile, JSON.stringify(metadata, null, 2), 'utf-8');
+      await fsPromises.writeFile(gridStateFile, JSON.stringify(saveData, null, 2), 'utf-8');
+    } else {
+      // Legacy format - save metadata without shader code
+      const metadata = gridState.map((slot, index) => {
+        if (!slot) return null;
+        return {
+          filePath: slot.filePath,
+          params: slot.params,
+          presets: slot.presets || []
+        };
+      });
+      await fsPromises.writeFile(gridStateFile, JSON.stringify(metadata, null, 2), 'utf-8');
+    }
   } catch (err) {
     console.error('Failed to save grid state:', err);
   }
 });
 
-// Load grid state (loads metadata and shader code from files)
+// Load grid state (loads metadata and shader code)
 ipcMain.handle('load-grid-state', async () => {
   try {
     if (fs.existsSync(gridStateFile)) {
       const data = fs.readFileSync(gridStateFile, 'utf-8');
-      const metadata = JSON.parse(data);
+      const savedData = JSON.parse(data);
 
-      // Load shader code from individual files
+      // Check if this is the new tabbed format (version 2)
+      if (savedData.version === 2 && savedData.tabs) {
+        // New tabbed format - return as-is (shader code is embedded)
+        return savedData;
+      }
+
+      // Legacy format - load shader code from individual files
+      const metadata = savedData;
       const state = metadata.map((slot, index) => {
         if (!slot) {
           // Check if shader file exists even without metadata
@@ -2044,6 +2092,7 @@ ipcMain.on('save-grid-presets-to-file', async (event, gridState) => {
 app.whenReady().then(() => {
   ensureDataDir();
   loadSettings();
+  loadClaudeKey();
   createWindow();
 
   app.on('activate', () => {
@@ -2307,7 +2356,329 @@ function openTiledFullscreen(config) {
   });
 }
 
+// =============================================================================
+// Claude AI Integration
+// =============================================================================
+
+// Load Claude API key on startup
+function loadClaudeKey() {
+  try {
+    if (fs.existsSync(claudeKeyFile)) {
+      const data = JSON.parse(fs.readFileSync(claudeKeyFile, 'utf-8'));
+      claudeApiKey = data.apiKey || null;
+      claudeModel = data.model || 'claude-sonnet-4-20250514';
+    }
+  } catch (err) {
+    console.error('Failed to load Claude API key:', err);
+  }
+}
+
+// Save Claude API key
+ipcMain.handle('save-claude-key', async (event, key, model) => {
+  try {
+    // Only update key if provided, otherwise keep existing
+    if (key) {
+      claudeApiKey = key;
+    }
+    claudeModel = model || 'claude-sonnet-4-20250514';
+    ensureDataDir();
+    await fsPromises.writeFile(claudeKeyFile, JSON.stringify({
+      apiKey: claudeApiKey,
+      model: claudeModel
+    }, null, 2), 'utf-8');
+    return { success: true };
+  } catch (err) {
+    console.error('Failed to save Claude API key:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Check if Claude API key exists
+ipcMain.handle('has-claude-key', async () => {
+  return !!claudeApiKey;
+});
+
+// Get Claude settings
+ipcMain.handle('get-claude-settings', async () => {
+  return {
+    hasKey: !!claudeApiKey,
+    model: claudeModel,
+    // Return masked key for display
+    maskedKey: claudeApiKey ? '****' + claudeApiKey.slice(-4) : null
+  };
+});
+
+// Test Claude API key
+ipcMain.handle('test-claude-key', async (event, key) => {
+  return new Promise((resolve) => {
+    const testKey = key || claudeApiKey;
+    if (!testKey) {
+      resolve({ success: false, error: 'No API key provided' });
+      return;
+    }
+
+    const postData = JSON.stringify({
+      model: 'claude-3-5-haiku-20241022',
+      max_tokens: 10,
+      messages: [{ role: 'user', content: 'Hi' }]
+    });
+
+    const options = {
+      hostname: 'api.anthropic.com',
+      port: 443,
+      path: '/v1/messages',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': testKey,
+        'anthropic-version': '2023-06-01'
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          resolve({ success: true });
+        } else {
+          try {
+            const errorData = JSON.parse(data);
+            resolve({ success: false, error: errorData.error?.message || `HTTP ${res.statusCode}` });
+          } catch {
+            resolve({ success: false, error: `HTTP ${res.statusCode}` });
+          }
+        }
+      });
+    });
+
+    req.on('error', (err) => {
+      resolve({ success: false, error: err.message });
+    });
+
+    req.setTimeout(10000, () => {
+      req.destroy();
+      resolve({ success: false, error: 'Request timeout' });
+    });
+
+    req.write(postData);
+    req.end();
+  });
+});
+
+// Handle Claude prompt with streaming
+ipcMain.on('claude-prompt', (event, data) => {
+  if (!claudeApiKey) {
+    event.sender.send('claude-error', { error: 'No API key configured. Please add your Claude API key in Settings.' });
+    return;
+  }
+
+  const { prompt, context, renderMode } = data;
+
+  // Build system prompt with context
+  const systemPrompt = buildClaudeSystemPrompt(context, renderMode);
+
+  const postData = JSON.stringify({
+    model: claudeModel,
+    max_tokens: 8192,
+    stream: true,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: prompt }]
+  });
+
+  const options = {
+    hostname: 'api.anthropic.com',
+    port: 443,
+    path: '/v1/messages',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': claudeApiKey,
+      'anthropic-version': '2023-06-01'
+    }
+  };
+
+  const req = https.request(options, (res) => {
+    if (res.statusCode !== 200) {
+      let errorData = '';
+      res.on('data', chunk => errorData += chunk);
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(errorData);
+          event.sender.send('claude-error', { error: parsed.error?.message || `HTTP ${res.statusCode}` });
+        } catch {
+          event.sender.send('claude-error', { error: `HTTP ${res.statusCode}` });
+        }
+      });
+      return;
+    }
+
+    let buffer = '';
+
+    res.on('data', (chunk) => {
+      buffer += chunk.toString();
+
+      // Process complete SSE events
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // Keep incomplete line in buffer
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const jsonStr = line.slice(6);
+          if (jsonStr === '[DONE]') continue;
+
+          try {
+            const parsed = JSON.parse(jsonStr);
+
+            if (parsed.type === 'content_block_delta') {
+              const text = parsed.delta?.text;
+              if (text) {
+                event.sender.send('claude-stream-chunk', { text });
+              }
+            } else if (parsed.type === 'message_stop') {
+              event.sender.send('claude-stream-end', { complete: true });
+            } else if (parsed.type === 'error') {
+              event.sender.send('claude-error', { error: parsed.error?.message || 'Stream error' });
+            }
+          } catch (e) {
+            // Ignore parse errors for incomplete chunks
+          }
+        }
+      }
+    });
+
+    res.on('end', () => {
+      // Process any remaining buffer
+      if (buffer.startsWith('data: ')) {
+        try {
+          const parsed = JSON.parse(buffer.slice(6));
+          if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+            event.sender.send('claude-stream-chunk', { text: parsed.delta.text });
+          }
+        } catch {
+          // Ignore
+        }
+      }
+      event.sender.send('claude-stream-end', { complete: true });
+      claudeActiveRequest = null;
+    });
+  });
+
+  req.on('error', (err) => {
+    event.sender.send('claude-error', { error: err.message });
+    claudeActiveRequest = null;
+  });
+
+  // Store reference for cancellation
+  claudeActiveRequest = req;
+
+  req.write(postData);
+  req.end();
+});
+
+// Cancel active Claude request
+ipcMain.on('claude-cancel', () => {
+  if (claudeActiveRequest) {
+    claudeActiveRequest.destroy();
+    claudeActiveRequest = null;
+  }
+});
+
+// Build system prompt for Claude based on render mode
+function buildClaudeSystemPrompt(context, renderMode) {
+  const basePrompt = `You are an expert GLSL shader and Three.js developer helping with ShaderShow, a real-time shader visualization tool.
+
+IMPORTANT RULES:
+1. When providing code, include ONLY the complete shader or scene code - no explanations before or after unless asked
+2. The code should be ready to compile and run immediately
+3. Preserve any existing @param comments for custom uniforms
+4. For shaders: Use Shadertoy-compatible uniforms and mainImage function
+5. For scenes: Use setup() and animate() function patterns
+
+`;
+
+  if (renderMode === 'shader') {
+    return basePrompt + `CURRENT MODE: GLSL Fragment Shader (Shadertoy-compatible)
+
+AVAILABLE UNIFORMS:
+- vec3 iResolution      - Viewport resolution (width, height, 1.0)
+- float iTime           - Playback time in seconds
+- float iTimeDelta      - Time since last frame
+- int iFrame            - Current frame number
+- vec4 iMouse           - Mouse coords (xy: current, zw: click position)
+- vec4 iDate            - (year, month, day, seconds)
+- sampler2D iChannel0-3 - Input textures
+- vec3 iChannelResolution[4] - Resolution of each channel
+
+CUSTOM PARAMETERS (@param syntax):
+Define custom uniforms with UI sliders using @param comments:
+  // @param name type [default] [min, max] "description"
+
+Supported types: int, float, vec2, vec3, vec4, color
+
+Examples:
+  // @param speed float 1.0 [0.0, 5.0] "Animation speed"
+  // @param center vec2 0.5, 0.5 "Center position"
+  // @param tint color [1.0, 0.5, 0.0] "Tint color"
+
+SHADER STRUCTURE:
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+    vec2 uv = fragCoord / iResolution.xy;
+    // Your shader code here
+    fragColor = vec4(color, 1.0);
+}
+
+${context?.customParams ? `\nCURRENT CUSTOM PARAMS:\n${context.customParams}` : ''}
+${context?.currentCode ? `\nCURRENT CODE:\n${context.currentCode}` : ''}`;
+  } else {
+    return basePrompt + `CURRENT MODE: Three.js Scene (JavaScript)
+
+SCENE STRUCTURE:
+The scene must define two functions:
+
+1. setup(THREE, canvas, params) - Called once to initialize the scene
+   - THREE: The Three.js library
+   - canvas: The rendering canvas element
+   - params: Object containing custom parameter values
+   - Must return: { scene, camera, renderer, ...anyOtherObjects }
+
+2. animate(context, time, deltaTime, params) - Called every frame
+   - context: The object returned from setup()
+   - time: Current time in seconds
+   - deltaTime: Time since last frame
+   - params: Current parameter values
+
+CUSTOM PARAMETERS (@param syntax):
+Same as shaders - define with @param comments at the top of the file
+
+Example scene:
+// @param rotationSpeed float 1.0 [0.0, 5.0] "Rotation speed"
+// @param cubeColor color [0.2, 0.6, 1.0] "Cube color"
+
+function setup(THREE, canvas, params) {
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(75, canvas.width/canvas.height, 0.1, 1000);
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  // Create objects...
+  return { scene, camera, renderer, mesh };
+}
+
+function animate(context, time, deltaTime, params) {
+  context.mesh.rotation.y = time * params.rotationSpeed;
+}
+
+${context?.customParams ? `\nCURRENT CUSTOM PARAMS:\n${context.customParams}` : ''}
+${context?.currentCode ? `\nCURRENT CODE:\n${context.currentCode}` : ''}`;
+  }
+}
+
 app.on('before-quit', () => {
+  // Cancel any active Claude request
+  if (claudeActiveRequest) {
+    claudeActiveRequest.destroy();
+    claudeActiveRequest = null;
+  }
+
   // Finalize recording if active
   if (recordingProcess) {
     try {

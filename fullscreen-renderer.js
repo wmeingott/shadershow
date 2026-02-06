@@ -26,6 +26,18 @@ let sharedGL = null;        // Shared WebGL context for tiled mode
 // Reused Date object to avoid allocation per frame
 const reusedDate = new Date();
 
+// Lazy-initialize ThreeSceneRenderer (Three.js is lazy-loaded in fullscreen)
+async function ensureSceneRenderer() {
+  if (sceneRenderer) return sceneRenderer;
+  const canvas = document.getElementById('shader-canvas');
+  await window.loadThreeJS();
+  sceneRenderer = new ThreeSceneRenderer(canvas);
+  sceneRenderer.setResolution(window.innerWidth, window.innerHeight);
+  // Restore ShaderRenderer GL state after Three.js creates its WebGLRenderer
+  shaderRenderer.reinitialize();
+  return sceneRenderer;
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   const canvas = document.getElementById('shader-canvas');
 
@@ -33,15 +45,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 
-  // Initialize both renderers
+  // Initialize shader renderer (always available)
   shaderRenderer = new ShaderRenderer(canvas);
-  sceneRenderer = new ThreeSceneRenderer(canvas);
 
-  // ThreeSceneRenderer's constructor creates a THREE.WebGLRenderer on the
-  // shared canvas, which corrupts ShaderRenderer's GL state — restore it
-  shaderRenderer.reinitialize();
-
-  // Default to shader renderer
+  // Default to shader renderer (scene renderer created on demand)
   renderer = shaderRenderer;
 
   // Get display refresh rate and set frame interval limit
@@ -62,7 +69,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
     shaderRenderer.setResolution(window.innerWidth, window.innerHeight);
-    sceneRenderer.setResolution(window.innerWidth, window.innerHeight);
+    if (sceneRenderer) {
+      sceneRenderer.setResolution(window.innerWidth, window.innerHeight);
+    }
   });
 
   // Fade out the exit hint after 3 seconds
@@ -187,7 +196,7 @@ function renderLoop(currentTime) {
 }
 
 // Initialize with shader/scene state from main window
-window.electronAPI.onInitFullscreen((state) => {
+window.electronAPI.onInitFullscreen(async (state) => {
   console.log('[Fullscreen] Received init-fullscreen');
   console.log('[Fullscreen] tiledConfig:', state.tiledConfig ? 'present' : 'not present');
   if (state.tiledConfig) {
@@ -201,12 +210,18 @@ window.electronAPI.onInitFullscreen((state) => {
   // Switch renderer if mode specified
   if (state.renderMode) {
     renderMode = state.renderMode;
-    renderer = renderMode === 'scene' ? sceneRenderer : shaderRenderer;
+    if (renderMode === 'scene') {
+      renderer = await ensureSceneRenderer();
+    } else {
+      renderer = shaderRenderer;
+    }
   }
 
   // Set resolution to native display resolution
   shaderRenderer.setResolution(window.innerWidth, window.innerHeight);
-  sceneRenderer.setResolution(window.innerWidth, window.innerHeight);
+  if (sceneRenderer) {
+    sceneRenderer.setResolution(window.innerWidth, window.innerHeight);
+  }
 
   // Compile the shader/scene
   if (state.shaderCode) {
@@ -258,12 +273,12 @@ window.electronAPI.onInitFullscreen((state) => {
 });
 
 // Handle shader/scene updates from main window
-window.electronAPI.onShaderUpdate((data) => {
+window.electronAPI.onShaderUpdate(async (data) => {
   // Switch renderer if mode changed
   if (data.renderMode && data.renderMode !== renderMode) {
     renderMode = data.renderMode;
     if (renderMode === 'scene') {
-      renderer = sceneRenderer;
+      renderer = await ensureSceneRenderer();
     } else {
       renderer = shaderRenderer;
       // Reinitialize GL state after Three.js has used the shared WebGL context

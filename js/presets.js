@@ -157,6 +157,16 @@ function showPresetContextMenu(x, y, index, btn) {
   menu.className = 'context-menu';
   menu.id = 'preset-context-menu';
 
+  // Update option
+  const updateItem = document.createElement('div');
+  updateItem.className = 'context-menu-item';
+  updateItem.textContent = 'Update';
+  updateItem.addEventListener('click', () => {
+    hidePresetContextMenu();
+    updateLocalPreset(index);
+  });
+  menu.appendChild(updateItem);
+
   // Rename option
   const renameItem = document.createElement('div');
   renameItem.className = 'context-menu-item';
@@ -350,6 +360,19 @@ function updateActiveLocalPreset(index) {
 
 function clearLocalPresetHighlight() {
   document.querySelectorAll('.preset-btn.local-preset').forEach(btn => btn.classList.remove('active'));
+}
+
+function updateLocalPreset(index) {
+  if (state.activeGridSlot === null || !state.gridSlots[state.activeGridSlot]) return;
+  const presets = state.gridSlots[state.activeGridSlot].presets;
+  if (!presets || index >= presets.length) return;
+
+  const params = state.renderer.getParams();
+  presets[index].params = { ...params };
+  saveGridState();
+
+  const name = presets[index].name || `Preset ${index + 1}`;
+  setStatus(`${name} updated`, 'success');
 }
 
 function deleteLocalPreset(index, btnElement) {

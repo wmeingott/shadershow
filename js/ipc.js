@@ -3,6 +3,7 @@ import { state } from './state.js';
 import { setStatus, updateChannelSlot } from './utils.js';
 import { compileShader, setEditorMode } from './editor.js';
 import { togglePlayback, resetTime } from './controls.js';
+import { runBenchmark } from './benchmark.js';
 import { loadGridPresetsFromData, saveGridState } from './shader-grid.js';
 import { recallLocalPreset } from './presets.js';
 import { loadParamsToSliders } from './params.js';
@@ -133,6 +134,7 @@ export async function initIPC() {
   window.electronAPI.onCompileShader(compileShader);
   window.electronAPI.onTogglePlayback(togglePlayback);
   window.electronAPI.onResetTime(resetTime);
+  window.electronAPI.onRunBenchmark(runBenchmark);
 
   // Fullscreen state request
   window.electronAPI.onRequestFullscreenState(() => {

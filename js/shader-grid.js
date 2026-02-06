@@ -1706,20 +1706,29 @@ export function playGridShader(slotIndex) {
 
 // Re-save all shader files with current indices (after removing/compacting slots)
 async function resaveAllShaderFiles() {
+  // Collect all slots across all tabs with their global indices
+  let totalSlots = 0;
+  const allSlots = [];
+  for (const tab of (state.shaderTabs || [])) {
+    for (let i = 0; i < (tab.slots || []).length; i++) {
+      allSlots.push({ globalIndex: totalSlots, slot: tab.slots[i] });
+      totalSlots++;
+    }
+  }
+
   // Delete files at all indices up to a generous upper bound
-  // Batch deletes in parallel for performance (covers previous larger grids being compacted)
-  const maxIndex = Math.max(state.gridSlots.length + 50, 100);
+  const maxIndex = Math.max(totalSlots + 50, 100);
   const deletePromises = [];
   for (let i = 0; i < maxIndex; i++) {
     deletePromises.push(window.electronAPI.deleteShaderFromSlot(i));
   }
   await Promise.all(deletePromises);
 
-  // Save current files in parallel
+  // Save all tabs' shader files in parallel using global indices
   const savePromises = [];
-  for (let i = 0; i < state.gridSlots.length; i++) {
-    if (state.gridSlots[i] && state.gridSlots[i].shaderCode) {
-      savePromises.push(window.electronAPI.saveShaderToSlot(i, state.gridSlots[i].shaderCode));
+  for (const { globalIndex, slot } of allSlots) {
+    if (slot && slot.shaderCode) {
+      savePromises.push(window.electronAPI.saveShaderToSlot(globalIndex, slot.shaderCode));
     }
   }
   await Promise.all(savePromises);

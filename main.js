@@ -423,6 +423,11 @@ function createMenu() {
           label: 'Recording Resolution',
           id: 'recording-resolution-menu',
           submenu: buildRecordingResolutionSubmenu()
+        },
+        { type: 'separator' },
+        {
+          label: 'Run Benchmark...',
+          click: () => mainWindow.webContents.send('run-benchmark')
         }
       ]
     }
@@ -1789,21 +1794,28 @@ ipcMain.on('save-grid-state', async (event, gridState) => {
     if (gridState.version === 2 && gridState.tabs) {
       // New tabbed format - save with embedded shader code
       const tabs = [];
+      let globalSlotIndex = 0;
       for (const tab of gridState.tabs) {
-        const slots = await Promise.all(tab.slots.map(async (slot, index) => {
-          if (!slot) return null;
-          // Get shader code from the slot's file if available
-          const shaderFile = getShaderFilePath(index);
-          const shaderCode = await readFileOrNull(shaderFile);
-          return {
-            shaderCode: shaderCode,
-            filePath: slot.filePath,
-            params: slot.params,
-            customParams: slot.customParams || {},
-            presets: slot.presets || [],
-            type: slot.type || 'shader'
-          };
-        }));
+        const slots = [];
+        for (let i = 0; i < tab.slots.length; i++) {
+          const slot = tab.slots[i];
+          if (!slot) {
+            slots.push(null);
+          } else {
+            // Use global slot index for file mapping across tabs
+            const shaderFile = getShaderFilePath(globalSlotIndex);
+            const shaderCode = await readFileOrNull(shaderFile);
+            slots.push({
+              shaderCode: shaderCode,
+              filePath: slot.filePath,
+              params: slot.params,
+              customParams: slot.customParams || {},
+              presets: slot.presets || [],
+              type: slot.type || 'shader'
+            });
+          }
+          globalSlotIndex++;
+        }
         tabs.push({ name: tab.name, slots });
       }
       const saveData = {
@@ -1838,7 +1850,27 @@ ipcMain.handle('load-grid-state', async () => {
 
       // Check if this is the new tabbed format (version 2)
       if (savedData.version === 2 && savedData.tabs) {
-        // New tabbed format - return as-is (shader code is embedded)
+        // New tabbed format — fill in missing shaderCode from .glsl files
+        let globalSlotIndex = 0;
+        for (const tab of savedData.tabs) {
+          if (!tab.slots) continue;
+          for (let i = 0; i < tab.slots.length; i++) {
+            const slot = tab.slots[i];
+            if (slot && !slot.shaderCode) {
+              const shaderFile = getShaderFilePath(globalSlotIndex);
+              const code = await readFileOrNull(shaderFile);
+              if (code) {
+                slot.shaderCode = code;
+                // Auto-detect scene type if not already set
+                if (slot.type !== 'scene' && code.includes('function setup') &&
+                    (code.includes('THREE') || code.includes('scene'))) {
+                  slot.type = 'scene';
+                }
+              }
+            }
+            globalSlotIndex++;
+          }
+        }
         return savedData;
       }
 

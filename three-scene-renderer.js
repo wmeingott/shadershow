@@ -215,30 +215,36 @@ class ThreeSceneRenderer {
   }
 
   setupMouseEvents() {
-    this.canvas.addEventListener('mousedown', (e) => {
+    // Store bound handlers for cleanup in dispose()
+    this._onMouseDown = (e) => {
       const rect = this.canvas.getBoundingClientRect();
       const scaleX = this.canvas.width / rect.width;
       const scaleY = this.canvas.height / rect.height;
       this.mouse.clickX = (e.clientX - rect.left) * scaleX;
       this.mouse.clickY = this.canvas.height - (e.clientY - rect.top) * scaleY;
       this.mouse.isDown = true;
-    });
+    };
 
-    this.canvas.addEventListener('mouseup', () => {
+    this._onMouseUp = () => {
       this.mouse.isDown = false;
-    });
+    };
 
-    this.canvas.addEventListener('mousemove', (e) => {
+    this._onMouseMove = (e) => {
       const rect = this.canvas.getBoundingClientRect();
       const scaleX = this.canvas.width / rect.width;
       const scaleY = this.canvas.height / rect.height;
       this.mouse.x = (e.clientX - rect.left) * scaleX;
       this.mouse.y = this.canvas.height - (e.clientY - rect.top) * scaleY;
-    });
+    };
 
-    this.canvas.addEventListener('mouseleave', () => {
+    this._onMouseLeave = () => {
       this.mouse.isDown = false;
-    });
+    };
+
+    this.canvas.addEventListener('mousedown', this._onMouseDown);
+    this.canvas.addEventListener('mouseup', this._onMouseUp);
+    this.canvas.addEventListener('mousemove', this._onMouseMove);
+    this.canvas.addEventListener('mouseleave', this._onMouseLeave);
   }
 
   setResolution(width, height) {
@@ -379,8 +385,17 @@ class ThreeSceneRenderer {
         if (object.geometry) object.geometry.dispose();
         if (object.material) {
           if (Array.isArray(object.material)) {
-            object.material.forEach(m => m.dispose());
+            object.material.forEach(m => {
+              // Dispose textures attached to materials
+              if (m.map) m.map.dispose();
+              if (m.normalMap) m.normalMap.dispose();
+              if (m.envMap) m.envMap.dispose();
+              m.dispose();
+            });
           } else {
+            if (object.material.map) object.material.map.dispose();
+            if (object.material.normalMap) object.material.normalMap.dispose();
+            if (object.material.envMap) object.material.envMap.dispose();
             object.material.dispose();
           }
         }
@@ -783,6 +798,14 @@ class ThreeSceneRenderer {
 
     for (let i = 0; i < 4; i++) {
       this.cleanupChannel(i);
+    }
+
+    // Remove mouse event listeners to prevent leaks
+    if (this._onMouseDown) {
+      this.canvas.removeEventListener('mousedown', this._onMouseDown);
+      this.canvas.removeEventListener('mouseup', this._onMouseUp);
+      this.canvas.removeEventListener('mousemove', this._onMouseMove);
+      this.canvas.removeEventListener('mouseleave', this._onMouseLeave);
     }
 
     if (this.renderer) {

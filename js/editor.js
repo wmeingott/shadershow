@@ -65,8 +65,8 @@ export async function initEditor() {
     setEditorMode(type);
 
     // Import setRenderMode dynamically to avoid circular dependency
-    import('./renderer.js').then(({ setRenderMode }) => {
-      setRenderMode(type);
+    import('./renderer.js').then(async ({ setRenderMode }) => {
+      await setRenderMode(type);
       // Compile after mode is set
       compileShader();
       generateCustomParamUI();

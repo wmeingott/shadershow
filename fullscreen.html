@@ -105,15 +105,30 @@
   </div>
   <div id="exit-hint">Press ESC to exit fullscreen • Move mouse for presets • Keys 1-9 for presets</div>
 
-  <!-- Three.js for 3D scene rendering -->
-  <script>window.THREE = null;</script>
-  <script type="module">
-    import * as THREE from './node_modules/three/build/three.module.js';
-    window.THREE = THREE;
+  <!-- Three.js and Babel are lazy-loaded on first scene use -->
+  <script>
+    window.THREE = null;
+    window.loadThreeJS = function() {
+      if (window.THREE || window._threeLoading) return window._threePromise || Promise.resolve();
+      window._threeLoading = true;
+      window._threePromise = import('./node_modules/three/build/three.module.js').then(mod => {
+        window.THREE = mod;
+      });
+      return window._threePromise;
+    };
+    window.loadBabel = function() {
+      if (window.Babel || window._babelLoading) return window._babelPromise || Promise.resolve();
+      window._babelLoading = true;
+      window._babelPromise = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'node_modules/@babel/standalone/babel.min.js';
+        s.onload = resolve;
+        s.onerror = reject;
+        document.head.appendChild(s);
+      });
+      return window._babelPromise;
+    };
   </script>
-
-  <!-- Babel for JSX compilation -->
-  <script src="node_modules/@babel/standalone/babel.min.js"></script>
 
   <!-- Renderers -->
   <script src="shader-renderer.js"></script>

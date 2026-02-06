@@ -209,26 +209,49 @@ function showRenamePresetDialog(index, btn) {
   const overlay = document.createElement('div');
   overlay.id = 'rename-preset-overlay';
   overlay.className = 'dialog-overlay';
-  overlay.innerHTML = `
-    <div class="rename-dialog">
-      <div class="dialog-header">Rename Preset</div>
-      <input type="text" id="preset-name-input" value="${currentName}" maxlength="12" placeholder="Preset name">
-      <div class="dialog-buttons">
-        <button class="btn-secondary" id="rename-cancel">Cancel</button>
-        <button class="btn-primary" id="rename-ok">OK</button>
-      </div>
-    </div>
-  `;
+
+  const dialog = document.createElement('div');
+  dialog.className = 'rename-dialog';
+
+  const header = document.createElement('div');
+  header.className = 'dialog-header';
+  header.textContent = 'Rename Preset';
+  dialog.appendChild(header);
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.id = 'preset-name-input';
+  input.value = currentName;
+  input.maxLength = 12;
+  input.placeholder = 'Preset name';
+  dialog.appendChild(input);
+
+  const buttons = document.createElement('div');
+  buttons.className = 'dialog-buttons';
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn-secondary';
+  cancelBtn.id = 'rename-cancel';
+  cancelBtn.textContent = 'Cancel';
+  buttons.appendChild(cancelBtn);
+
+  const okBtn = document.createElement('button');
+  okBtn.className = 'btn-primary';
+  okBtn.id = 'rename-ok';
+  okBtn.textContent = 'OK';
+  buttons.appendChild(okBtn);
+
+  dialog.appendChild(buttons);
+  overlay.appendChild(dialog);
   document.body.appendChild(overlay);
 
-  const input = document.getElementById('preset-name-input');
   input.focus();
   input.select();
 
   const close = () => overlay.remove();
 
-  document.getElementById('rename-cancel').onclick = close;
-  document.getElementById('rename-ok').onclick = () => {
+  cancelBtn.onclick = close;
+  okBtn.onclick = () => {
     const newName = input.value.trim();
     if (state.gridSlots[state.activeGridSlot]?.presets?.[index]) {
       state.gridSlots[state.activeGridSlot].presets[index].name = newName || null;

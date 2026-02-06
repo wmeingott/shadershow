@@ -149,6 +149,9 @@ const ShaderParamParser = {
 // ShaderRenderer Class
 // =============================================================================
 
+// Shared constant for 1x1 black pixel (avoids allocating new Uint8Array each time)
+const BLACK_PIXEL = new Uint8Array([0, 0, 0, 255]);
+
 class ShaderRenderer {
   constructor(canvas) {
     this.canvas = canvas;
@@ -229,6 +232,9 @@ class ShaderRenderer {
     this._dateObject = new Date();  // Reused Date object to avoid allocation per frame
     this._cachedParams = null;      // Cached params result
     this._paramsDirty = true;       // Flag to invalidate cache
+
+    // Track texture dimensions for texSubImage2D optimization
+    this._channelTexSizes = [[0, 0], [0, 0], [0, 0], [0, 0]];
 
     // Setup
     this.setupGeometry();
@@ -358,7 +364,7 @@ class ShaderRenderer {
       const texture = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, texture);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
-        new Uint8Array([0, 0, 0, 255]));
+        BLACK_PIXEL);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
@@ -590,7 +596,7 @@ class ShaderRenderer {
     const texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
-      new Uint8Array([0, 0, 0, 255]));
+      BLACK_PIXEL);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
@@ -622,7 +628,7 @@ class ShaderRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
     // Initialize with 1x1 black texture until first frame arrives
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, BLACK_PIXEL);
 
     this.channelTextures[channel] = texture;
     this.channelResolutions[channel] = [1, 1, 1];
@@ -643,14 +649,12 @@ class ShaderRenderer {
       this.channelResolutions[channel] = [width, height, 1];
     }
 
-    // Store frame data for texture update in render loop
-    this.channelNDIData[channel] = {
-      ...this.channelNDIData[channel],
-      width,
-      height,
-      data: rgbaData,
-      needsUpdate: true
-    };
+    // Mutate in place to avoid object spread allocation per frame
+    const ndiData = this.channelNDIData[channel];
+    ndiData.width = width;
+    ndiData.height = height;
+    ndiData.data = rgbaData;
+    ndiData.needsUpdate = true;
   }
 
   updateVideoTextures() {
@@ -668,7 +672,14 @@ class ShaderRenderer {
         const video = this.channelVideoSources[i];
         if (video && video.readyState >= 2) {
           gl.bindTexture(gl.TEXTURE_2D, this.channelTextures[i]);
-          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+          const sz = this._channelTexSizes[i];
+          if (sz[0] === video.videoWidth && sz[1] === video.videoHeight) {
+            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, video);
+          } else {
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+            sz[0] = video.videoWidth;
+            sz[1] = video.videoHeight;
+          }
         }
         continue;
       }
@@ -687,9 +698,16 @@ class ShaderRenderer {
           this._audioBuffer.set(audio.frequencyData, 0);      // Row 0: FFT
           this._audioBuffer.set(audio.timeDomainData, 512);   // Row 1: Waveform
 
-          // Update texture
+          // Update texture (audio is always 512x2, use texSubImage2D after first upload)
           gl.bindTexture(gl.TEXTURE_2D, this.channelTextures[i]);
-          gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, 512, 2, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, this._audioBuffer);
+          const sz = this._channelTexSizes[i];
+          if (sz[0] === 512 && sz[1] === 2) {
+            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 512, 2, gl.LUMINANCE, gl.UNSIGNED_BYTE, this._audioBuffer);
+          } else {
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, 512, 2, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, this._audioBuffer);
+            sz[0] = 512;
+            sz[1] = 2;
+          }
         }
         continue;
       }
@@ -699,7 +717,14 @@ class ShaderRenderer {
         const ndi = this.channelNDIData[i];
         if (ndi && ndi.needsUpdate) {
           gl.bindTexture(gl.TEXTURE_2D, this.channelTextures[i]);
-          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, ndi.width, ndi.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, ndi.data);
+          const sz = this._channelTexSizes[i];
+          if (sz[0] === ndi.width && sz[1] === ndi.height) {
+            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, ndi.width, ndi.height, gl.RGBA, gl.UNSIGNED_BYTE, ndi.data);
+          } else {
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, ndi.width, ndi.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, ndi.data);
+            sz[0] = ndi.width;
+            sz[1] = ndi.height;
+          }
           ndi.needsUpdate = false;
         }
       }

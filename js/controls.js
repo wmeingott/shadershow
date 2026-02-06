@@ -7,6 +7,7 @@ import { tileState, calculateTileBounds } from './tile-state.js';
 import { showTileConfigDialog, initToolbarPresetsPanel, togglePresetsPanel } from './tile-config.js';
 import { toggleRecording } from './recording.js';
 import { showAIAssistantDialog, initAIShortcut } from './claude-ai.js';
+import { runBenchmark } from './benchmark.js';
 
 export function initControls() {
   // New File button - show dialog
@@ -102,6 +103,10 @@ export function initControls() {
 
   // Initialize the toolbar presets panel buttons
   initToolbarPresetsPanel();
+
+  // Benchmark button
+  const btnBenchmark = document.getElementById('btn-benchmark');
+  btnBenchmark.addEventListener('click', runBenchmark);
 
   // Settings button
   const btnSettings = document.getElementById('btn-settings');

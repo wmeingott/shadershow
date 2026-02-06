@@ -828,7 +828,7 @@ async function swapGridSlots(fromIndex, toIndex) {
     if (data.type === 'scene') {
       // Re-render scene snapshot to new canvas position
       try {
-        const sceneRenderer = ensureSceneRenderer();
+        const sceneRenderer = await ensureSceneRenderer();
         if (sceneRenderer) {
           sceneRenderer.compile(data.shaderCode);
           sceneRenderer.resetTime();
@@ -860,7 +860,7 @@ async function swapGridSlots(fromIndex, toIndex) {
     if (data.type === 'scene') {
       // Re-render scene snapshot to new canvas position
       try {
-        const sceneRenderer = ensureSceneRenderer();
+        const sceneRenderer = await ensureSceneRenderer();
         if (sceneRenderer) {
           sceneRenderer.compile(data.shaderCode);
           sceneRenderer.resetTime();
@@ -1072,7 +1072,7 @@ async function assignSceneToSlot(slotIndex, sceneCode, filePath, skipSave = fals
     drawScenePlaceholder(ctx, canvas.width, canvas.height);
   } else {
     // Interactive assignment: try to render a snapshot
-    const sceneRenderer = ensureSceneRenderer();
+    const sceneRenderer = await ensureSceneRenderer();
     if (sceneRenderer) {
       try {
         sceneRenderer.compile(sceneCode);
@@ -1209,7 +1209,7 @@ export async function saveActiveSlotShader() {
   try {
     if (isScene) {
       // For scenes, re-render the snapshot
-      const sceneRenderer = ensureSceneRenderer();
+      const sceneRenderer = await ensureSceneRenderer();
       if (sceneRenderer) {
         sceneRenderer.compile(code);
         sceneRenderer.resetTime();
@@ -1470,7 +1470,7 @@ export async function loadGridPresetsFromData(gridState, filePath) {
   }
 }
 
-export function loadGridShaderToEditor(slotIndex) {
+export async function loadGridShaderToEditor(slotIndex) {
   const slotData = state.gridSlots[slotIndex];
   if (!slotData) return;
 
@@ -1523,7 +1523,7 @@ export function loadGridShaderToEditor(slotIndex) {
 }
 
 // Select a grid slot: load shader into preview and show its parameters (single click behavior)
-export function selectGridSlot(slotIndex) {
+export async function selectGridSlot(slotIndex) {
   const slotData = state.gridSlots[slotIndex];
   if (!slotData) return;
 
@@ -1543,9 +1543,9 @@ export function selectGridSlot(slotIndex) {
 
   // Switch render mode if needed
   if (isScene) {
-    setRenderMode('scene');
+    await setRenderMode('scene');
   } else {
-    setRenderMode('shader');
+    await setRenderMode('shader');
   }
 
   // Always compile the shader to state.renderer so we can read @param definitions
@@ -1707,17 +1707,22 @@ export function playGridShader(slotIndex) {
 // Re-save all shader files with current indices (after removing/compacting slots)
 async function resaveAllShaderFiles() {
   // Delete files at all indices up to a generous upper bound
-  // (covers previous larger grids being compacted)
+  // Batch deletes in parallel for performance (covers previous larger grids being compacted)
   const maxIndex = Math.max(state.gridSlots.length + 50, 100);
+  const deletePromises = [];
   for (let i = 0; i < maxIndex; i++) {
-    await window.electronAPI.deleteShaderFromSlot(i);
+    deletePromises.push(window.electronAPI.deleteShaderFromSlot(i));
   }
-  // Save current files
+  await Promise.all(deletePromises);
+
+  // Save current files in parallel
+  const savePromises = [];
   for (let i = 0; i < state.gridSlots.length; i++) {
     if (state.gridSlots[i] && state.gridSlots[i].shaderCode) {
-      await window.electronAPI.saveShaderToSlot(i, state.gridSlots[i].shaderCode);
+      savePromises.push(window.electronAPI.saveShaderToSlot(i, state.gridSlots[i].shaderCode));
     }
   }
+  await Promise.all(savePromises);
 }
 
 // Grid animation frame rate limiting (10fps = 100ms interval)
@@ -2022,7 +2027,9 @@ export class MiniShaderRenderer {
     gl.linkProgram(program);
 
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      throw new Error(gl.getProgramInfoLog(program));
+      const err = gl.getProgramInfoLog(program);
+      gl.deleteProgram(program);
+      throw new Error(err);
     }
 
     if (this.program) gl.deleteProgram(this.program);

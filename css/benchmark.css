@@ -1,0 +1,233 @@
+/* Benchmark Dialog Styles */
+
+.benchmark-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.benchmark-dialog {
+  background: var(--bg-secondary, #1e1e2e);
+  border: 1px solid var(--border-color, #444);
+  border-radius: 8px;
+  width: 560px;
+  max-height: 80vh;
+  overflow-y: auto;
+  color: var(--text-primary, #e0e0e0);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.benchmark-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color, #444);
+}
+
+.benchmark-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.benchmark-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary, #999);
+  font-size: 22px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.benchmark-close:hover {
+  color: var(--text-primary, #e0e0e0);
+}
+
+.benchmark-body {
+  padding: 20px;
+}
+
+/* Progress View */
+.benchmark-progress {
+  text-align: center;
+}
+
+.benchmark-progress-label {
+  font-size: 14px;
+  margin-bottom: 12px;
+  color: var(--text-secondary, #999);
+}
+
+.benchmark-progress-bar {
+  width: 100%;
+  height: 8px;
+  background: var(--bg-tertiary, #2a2a3a);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+
+.benchmark-progress-fill {
+  height: 100%;
+  background: var(--accent-color, #6c8cff);
+  border-radius: 4px;
+  transition: width 0.2s ease;
+  width: 0%;
+}
+
+.benchmark-progress-detail {
+  font-size: 12px;
+  color: var(--text-secondary, #999);
+  margin-bottom: 20px;
+}
+
+/* Results View */
+.benchmark-score-section {
+  text-align: center;
+  margin-bottom: 24px;
+  padding: 20px;
+  background: var(--bg-tertiary, #2a2a3a);
+  border-radius: 8px;
+}
+
+.benchmark-score-value {
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.benchmark-score-label {
+  font-size: 12px;
+  color: var(--text-secondary, #999);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+
+.benchmark-rating {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.benchmark-rating.poor {
+  background: rgba(255, 80, 80, 0.2);
+  color: var(--error-color, #ff5050);
+}
+
+.benchmark-rating.fair {
+  background: rgba(255, 170, 50, 0.2);
+  color: var(--warning-color, #ffaa32);
+}
+
+.benchmark-rating.good {
+  background: rgba(80, 200, 120, 0.2);
+  color: var(--success-color, #50c878);
+}
+
+.benchmark-rating.excellent {
+  background: rgba(100, 140, 255, 0.2);
+  color: var(--accent-color, #6c8cff);
+}
+
+.benchmark-rating.outstanding {
+  background: rgba(200, 120, 255, 0.2);
+  color: #c878ff;
+}
+
+/* Results Table */
+.benchmark-table-section {
+  margin-bottom: 16px;
+}
+
+.benchmark-table-section h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+  color: var(--text-secondary, #999);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.benchmark-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.benchmark-table th,
+.benchmark-table td {
+  padding: 6px 10px;
+  text-align: right;
+  border-bottom: 1px solid var(--border-color, #333);
+}
+
+.benchmark-table th {
+  color: var(--text-secondary, #999);
+  font-weight: 500;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.benchmark-table th:first-child,
+.benchmark-table td:first-child {
+  text-align: left;
+}
+
+.benchmark-table td.fps-good {
+  color: var(--success-color, #50c878);
+}
+
+.benchmark-table td.fps-ok {
+  color: var(--warning-color, #ffaa32);
+}
+
+.benchmark-table td.fps-bad {
+  color: var(--error-color, #ff5050);
+}
+
+/* Footer Buttons */
+.benchmark-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-color, #444);
+}
+
+.benchmark-btn {
+  padding: 6px 16px;
+  border: 1px solid var(--border-color, #444);
+  border-radius: 4px;
+  background: var(--bg-tertiary, #2a2a3a);
+  color: var(--text-primary, #e0e0e0);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.benchmark-btn:hover {
+  background: var(--bg-hover, #3a3a4a);
+}
+
+.benchmark-btn-primary {
+  background: var(--accent-color, #6c8cff);
+  border-color: var(--accent-color, #6c8cff);
+  color: #fff;
+}
+
+.benchmark-btn-primary:hover {
+  opacity: 0.9;
+}

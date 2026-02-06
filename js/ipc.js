@@ -317,16 +317,11 @@ export async function initIPC() {
     setStatus(`NDI source "${source}" connected to iChannel${channel}`, 'success');
   });
 
-  // NDI input frame received
+  // NDI input frame received (binary data via structured clone)
   window.electronAPI.onNDIInputFrame(({ channel, width, height, data }) => {
     if (state.channelState[channel]?.type === 'ndi') {
-      // Convert base64 to Uint8Array
-      const binaryString = atob(data);
-      const len = binaryString.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
+      // data is already a Uint8Array (sent as binary from main process)
+      const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
       state.renderer.setNDIFrame(channel, width, height, bytes);
     }
   });

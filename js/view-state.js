@@ -70,9 +70,12 @@ export async function restoreViewState() {
     document.getElementById('btn-params').classList.toggle('active', state.paramsEnabled);
   }
 
-  // Restore editor width
-  if (viewState.editorWidth) {
-    editorPanel.style.width = viewState.editorWidth;
+  // Restore editor width (validate format: must be percentage like "50%")
+  if (viewState.editorWidth && /^\d{1,3}(\.\d+)?%$/.test(viewState.editorWidth)) {
+    const pct = parseFloat(viewState.editorWidth);
+    if (pct >= 10 && pct <= 90) {
+      editorPanel.style.width = viewState.editorWidth;
+    }
   }
 
   // Restore resolution
@@ -90,12 +93,14 @@ export async function restoreViewState() {
       customX.classList.remove('hidden');
       if (viewState.customWidth) customWidth.value = viewState.customWidth;
       if (viewState.customHeight) customHeight.value = viewState.customHeight;
-      const w = parseInt(customWidth.value) || 1280;
-      const h = parseInt(customHeight.value) || 720;
+      const w = Math.min(Math.max(parseInt(customWidth.value) || 1280, 1), 7680);
+      const h = Math.min(Math.max(parseInt(customHeight.value) || 720, 1), 4320);
       state.renderer.setResolution(w, h);
-    } else {
+    } else if (/^\d+x\d+$/.test(viewState.resolution)) {
       const [w, h] = viewState.resolution.split('x').map(Number);
-      if (w && h) state.renderer.setResolution(w, h);
+      if (w >= 1 && w <= 7680 && h >= 1 && h <= 4320) {
+        state.renderer.setResolution(w, h);
+      }
     }
   }
 

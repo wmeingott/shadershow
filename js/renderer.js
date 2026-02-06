@@ -82,8 +82,17 @@ function initRenderer() {
 }
 
 // Lazy initialization of ThreeSceneRenderer (called when loading a scene file)
-export function ensureSceneRenderer() {
+// Triggers lazy-load of Three.js and Babel if not yet loaded
+export async function ensureSceneRenderer() {
   if (state.sceneRenderer) return state.sceneRenderer;
+
+  // Lazy-load Three.js and Babel if not yet available
+  if (!window.THREE && window.loadThreeJS) {
+    await window.loadThreeJS();
+  }
+  if (!window.Babel && window.loadBabel) {
+    await window.loadBabel();
+  }
 
   const canvas = document.getElementById('shader-canvas');
 
@@ -103,7 +112,7 @@ export function ensureSceneRenderer() {
 }
 
 // Switch between shader and scene renderers
-export function setRenderMode(mode) {
+export async function setRenderMode(mode) {
   // Guard: renderer may not be initialized yet during startup
   if (!state.shaderRenderer) {
     state.renderMode = mode;
@@ -115,7 +124,7 @@ export function setRenderMode(mode) {
   state.renderMode = mode;
 
   if (mode === 'scene') {
-    const sceneRenderer = ensureSceneRenderer();
+    const sceneRenderer = await ensureSceneRenderer();
     if (!sceneRenderer) {
       console.error('Cannot switch to scene mode - ThreeSceneRenderer not available');
       state.renderMode = 'shader';

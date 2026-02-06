@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="css/grid.css">
   <link rel="stylesheet" href="css/dialogs.css">
   <link rel="stylesheet" href="css/claude-ai.css">
+  <link rel="stylesheet" href="css/benchmark.css">
 </head>
 <body>
   <div id="app">
@@ -67,6 +68,9 @@
         <div class="toolbar-separator"></div>
         <button id="btn-ai" title="Claude AI Assistant (Ctrl+Shift+A)">
           <span class="icon">AI</span>
+        </button>
+        <button id="btn-benchmark" title="Run Benchmark">
+          <span class="icon">&#9201;</span>
         </button>
         <button id="btn-settings" title="Settings">
           <span class="icon">&#9881;</span>
@@ -309,19 +313,31 @@
   <script src="node_modules/ace-builds/src-min-noconflict/mode-jsx.js"></script>
   <script src="node_modules/ace-builds/src-min-noconflict/theme-monokai.js"></script>
 
-  <!-- Three.js for 3D scene rendering -->
+  <!-- Three.js and Babel are lazy-loaded on first scene use (saves ~4MB initial load) -->
   <script>
-    // Load THREE.js as ES module and expose globally before other scripts run
     window.THREE = null;
+    window.loadThreeJS = function() {
+      if (window.THREE || window._threeLoading) return window._threePromise || Promise.resolve();
+      window._threeLoading = true;
+      window._threePromise = import('./node_modules/three/build/three.module.js').then(mod => {
+        window.THREE = mod;
+        window.dispatchEvent(new Event('three-loaded'));
+      });
+      return window._threePromise;
+    };
+    window.loadBabel = function() {
+      if (window.Babel || window._babelLoading) return window._babelPromise || Promise.resolve();
+      window._babelLoading = true;
+      window._babelPromise = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'node_modules/@babel/standalone/babel.min.js';
+        s.onload = resolve;
+        s.onerror = reject;
+        document.head.appendChild(s);
+      });
+      return window._babelPromise;
+    };
   </script>
-  <script type="module">
-    import * as THREE from './node_modules/three/build/three.module.js';
-    window.THREE = THREE;
-    window.dispatchEvent(new Event('three-loaded'));
-  </script>
-
-  <!-- Babel for JSX compilation -->
-  <script src="node_modules/@babel/standalone/babel.min.js"></script>
 
   <!-- Renderers -->
   <script src="shader-renderer.js"></script>

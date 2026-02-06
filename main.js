@@ -48,6 +48,7 @@ let recordingFlipBuffer = null;
 let recordingLastWidth = 0;
 let recordingLastHeight = 0;
 let recordingFilePath = null;
+let recordingBackpressure = false;
 
 // Recording resolution presets (same as NDI)
 const recordingResolutions = [
@@ -97,28 +98,46 @@ let tiledFullscreenWindow = null;
 let tiledModeActive = false;
 
 // Ensure data directory exists and migrate old data
-function ensureDataDir() {
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-  if (!fs.existsSync(shadersDir)) {
-    fs.mkdirSync(shadersDir, { recursive: true });
-  }
+async function ensureDataDir() {
+  await fsPromises.mkdir(dataDir, { recursive: true });
+  await fsPromises.mkdir(shadersDir, { recursive: true });
 
   // Migrate old grid state from userData if exists
   const oldGridStateFile = path.join(app.getPath('userData'), 'grid-state.json');
-  if (fs.existsSync(oldGridStateFile) && !fs.existsSync(gridStateFile)) {
+  try {
+    await fsPromises.access(oldGridStateFile);
     try {
-      fs.copyFileSync(oldGridStateFile, gridStateFile);
-      console.log('Migrated grid-state.json from userData to data directory');
-    } catch (err) {
-      console.error('Failed to migrate grid state:', err);
+      await fsPromises.access(gridStateFile);
+    } catch {
+      // gridStateFile doesn't exist, migrate
+      try {
+        await fsPromises.copyFile(oldGridStateFile, gridStateFile);
+        console.log('Migrated grid-state.json from userData to data directory');
+      } catch (err) {
+        console.error('Failed to migrate grid state:', err);
+      }
     }
+  } catch {
+    // oldGridStateFile doesn't exist, nothing to migrate
+  }
+}
+
+// Read a file and return its contents, or null if missing/error
+async function readFileOrNull(filePath) {
+  try {
+    return await fsPromises.readFile(filePath, 'utf-8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    console.error(`Failed to read ${filePath}:`, err);
+    return null;
   }
 }
 
 // Get shader file path for a slot
 function getShaderFilePath(slotIndex) {
+  if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex > 999) {
+    throw new Error(`Invalid slot index: ${slotIndex}`);
+  }
   return path.join(shadersDir, `button${slotIndex + 1}.glsl`);
 }
 
@@ -525,8 +544,9 @@ async function showCustomResolutionDialog() {
     minimizable: false,
     maximizable: false,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false
+      preload: path.join(__dirname, 'preload-dialog.js'),
+      contextIsolation: true,
+      nodeIntegration: false
     },
     backgroundColor: '#1e1e1e',
     title: 'Custom NDI Resolution'
@@ -584,12 +604,11 @@ async function showCustomResolutionDialog() {
         <button class="ok" onclick="submit()">OK</button>
       </div>
       <script>
-        const { ipcRenderer } = require('electron');
         function submit() {
           const w = parseInt(document.getElementById('width').value);
           const h = parseInt(document.getElementById('height').value);
-          if (w >= 128 && h >= 128) {
-            ipcRenderer.send('custom-ndi-resolution', { width: w, height: h });
+          if (w >= 128 && h >= 128 && w <= 7680 && h <= 4320) {
+            window.dialogAPI.submitResolution(w, h);
           }
           window.close();
         }
@@ -675,7 +694,9 @@ function createFullscreenWindow(display, shaderState) {
 async function newFile(fileType = 'shader') {
   // Ask the renderer if there are unsaved changes
   const hasChanges = await new Promise((resolve) => {
+    const timeout = setTimeout(() => resolve(false), 5000);
     ipcMain.once('editor-has-changes-response', (event, result) => {
+      clearTimeout(timeout);
       resolve(result);
     });
     mainWindow.webContents.send('check-editor-changes');
@@ -718,7 +739,7 @@ async function openFile() {
   if (!result.canceled && result.filePaths.length > 0) {
     const filePath = result.filePaths[0];
     try {
-      const content = fs.readFileSync(filePath, 'utf-8');
+      const content = await fsPromises.readFile(filePath, 'utf-8');
       currentFilePath = filePath;
       mainWindow.webContents.send('file-opened', { content, filePath });
       updateTitle();
@@ -764,7 +785,7 @@ async function loadTexture(channel) {
   if (!result.canceled && result.filePaths.length > 0) {
     const filePath = result.filePaths[0];
     try {
-      const data = fs.readFileSync(filePath);
+      const data = await fsPromises.readFile(filePath);
       const base64 = data.toString('base64');
       const ext = path.extname(filePath).toLowerCase();
       const mimeType = {
@@ -808,6 +829,7 @@ function useAudio(channel) {
 }
 
 function clearChannel(channel) {
+  if (!Number.isInteger(channel) || channel < 0 || channel > 3) return;
   // Also disconnect any NDI receiver on this channel
   if (ndiReceivers[channel]) {
     ndiReceivers[channel].disconnect();
@@ -838,13 +860,13 @@ async function useNDISource(channel, source) {
   // Set up frame callback to forward frames to renderer
   receiver.onFrame = (ch, frame) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      // Convert buffer to base64 for IPC transfer
-      const base64Data = frame.data.toString('base64');
+      // Send raw buffer via IPC (structured clone handles typed arrays efficiently)
+      const frameBuffer = Buffer.from(frame.data.buffer, frame.data.byteOffset, frame.data.byteLength);
       mainWindow.webContents.send('ndi-input-frame', {
         channel: ch,
         width: frame.width,
         height: frame.height,
-        data: base64Data
+        data: frameBuffer
       });
     }
   };
@@ -933,7 +955,7 @@ async function sendNDIFrame(frameData) {
       // Handle both raw Uint8Array and legacy base64 format
       let sourceBuffer;
       if (data instanceof Uint8Array || Buffer.isBuffer(data)) {
-        sourceBuffer = Buffer.from(data);
+        sourceBuffer = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
       } else if (frameData.rgbaData) {
         // Legacy base64 format fallback
         sourceBuffer = Buffer.from(frameData.rgbaData, 'base64');
@@ -1040,7 +1062,7 @@ async function sendSyphonFrame(frameData) {
       // Handle both raw Uint8Array and legacy base64 format
       let sourceBuffer;
       if (data instanceof Uint8Array || Buffer.isBuffer(data)) {
-        sourceBuffer = Buffer.from(data);
+        sourceBuffer = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
       } else if (frameData.rgbaData) {
         // Legacy base64 format fallback
         sourceBuffer = Buffer.from(frameData.rgbaData, 'base64');
@@ -1104,7 +1126,9 @@ async function startRecording() {
   if (recWidth === 0 || recHeight === 0) {
     // Match Preview - get from renderer via sync IPC
     const previewRes = await new Promise((resolve) => {
+      const timeout = setTimeout(() => resolve({ width: 1920, height: 1080 }), 5000);
       ipcMain.once('preview-resolution-for-recording', (event, data) => {
+        clearTimeout(timeout);
         resolve(data);
       });
       mainWindow.webContents.send('request-preview-resolution-for-recording');
@@ -1228,7 +1252,7 @@ function sendRecordingFrame(frameData) {
 
     let sourceBuffer;
     if (data instanceof Uint8Array || Buffer.isBuffer(data)) {
-      sourceBuffer = Buffer.from(data);
+      sourceBuffer = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
     } else {
       console.error('Recording frame: invalid data format');
       return;
@@ -1252,11 +1276,11 @@ function sendRecordingFrame(frameData) {
     }
 
     // Write to FFmpeg stdin
+    if (recordingBackpressure) return; // Drop frame during back-pressure
     const canWrite = recordingProcess.stdin.write(recordingFlipBuffer);
     if (!canWrite) {
-      // Back-pressure: wait for drain before writing more
-      // In practice, at 60fps this rarely happens
-      recordingProcess.stdin.once('drain', () => {});
+      recordingBackpressure = true;
+      recordingProcess.stdin.once('drain', () => { recordingBackpressure = false; });
     }
   } catch (err) {
     console.error('Recording frame error:', err.message);
@@ -1287,7 +1311,7 @@ async function loadGridPresetsFrom() {
   if (!result.canceled && result.filePaths.length > 0) {
     const filePath = result.filePaths[0];
     try {
-      const data = fs.readFileSync(filePath, 'utf-8');
+      const data = await fsPromises.readFile(filePath, 'utf-8');
       const gridState = JSON.parse(data);
       mainWindow.webContents.send('load-grid-presets', { gridState, filePath });
     } catch (err) {
@@ -1304,7 +1328,9 @@ async function loadGridPresetsFrom() {
 async function readDirectoryContents(dirPath, basePath = '') {
   const contents = {};
 
-  if (!fs.existsSync(dirPath)) {
+  try {
+    await fsPromises.access(dirPath);
+  } catch {
     return contents;
   }
 
@@ -1339,14 +1365,25 @@ async function readDirectoryContents(dirPath, basePath = '') {
 
 // Write files from an object back to a directory
 async function writeDirectoryContents(dirPath, contents) {
+  const resolvedBase = path.resolve(dirPath) + path.sep;
   for (const [relativePath, fileData] of Object.entries(contents)) {
-    const fullPath = path.join(dirPath, relativePath);
-    const parentDir = path.dirname(fullPath);
+    const fullPath = path.resolve(dirPath, relativePath);
 
-    // Ensure parent directory exists
+    // Prevent path traversal
+    if (!fullPath.startsWith(resolvedBase)) {
+      console.error(`Path traversal blocked: ${relativePath}`);
+      continue;
+    }
+
+    // Validate encoding
+    if (fileData.encoding !== 'utf8' && fileData.encoding !== 'base64') {
+      console.error(`Invalid encoding for ${relativePath}: ${fileData.encoding}`);
+      continue;
+    }
+
+    const parentDir = path.dirname(fullPath);
     await fsPromises.mkdir(parentDir, { recursive: true });
 
-    // Write file
     const content = fileData.encoding === 'base64'
       ? Buffer.from(fileData.content, 'base64')
       : fileData.content;
@@ -1371,6 +1408,9 @@ async function exportApplicationState() {
   try {
     // Read all files from data directory
     const dataContents = await readDirectoryContents(dataDir);
+
+    // Exclude sensitive files from export
+    delete dataContents['claude-key.json'];
 
     // Build state bundle
     const stateBundle = {
@@ -1435,8 +1475,13 @@ async function importApplicationState() {
     const stateBundle = JSON.parse(decompressed.toString('utf8'));
 
     // Validate bundle
-    if (!stateBundle.version || !stateBundle.files) {
+    if (!stateBundle.version || !stateBundle.files || typeof stateBundle.files !== 'object') {
       throw new Error('Invalid state file format');
+    }
+    // Validate file count
+    const fileKeys = Object.keys(stateBundle.files);
+    if (fileKeys.length > 1000) {
+      throw new Error('State file contains too many files');
     }
 
     // Write files to data directory
@@ -1713,7 +1758,7 @@ ipcMain.handle('load-shader-for-grid', async () => {
   if (!result.canceled && result.filePaths.length > 0) {
     const filePath = result.filePaths[0];
     try {
-      const content = fs.readFileSync(filePath, 'utf-8');
+      const content = await fsPromises.readFile(filePath, 'utf-8');
       return { content, filePath };
     } catch (err) {
       return { error: err.message };
@@ -1738,38 +1783,33 @@ ipcMain.on('open-fullscreen-with-shader', (event, shaderState) => {
 
 // Save grid state (supports both legacy array format and new tabbed format)
 ipcMain.on('save-grid-state', async (event, gridState) => {
-  ensureDataDir();
+  await ensureDataDir();
   try {
     // Check if this is the new tabbed format (version 2)
     if (gridState.version === 2 && gridState.tabs) {
       // New tabbed format - save with embedded shader code
+      const tabs = [];
+      for (const tab of gridState.tabs) {
+        const slots = await Promise.all(tab.slots.map(async (slot, index) => {
+          if (!slot) return null;
+          // Get shader code from the slot's file if available
+          const shaderFile = getShaderFilePath(index);
+          const shaderCode = await readFileOrNull(shaderFile);
+          return {
+            shaderCode: shaderCode,
+            filePath: slot.filePath,
+            params: slot.params,
+            customParams: slot.customParams || {},
+            presets: slot.presets || [],
+            type: slot.type || 'shader'
+          };
+        }));
+        tabs.push({ name: tab.name, slots });
+      }
       const saveData = {
         version: 2,
         activeTab: gridState.activeTab,
-        tabs: gridState.tabs.map(tab => ({
-          name: tab.name,
-          slots: tab.slots.map((slot, index) => {
-            if (!slot) return null;
-            // Get shader code from the slot's file if available
-            const shaderFile = getShaderFilePath(index);
-            let shaderCode = null;
-            if (fs.existsSync(shaderFile)) {
-              try {
-                shaderCode = fs.readFileSync(shaderFile, 'utf-8');
-              } catch (err) {
-                // ignore
-              }
-            }
-            return {
-              shaderCode: shaderCode,
-              filePath: slot.filePath,
-              params: slot.params,
-              customParams: slot.customParams || {},
-              presets: slot.presets || [],
-              type: slot.type || 'shader'
-            };
-          })
-        }))
+        tabs
       };
       await fsPromises.writeFile(gridStateFile, JSON.stringify(saveData, null, 2), 'utf-8');
     } else {
@@ -1792,9 +1832,9 @@ ipcMain.on('save-grid-state', async (event, gridState) => {
 // Load grid state (loads metadata and shader code)
 ipcMain.handle('load-grid-state', async () => {
   try {
-    if (fs.existsSync(gridStateFile)) {
-      const data = fs.readFileSync(gridStateFile, 'utf-8');
-      const savedData = JSON.parse(data);
+    const raw = await readFileOrNull(gridStateFile);
+    if (raw) {
+      const savedData = JSON.parse(raw);
 
       // Check if this is the new tabbed format (version 2)
       if (savedData.version === 2 && savedData.tabs) {
@@ -1804,31 +1844,20 @@ ipcMain.handle('load-grid-state', async () => {
 
       // Legacy format - load shader code from individual files
       const metadata = savedData;
-      const state = metadata.map((slot, index) => {
+      const state = await Promise.all(metadata.map(async (slot, index) => {
         if (!slot) {
           // Check if shader file exists even without metadata
           const shaderFile = getShaderFilePath(index);
-          if (fs.existsSync(shaderFile)) {
-            try {
-              const shaderCode = fs.readFileSync(shaderFile, 'utf-8');
-              return { shaderCode, filePath: null, params: {}, presets: [] };
-            } catch (err) {
-              return null;
-            }
+          const shaderCode = await readFileOrNull(shaderFile);
+          if (shaderCode) {
+            return { shaderCode, filePath: null, params: {}, presets: [] };
           }
           return null;
         }
 
         // Load shader code from file
         const shaderFile = getShaderFilePath(index);
-        let shaderCode = null;
-        if (fs.existsSync(shaderFile)) {
-          try {
-            shaderCode = fs.readFileSync(shaderFile, 'utf-8');
-          } catch (err) {
-            console.error(`Failed to load shader from ${shaderFile}:`, err);
-          }
-        }
+        const shaderCode = await readFileOrNull(shaderFile);
 
         if (!shaderCode) return null;
 
@@ -1848,25 +1877,20 @@ ipcMain.handle('load-grid-state', async () => {
           paramNames: slot.paramNames || {},
           type
         };
-      });
+      }));
 
       return state;
     } else {
       // No metadata file - scan for shader files dynamically
       const state = [];
-      let i = 0;
-      while (true) {
+      const MAX_SLOTS = 64;
+      for (let i = 0; i < MAX_SLOTS; i++) {
         const shaderFile = getShaderFilePath(i);
-        if (fs.existsSync(shaderFile)) {
-          try {
-            const shaderCode = fs.readFileSync(shaderFile, 'utf-8');
-            const isScene = shaderCode.includes('function setup') &&
-              (shaderCode.includes('THREE') || shaderCode.includes('scene'));
-            state.push({ shaderCode, filePath: null, params: {}, presets: [], type: isScene ? 'scene' : 'shader' });
-          } catch (err) {
-            // Skip files that can't be read
-          }
-          i++;
+        const shaderCode = await readFileOrNull(shaderFile);
+        if (shaderCode) {
+          const isScene = shaderCode.includes('function setup') &&
+            (shaderCode.includes('THREE') || shaderCode.includes('scene'));
+          state.push({ shaderCode, filePath: null, params: {}, presets: [], type: isScene ? 'scene' : 'shader' });
         } else {
           break;
         }
@@ -1881,7 +1905,7 @@ ipcMain.handle('load-grid-state', async () => {
 
 // Save parameter presets
 ipcMain.on('save-presets', async (event, presets) => {
-  ensureDataDir();
+  await ensureDataDir();
   try {
     await fsPromises.writeFile(presetsFile, JSON.stringify(presets, null, 2), 'utf-8');
   } catch (err) {
@@ -1892,10 +1916,8 @@ ipcMain.on('save-presets', async (event, presets) => {
 // Load parameter presets
 ipcMain.handle('load-presets', async () => {
   try {
-    if (fs.existsSync(presetsFile)) {
-      const data = fs.readFileSync(presetsFile, 'utf-8');
-      return JSON.parse(data);
-    }
+    const raw = await readFileOrNull(presetsFile);
+    if (raw) return JSON.parse(raw);
   } catch (err) {
     console.error('Failed to load presets:', err);
   }
@@ -1914,11 +1936,13 @@ ipcMain.handle('find-ndi-sources', async () => {
 
 // Set channel to NDI source
 ipcMain.on('set-channel-ndi', async (event, { channel, source }) => {
+  if (!Number.isInteger(channel) || channel < 0 || channel > 3) return;
   await useNDISource(channel, source);
 });
 
 // Clear NDI from channel
 ipcMain.on('clear-channel-ndi', (event, { channel }) => {
+  if (!Number.isInteger(channel) || channel < 0 || channel > 3) return;
   if (ndiReceivers[channel]) {
     ndiReceivers[channel].disconnect();
     ndiReceivers[channel] = null;
@@ -1927,7 +1951,26 @@ ipcMain.on('clear-channel-ndi', (event, { channel }) => {
 });
 
 // Custom NDI resolution from dialog
+ipcMain.on('custom-ndi-resolution-from-dialog', async (event, { width, height }) => {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 128 || height < 128 || width > 7680 || height > 4320) {
+    return;
+  }
+  ndiResolution = {
+    width,
+    height,
+    label: `${width}x${height} (Custom)`
+  };
+  console.log(`NDI resolution set to ${ndiResolution.label}`);
+  if (ndiEnabled) {
+    await restartNDIWithNewResolution();
+  }
+  createMenu();
+});
+
 ipcMain.on('custom-ndi-resolution', async (event, { width, height }) => {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 128 || height < 128 || width > 7680 || height > 4320) {
+    return;
+  }
   ndiResolution = {
     width,
     height,
@@ -2009,12 +2052,13 @@ ipcMain.on('open-fullscreen-primary', () => {
 });
 
 // Get settings
-ipcMain.handle('get-settings', () => {
+ipcMain.handle('get-settings', async () => {
   // Load param ranges from settings file
   let paramRanges = null;
   try {
-    if (fs.existsSync(settingsFile)) {
-      const data = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
+    const raw = await readFileOrNull(settingsFile);
+    if (raw) {
+      const data = JSON.parse(raw);
       paramRanges = data.paramRanges || null;
     }
   } catch (err) {
@@ -2089,10 +2133,10 @@ ipcMain.on('save-grid-presets-to-file', async (event, gridState) => {
   }
 });
 
-app.whenReady().then(() => {
-  ensureDataDir();
-  loadSettings();
-  loadClaudeKey();
+app.whenReady().then(async () => {
+  await ensureDataDir();
+  await loadSettings();
+  await loadClaudeKey();
   createWindow();
 
   app.on('activate', () => {
@@ -2103,10 +2147,11 @@ app.whenReady().then(() => {
 });
 
 // Load saved settings on startup
-function loadSettings() {
+async function loadSettings() {
   try {
-    if (fs.existsSync(settingsFile)) {
-      const data = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
+    const raw = await readFileOrNull(settingsFile);
+    if (raw) {
+      const data = JSON.parse(raw);
       if (data.ndiResolution) {
         ndiResolution = data.ndiResolution;
       }
@@ -2124,13 +2169,13 @@ function loadSettings() {
 
 // Save settings to file (async, non-blocking)
 async function saveSettingsToFile(additionalData = {}) {
-  ensureDataDir();
+  await ensureDataDir();
   try {
     // Load existing settings to preserve other data
     let existingData = {};
-    if (fs.existsSync(settingsFile)) {
-      const fileContent = await fsPromises.readFile(settingsFile, 'utf-8');
-      existingData = JSON.parse(fileContent);
+    const raw = await readFileOrNull(settingsFile);
+    if (raw) {
+      existingData = JSON.parse(raw);
     }
 
     const data = {
@@ -2148,7 +2193,7 @@ async function saveSettingsToFile(additionalData = {}) {
 
 // Save shader to slot file
 ipcMain.handle('save-shader-to-slot', async (event, slotIndex, shaderCode) => {
-  ensureDataDir();
+  await ensureDataDir();
   try {
     const shaderFile = getShaderFilePath(slotIndex);
     await fsPromises.writeFile(shaderFile, shaderCode, 'utf-8');
@@ -2163,12 +2208,10 @@ ipcMain.handle('save-shader-to-slot', async (event, slotIndex, shaderCode) => {
 ipcMain.handle('load-shader-from-slot', async (event, slotIndex) => {
   try {
     const shaderFile = getShaderFilePath(slotIndex);
-    if (fs.existsSync(shaderFile)) {
-      const shaderCode = fs.readFileSync(shaderFile, 'utf-8');
-      return { success: true, shaderCode };
-    }
-    return { success: false, error: 'File not found' };
+    const shaderCode = await fsPromises.readFile(shaderFile, 'utf-8');
+    return { success: true, shaderCode };
   } catch (err) {
+    if (err.code === 'ENOENT') return { success: false, error: 'File not found' };
     console.error(`Failed to load shader from slot ${slotIndex}:`, err);
     return { success: false, error: err.message };
   }
@@ -2178,11 +2221,10 @@ ipcMain.handle('load-shader-from-slot', async (event, slotIndex) => {
 ipcMain.handle('delete-shader-from-slot', async (event, slotIndex) => {
   try {
     const shaderFile = getShaderFilePath(slotIndex);
-    if (fs.existsSync(shaderFile)) {
-      fs.unlinkSync(shaderFile);
-    }
+    await fsPromises.unlink(shaderFile);
     return { success: true };
   } catch (err) {
+    if (err.code === 'ENOENT') return { success: true }; // Already deleted
     console.error(`Failed to delete shader from slot ${slotIndex}:`, err);
     return { success: false, error: err.message };
   }
@@ -2190,7 +2232,7 @@ ipcMain.handle('delete-shader-from-slot', async (event, slotIndex) => {
 
 // Save view state
 ipcMain.on('save-view-state', async (event, viewState) => {
-  ensureDataDir();
+  await ensureDataDir();
   try {
     await fsPromises.writeFile(viewStateFile, JSON.stringify(viewState, null, 2), 'utf-8');
   } catch (err) {
@@ -2201,10 +2243,8 @@ ipcMain.on('save-view-state', async (event, viewState) => {
 // Load view state
 ipcMain.handle('load-view-state', async () => {
   try {
-    if (fs.existsSync(viewStateFile)) {
-      const data = fs.readFileSync(viewStateFile, 'utf-8');
-      return JSON.parse(data);
-    }
+    const raw = await readFileOrNull(viewStateFile);
+    if (raw) return JSON.parse(raw);
   } catch (err) {
     console.error('Failed to load view state:', err);
   }
@@ -2217,7 +2257,7 @@ ipcMain.handle('load-view-state', async () => {
 
 // Save tile state
 ipcMain.on('save-tile-state', async (event, tileState) => {
-  ensureDataDir();
+  await ensureDataDir();
   try {
     await fsPromises.writeFile(tileStateFile, JSON.stringify(tileState, null, 2), 'utf-8');
   } catch (err) {
@@ -2228,10 +2268,8 @@ ipcMain.on('save-tile-state', async (event, tileState) => {
 // Load tile state
 ipcMain.handle('load-tile-state', async () => {
   try {
-    if (fs.existsSync(tileStateFile)) {
-      const data = fs.readFileSync(tileStateFile, 'utf-8');
-      return JSON.parse(data);
-    }
+    const raw = await readFileOrNull(tileStateFile);
+    if (raw) return JSON.parse(raw);
   } catch (err) {
     console.error('Failed to load tile state:', err);
   }
@@ -2240,7 +2278,7 @@ ipcMain.handle('load-tile-state', async () => {
 
 // Save tile presets (full snapshots with embedded shader code)
 ipcMain.on('save-tile-presets', async (event, presets) => {
-  ensureDataDir();
+  await ensureDataDir();
   try {
     await fsPromises.writeFile(tilePresetsFile, JSON.stringify(presets, null, 2), 'utf-8');
   } catch (err) {
@@ -2251,10 +2289,8 @@ ipcMain.on('save-tile-presets', async (event, presets) => {
 // Load tile presets
 ipcMain.handle('load-tile-presets', async () => {
   try {
-    if (fs.existsSync(tilePresetsFile)) {
-      const data = fs.readFileSync(tilePresetsFile, 'utf-8');
-      return JSON.parse(data);
-    }
+    const raw = await readFileOrNull(tilePresetsFile);
+    if (raw) return JSON.parse(raw);
   } catch (err) {
     console.error('Failed to load tile presets:', err);
   }
@@ -2361,10 +2397,11 @@ function openTiledFullscreen(config) {
 // =============================================================================
 
 // Load Claude API key on startup
-function loadClaudeKey() {
+async function loadClaudeKey() {
   try {
-    if (fs.existsSync(claudeKeyFile)) {
-      const data = JSON.parse(fs.readFileSync(claudeKeyFile, 'utf-8'));
+    const raw = await readFileOrNull(claudeKeyFile);
+    if (raw) {
+      const data = JSON.parse(raw);
       claudeApiKey = data.apiKey || null;
       claudeModel = data.model || 'claude-sonnet-4-20250514';
     }
@@ -2381,7 +2418,7 @@ ipcMain.handle('save-claude-key', async (event, key, model) => {
       claudeApiKey = key;
     }
     claudeModel = model || 'claude-sonnet-4-20250514';
-    ensureDataDir();
+    await ensureDataDir();
     await fsPromises.writeFile(claudeKeyFile, JSON.stringify({
       apiKey: claudeApiKey,
       model: claudeModel
@@ -2514,6 +2551,7 @@ ipcMain.on('claude-prompt', (event, data) => {
     }
 
     let buffer = '';
+    let streamEndSent = false;
 
     res.on('data', (chunk) => {
       buffer += chunk.toString();
@@ -2536,6 +2574,7 @@ ipcMain.on('claude-prompt', (event, data) => {
                 event.sender.send('claude-stream-chunk', { text });
               }
             } else if (parsed.type === 'message_stop') {
+              streamEndSent = true;
               event.sender.send('claude-stream-end', { complete: true });
             } else if (parsed.type === 'error') {
               event.sender.send('claude-error', { error: parsed.error?.message || 'Stream error' });
@@ -2559,7 +2598,9 @@ ipcMain.on('claude-prompt', (event, data) => {
           // Ignore
         }
       }
-      event.sender.send('claude-stream-end', { complete: true });
+      if (!streamEndSent) {
+        event.sender.send('claude-stream-end', { complete: true });
+      }
       claudeActiveRequest = null;
     });
   });

@@ -15,6 +15,7 @@ import { tileState, calculateTileBounds } from './tile-state.js';
 import { setStatus } from './utils.js';
 import { updateLocalPresetsUI } from './presets.js';
 import { initMixer, isMixerActive, renderMixerComposite, hideMixerOverlay } from './mixer.js';
+import { initSettingsOnLoad } from './settings.js';
 
 // Initialize application
 document.addEventListener('DOMContentLoaded', async () => {
@@ -31,6 +32,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initControls();
     console.log('Controls initialized');
 
+    await initSettingsOnLoad();
     initParams();
     initMouseAssignment();
     initPresets();

@@ -87,7 +87,8 @@
 
 .shader-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fill, var(--grid-slot-width, 150px));
+  align-content: start;
   gap: 8px;
   width: 100%;
   flex-shrink: 0;
@@ -101,7 +102,8 @@
   cursor: pointer;
   overflow: hidden;
   transition: border-color 0.15s, transform 0.1s;
-  aspect-ratio: 16 / 9;
+  display: flex;
+  flex-direction: column;
 }
 
 .grid-slot:hover {
@@ -155,13 +157,13 @@
 
 .grid-slot canvas {
   width: 100%;
-  height: 100%;
+  aspect-ratio: 16 / 9;
   display: block;
 }
 
 .grid-slot .slot-number {
   position: absolute;
-  bottom: 4px;
+  bottom: 20px;
   right: 6px;
   font-size: 12px;
   color: var(--text-secondary);
@@ -172,6 +174,18 @@
 
 .grid-slot.has-shader .slot-number {
   color: var(--success-color);
+}
+
+.slot-label {
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-height: 18px;
+  line-height: 18px;
 }
 
 /* Add shader button */
@@ -280,28 +294,19 @@
    Mix Preset Panel
    ============================================================================= */
 
-.mix-preset-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 8px;
-  width: 100%;
-}
-
 .mix-preset-btn {
-  aspect-ratio: 16 / 9;
   background: var(--bg-tertiary);
   border: 2px solid var(--border-color);
   border-radius: 4px;
   cursor: pointer;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  align-items: stretch;
   font-size: 13px;
   color: var(--text-primary);
   transition: border-color 0.15s, transform 0.1s;
   text-align: center;
-  padding: 4px;
-  word-break: break-word;
+  overflow: hidden;
 }
 
 .mix-preset-btn:hover {
@@ -314,13 +319,32 @@
   box-shadow: 0 0 8px var(--warning-color);
 }
 
+.mix-preset-thumb {
+  aspect-ratio: 16 / 9;
+  background-size: cover;
+  background-position: center;
+  background-color: var(--bg-tertiary);
+}
+
+.mix-preset-label {
+  padding: 4px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .mix-preset-btn.mix-add-btn {
+  aspect-ratio: 16 / 9;
   border-style: dashed;
   border-color: var(--border-color);
   background: transparent;
   font-size: 36px;
   font-weight: 300;
   color: var(--text-secondary);
+  justify-content: center;
+  align-items: center;
 }
 
 .mix-preset-btn.mix-add-btn:hover {
@@ -329,19 +353,6 @@
   color: var(--accent-color);
 }
 
-.mix-preset-btn.mix-reset-btn {
-  border-style: dashed;
-  border-color: var(--border-color);
-  background: transparent;
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.mix-preset-btn.mix-reset-btn:hover {
-  border-color: var(--error-color, #e44);
-  background: rgba(228, 68, 68, 0.1);
-  color: var(--error-color, #e44);
-}
 
 /* Shader Presets Section (between preview and bottom row) */
 .grid-presets-section {

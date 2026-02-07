@@ -4,6 +4,18 @@ import { setStatus } from './utils.js';
 
 let settingsKeyHandler = null;
 
+export function applyGridSlotWidth(width) {
+  document.documentElement.style.setProperty('--grid-slot-width', `${width}px`);
+}
+
+// Load and apply grid slot width on startup
+export async function initSettingsOnLoad() {
+  const settings = await window.electronAPI.getSettings();
+  if (settings.gridSlotWidth) {
+    applyGridSlotWidth(settings.gridSlotWidth);
+  }
+}
+
 export async function showSettingsDialog() {
   // Get current settings
   const settings = await window.electronAPI.getSettings();
@@ -73,6 +85,15 @@ export async function showSettingsDialog() {
           </div>
         </div>
 
+        <div class="settings-section">
+          <h3>Shader Grid</h3>
+          <div class="setting-row">
+            <label>Slot Size:</label>
+            <input type="range" id="settings-grid-slot-width" min="80" max="300" step="10" value="${settings.gridSlotWidth || 150}">
+            <span id="settings-grid-slot-width-value">${settings.gridSlotWidth || 150}px</span>
+          </div>
+        </div>
+
         <div class="settings-section claude-settings-section">
           <h3>Claude AI Assistant</h3>
           <div class="setting-row">
@@ -124,6 +145,13 @@ export async function showSettingsDialog() {
     } else {
       customRes.classList.add('hidden');
     }
+  });
+
+  // Grid slot size slider live preview
+  const slotWidthSlider = document.getElementById('settings-grid-slot-width');
+  const slotWidthValue = document.getElementById('settings-grid-slot-width-value');
+  slotWidthSlider.addEventListener('input', () => {
+    slotWidthValue.textContent = `${slotWidthSlider.value}px`;
   });
 
   // Close on overlay click
@@ -235,12 +263,18 @@ async function applySettings() {
   const frameSkipSelect = document.getElementById('settings-ndi-frameskip');
   const ndiFrameSkip = frameSkipSelect ? parseInt(frameSkipSelect.value) : 4;
 
+  // Parse grid slot width
+  const gridSlotWidth = parseInt(document.getElementById('settings-grid-slot-width').value) || 150;
+
   // Save to file
-  const settingsData = { ndiResolution, ndiFrameSkip };
+  const settingsData = { ndiResolution, ndiFrameSkip, gridSlotWidth };
   if (recordingResolution) {
     settingsData.recordingResolution = recordingResolution;
   }
   window.electronAPI.saveSettings(settingsData);
+
+  // Apply grid slot width immediately
+  applyGridSlotWidth(gridSlotWidth);
 
   // Save Claude settings if key was entered
   const claudeKey = document.getElementById('settings-claude-key').value.trim();

@@ -9,11 +9,43 @@ import { parseShaderParams, generateUniformDeclarations } from './param-parser.j
 import { openInTab } from './tabs.js';
 import { tileState, assignTile } from './tile-state.js';
 import { updateTileRenderer, refreshTileRenderers } from './controls.js';
-import { assignShaderToMixer, recallMixState, resetMixer, isMixerActive } from './mixer.js';
+import { assignShaderToMixer, recallMixState, resetMixer, isMixerActive, captureMixerThumbnail } from './mixer.js';
 
 // Track drag state
 let dragSourceIndex = null;
 let tabContextMenuHandler = null;
+
+// Track max container height so the panel never shrinks when switching tabs
+let maxContainerHeight = 0;
+
+function applyMaxContainerHeight() {
+  const container = document.getElementById('shader-grid-container');
+  if (!container) return;
+  // Temporarily remove min-height to measure natural height
+  container.style.minHeight = '';
+  requestAnimationFrame(() => {
+    const h = container.scrollHeight;
+    if (h > maxContainerHeight) maxContainerHeight = h;
+    if (maxContainerHeight > 0) container.style.minHeight = `${maxContainerHeight}px`;
+  });
+}
+
+// Reset max height tracking when panel width changes (grid reflows)
+let _gridPanelWidth = 0;
+const _gridResizeObserver = new ResizeObserver((entries) => {
+  for (const entry of entries) {
+    const w = entry.contentRect.width;
+    if (_gridPanelWidth && Math.abs(w - _gridPanelWidth) > 1) {
+      maxContainerHeight = 0;
+      applyMaxContainerHeight();
+    }
+    _gridPanelWidth = w;
+  }
+});
+requestAnimationFrame(() => {
+  const panel = document.getElementById('grid-panel');
+  if (panel) _gridResizeObserver.observe(panel);
+});
 
 // =============================================================================
 // Tab Management
@@ -370,18 +402,26 @@ function rebuildMixPanelDOM() {
   const tab = state.shaderTabs[state.activeShaderTab];
   if (!tab || tab.type !== 'mix') return;
 
-  // Create the mix preset grid
-  const grid = document.createElement('div');
-  grid.className = 'mix-preset-grid';
-
+  // Append mix preset buttons directly into container (same as shader grid slots)
   const presets = tab.mixPresets || [];
   for (let i = 0; i < presets.length; i++) {
     const preset = presets[i];
     const btn = document.createElement('div');
     btn.className = 'mix-preset-btn';
     btn.dataset.presetIndex = i;
-    btn.textContent = preset.name || `Mix ${i + 1}`;
     btn.title = buildMixPresetTooltip(preset);
+
+    const thumb = document.createElement('div');
+    thumb.className = 'mix-preset-thumb';
+    if (preset.thumbnail) {
+      thumb.style.backgroundImage = `url(${preset.thumbnail})`;
+    }
+    btn.appendChild(thumb);
+
+    const label = document.createElement('span');
+    label.className = 'mix-preset-label';
+    label.textContent = preset.name || `Mix ${i + 1}`;
+    btn.appendChild(label);
 
     btn.addEventListener('click', () => {
       recallMixPresetFromTab(i);
@@ -391,7 +431,7 @@ function rebuildMixPanelDOM() {
       showMixPresetContextMenu(e.clientX, e.clientY, i);
     });
 
-    grid.appendChild(btn);
+    container.appendChild(btn);
   }
 
   // Add "+" button to save current mix state
@@ -402,19 +442,10 @@ function rebuildMixPanelDOM() {
   addBtn.addEventListener('click', () => {
     saveMixPreset();
   });
-  grid.appendChild(addBtn);
+  container.appendChild(addBtn);
 
-  // Add reset button to clear all mixer channels
-  const resetBtn = document.createElement('div');
-  resetBtn.className = 'mix-preset-btn mix-reset-btn';
-  resetBtn.textContent = 'Reset';
-  resetBtn.title = 'Clear all mixer channels';
-  resetBtn.addEventListener('click', () => {
-    resetMixer();
-  });
-  grid.appendChild(resetBtn);
-
-  container.appendChild(grid);
+  // Maintain stable panel height across tab switches
+  applyMaxContainerHeight();
 }
 
 // Build a tooltip string for a mix preset
@@ -454,10 +485,12 @@ function saveMixPreset() {
   });
 
   const presetName = `Mix ${(tab.mixPresets || []).length + 1}`;
+  const thumbnail = captureMixerThumbnail();
   const preset = {
     name: presetName,
     blendMode: state.mixerBlendMode,
-    channels
+    channels,
+    thumbnail
   };
 
   if (!tab.mixPresets) tab.mixPresets = [];
@@ -480,7 +513,7 @@ function recallMixPresetFromTab(presetIndex) {
   recallMixState(preset);
 
   // Update active highlight on buttons
-  const grid = document.querySelector('.mix-preset-grid');
+  const grid = document.getElementById('shader-grid-container');
   if (grid) {
     grid.querySelectorAll('.mix-preset-btn').forEach(btn => {
       btn.classList.remove('active');
@@ -585,7 +618,9 @@ function updateMixPreset(presetIndex) {
 
   preset.blendMode = state.mixerBlendMode;
   preset.channels = channels;
+  preset.thumbnail = captureMixerThumbnail();
 
+  rebuildMixPanelDOM();
   saveGridState();
   setStatus(`Updated mix preset "${preset.name}"`, 'success');
 }
@@ -598,7 +633,7 @@ function renameMixPreset(presetIndex) {
   const preset = tab.mixPresets?.[presetIndex];
   if (!preset) return;
 
-  const grid = document.querySelector('.mix-preset-grid');
+  const grid = document.getElementById('shader-grid-container');
   const btn = grid?.querySelector(`[data-preset-index="${presetIndex}"]`);
   if (!btn) return;
 
@@ -626,7 +661,7 @@ function renameMixPreset(presetIndex) {
     }
   });
 
-  btn.textContent = '';
+  btn.innerHTML = '';
   btn.appendChild(input);
   input.focus();
   input.select();
@@ -730,6 +765,10 @@ function createGridSlotElement(index) {
   numberSpan.className = 'slot-number';
   numberSpan.textContent = index + 1;
   slot.appendChild(numberSpan);
+
+  const labelSpan = document.createElement('span');
+  labelSpan.className = 'slot-label';
+  slot.appendChild(labelSpan);
 
   // Store listeners for this slot
   const listeners = [];
@@ -936,6 +975,12 @@ function rebuildGridDOM() {
       const typeLabel = data.type === 'scene' ? ' (scene)' : '';
       slotEl.title = `Slot ${i + 1}: ${fileName}${typeLabel}`;
 
+      // Set slot label
+      const labelEl = slotEl.querySelector('.slot-label');
+      if (labelEl) {
+        labelEl.textContent = data.label || fileName.replace(/\.glsl$/i, '');
+      }
+
       // Update renderer's canvas reference to the new DOM element
       if (data.renderer) {
         const newCanvas = slotEl.querySelector('canvas');
@@ -950,6 +995,9 @@ function rebuildGridDOM() {
 
   // Reinitialize visibility observer
   initGridVisibilityObserver();
+
+  // Maintain stable panel height across tab switches
+  applyMaxContainerHeight();
 }
 
 export async function initShaderGrid() {
@@ -1009,6 +1057,18 @@ function showGridContextMenu(x, y, slotIndex) {
     });
   }
   menu.appendChild(setParamsItem);
+
+  // Rename label option (only if has shader)
+  const renameItem = document.createElement('div');
+  renameItem.className = `context-menu-item${hasShader ? '' : ' disabled'}`;
+  renameItem.textContent = 'Rename';
+  if (hasShader) {
+    renameItem.addEventListener('click', () => {
+      hideContextMenu();
+      renameGridSlot(slotIndex);
+    });
+  }
+  menu.appendChild(renameItem);
 
   // Clear option (only if has shader)
   const clearItem = document.createElement('div');
@@ -1422,7 +1482,14 @@ export async function assignShaderToSlot(slotIndex, shaderCode, filePath, skipSa
     };
     slot.classList.add('has-shader');
     slot.classList.remove('has-error');  // Clear any previous error state
-    slot.title = filePath ? `Slot ${slotIndex + 1}: ${filePath.split('/').pop().split('\\').pop()}` : `Slot ${slotIndex + 1}: Current shader`;
+    const displayName = filePath ? filePath.split('/').pop().split('\\').pop() : 'Current shader';
+    slot.title = `Slot ${slotIndex + 1}: ${displayName}`;
+
+    // Set label on the slot element
+    const labelEl = slot.querySelector('.slot-label');
+    if (labelEl) {
+      labelEl.textContent = state.gridSlots[slotIndex].label || displayName.replace(/\.glsl$/i, '');
+    }
 
     if (!skipSave) {
       // Save shader code to individual file
@@ -1545,6 +1612,50 @@ function assignFailedShaderToSlot(slotIndex, shaderCode, filePath, savedData = {
   slot.title = `Slot ${slotIndex + 1}: ${fileName} (ERROR - click to edit)`;
 }
 
+function renameGridSlot(slotIndex) {
+  const data = state.gridSlots[slotIndex];
+  if (!data) return;
+
+  const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`);
+  const labelEl = slot?.querySelector('.slot-label');
+  if (!labelEl) return;
+
+  const currentName = data.label || (data.filePath ? data.filePath.split('/').pop().split('\\').pop().replace(/\.glsl$/i, '') : `Slot ${slotIndex + 1}`);
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'shader-tab-rename-input';
+  input.value = currentName;
+  input.style.width = '90%';
+
+  const finishRename = () => {
+    const newName = input.value.trim() || currentName;
+    data.label = newName;
+    labelEl.textContent = newName;
+    if (input.parentNode === labelEl) {
+      labelEl.removeChild(input);
+    }
+    labelEl.textContent = newName;
+    saveGridState();
+  };
+
+  input.addEventListener('blur', finishRename);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      input.blur();
+    } else if (e.key === 'Escape') {
+      input.value = currentName;
+      input.blur();
+    }
+  });
+
+  labelEl.textContent = '';
+  labelEl.appendChild(input);
+  input.focus();
+  input.select();
+}
+
 async function clearGridSlot(slotIndex) {
   // Dispose renderer
   if (state.gridSlots[slotIndex] && state.gridSlots[slotIndex].renderer) {
@@ -1559,6 +1670,10 @@ async function clearGridSlot(slotIndex) {
     slot.classList.remove('has-shader');
     slot.classList.remove('has-error');
     slot.title = `Slot ${slotIndex + 1} - Right-click to assign shader`;
+
+    // Clear label
+    const labelEl = slot.querySelector('.slot-label');
+    if (labelEl) labelEl.textContent = '';
 
     // Clear canvas
     const canvas = slot.querySelector('canvas');
@@ -1661,6 +1776,7 @@ export function saveGridState() {
         mixPresets: (tab.mixPresets || []).map(preset => ({
           name: preset.name,
           blendMode: preset.blendMode,
+          thumbnail: preset.thumbnail || null,
           channels: preset.channels.map(ch => {
             if (!ch) return null;
             return {
@@ -1678,7 +1794,7 @@ export function saveGridState() {
       type: tab.type || 'shaders',
       slots: tab.slots.map(slot => {
         if (!slot) return null;
-        return {
+        const saved = {
           shaderCode: slot.shaderCode,
           filePath: slot.filePath,
           params: slot.params,
@@ -1686,6 +1802,8 @@ export function saveGridState() {
           presets: slot.presets || [],
           type: slot.type || 'shader'
         };
+        if (slot.label) saved.label = slot.label;
+        return saved;
       })
     };
   });
@@ -1773,6 +1891,10 @@ async function loadTabbedGridState(savedState) {
           await assignSceneToSlot(i, slotData.shaderCode, slotData.filePath, true, slotData.params, slotData.presets);
         } else {
           await assignShaderToSlot(i, slotData.shaderCode, slotData.filePath, true, slotData.params, slotData.presets, slotData.customParams);
+        }
+        // Restore custom label if saved
+        if (slotData.label && state.gridSlots[i]) {
+          state.gridSlots[i].label = slotData.label;
         }
         totalLoaded++;
       } catch (err) {

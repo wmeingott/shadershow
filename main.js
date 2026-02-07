@@ -2133,6 +2133,16 @@ ipcMain.handle('get-settings', async () => {
     console.error('Failed to load param ranges:', err);
   }
 
+  // Load grid slot width from settings file
+  let gridSlotWidth = null;
+  try {
+    const rawSettings = await readFileOrNull(settingsFile);
+    if (rawSettings) {
+      const parsed = JSON.parse(rawSettings);
+      gridSlotWidth = parsed.gridSlotWidth || null;
+    }
+  } catch (err) { /* ignore */ }
+
   return {
     ndiResolution: ndiResolution,
     ndiResolutions: ndiResolutions,
@@ -2140,7 +2150,8 @@ ipcMain.handle('get-settings', async () => {
     ndiFrameSkip: ndiFrameSkip,
     recordingResolution: recordingResolution,
     recordingResolutions: recordingResolutions,
-    paramRanges: paramRanges
+    paramRanges: paramRanges,
+    gridSlotWidth: gridSlotWidth
   };
 });
 
@@ -2171,10 +2182,13 @@ ipcMain.on('save-settings', async (event, settings) => {
     recordingResolution = settings.recordingResolution;
   }
 
-  // Save all settings including param ranges
+  // Save all settings including param ranges and grid slot width
   const additionalData = {};
   if (settings.paramRanges) {
     additionalData.paramRanges = settings.paramRanges;
+  }
+  if (settings.gridSlotWidth) {
+    additionalData.gridSlotWidth = settings.gridSlotWidth;
   }
   saveSettingsToFile(additionalData);
 

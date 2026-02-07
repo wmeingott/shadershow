@@ -55,6 +55,29 @@ export function initMixer() {
       window.electronAPI.sendMixerBlendMode({ blendMode: blendSelect.value });
     });
   }
+
+  const resetBtn = document.getElementById('mixer-reset-btn');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      resetMixer();
+    });
+  }
+
+  const toggleBtn = document.getElementById('mixer-toggle-btn');
+  if (toggleBtn) {
+    if (state.mixerEnabled) toggleBtn.classList.add('active');
+    toggleBtn.addEventListener('click', () => {
+      state.mixerEnabled = !state.mixerEnabled;
+      toggleBtn.classList.toggle('active', state.mixerEnabled);
+      if (!state.mixerEnabled) hideMixerOverlay();
+      setStatus(state.mixerEnabled ? 'Mixer enabled' : 'Mixer disabled', 'success');
+    });
+  }
+}
+
+function syncToggleButton() {
+  const btn = document.getElementById('mixer-toggle-btn');
+  if (btn) btn.classList.toggle('active', state.mixerEnabled);
 }
 
 function disarmAll() {
@@ -154,6 +177,8 @@ export function assignShaderToMixer(channelIndex, slotIndex) {
   }
 
   state.mixerArmedChannel = null;
+  state.mixerEnabled = true;
+  syncToggleButton();
   selectMixerChannel(channelIndex);
 
   // Sync to fullscreen
@@ -218,6 +243,7 @@ export function clearMixerChannel(channelIndex) {
 }
 
 export function isMixerActive() {
+  if (!state.mixerEnabled) return false;
   return state.mixerChannels.some(ch => {
     if (ch.renderer) return true;  // Recalled mix preset
     if (ch.slotIndex !== null && ch.tabIndex !== null) {
@@ -233,6 +259,8 @@ export function resetMixer() {
   for (let i = 0; i < 4; i++) {
     clearMixerChannel(i);
   }
+  state.mixerEnabled = false;
+  syncToggleButton();
   hideMixerOverlay();
   setStatus('Mixer reset', 'success');
 }
@@ -337,6 +365,19 @@ export function hideMixerOverlay() {
   }
 }
 
+// Capture the current mixer composite as a small thumbnail data URL
+export function captureMixerThumbnail() {
+  if (!mixerOverlayCanvas || mixerOverlayCanvas.width === 0) return null;
+  const thumbW = 240;
+  const thumbH = Math.round(thumbW * mixerOverlayCanvas.height / mixerOverlayCanvas.width) || 135;
+  const tmp = document.createElement('canvas');
+  tmp.width = thumbW;
+  tmp.height = thumbH;
+  const ctx = tmp.getContext('2d');
+  ctx.drawImage(mixerOverlayCanvas, 0, 0, thumbW, thumbH);
+  return tmp.toDataURL('image/jpeg', 0.7);
+}
+
 // Recall a complete mixer state from a mix preset
 export function recallMixState(preset) {
   const btns = document.querySelectorAll('#mixer-panel .mixer-btn');
@@ -426,7 +467,9 @@ export function recallMixState(preset) {
     window.electronAPI.sendMixerAlphaUpdate({ channelIndex: i, alpha: ch.alpha });
   }
 
-  // Show mixer overlay
+  // Enable mixer and show overlay
+  state.mixerEnabled = true;
+  syncToggleButton();
   if (isMixerActive()) {
     if (mixerOverlayCanvas) mixerOverlayCanvas.style.display = 'block';
   }

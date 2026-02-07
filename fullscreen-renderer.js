@@ -23,6 +23,15 @@ let tileRenderers = [];     // Array of TileRenderer instances
 let tileConfig = null;      // Current tile configuration
 let sharedGL = null;        // Shared WebGL context for tiled mode
 
+// Mixer mode state
+let mixerMode = false;
+let mixerRenderers = [];       // TileRenderer per channel (full-screen bounds)
+let mixerBlendMode = 'lighter';
+let mixerChannelAlphas = [1, 1, 1, 1];
+let mixerSelectedChannel = -1; // Track which channel receives param-update fallback
+let mixerOverlayCanvas = null;
+let mixerOverlayCtx = null;
+
 // Reused Date object to avoid allocation per frame
 const reusedDate = new Date();
 
@@ -187,25 +196,20 @@ function renderLoop(currentTime) {
       gl.clearColor(0, 0, 0, 1);
       gl.clear(gl.COLOR_BUFFER_BIT);
     }
+    if (mixerOverlayCanvas) mixerOverlayCanvas.style.display = 'none';
+  } else if (mixerMode) {
+    renderMixerFrame();
   } else if (tiledMode) {
     // Render tiled display
     renderTiledFrame();
   } else {
     renderer.render();
+    if (mixerOverlayCanvas) mixerOverlayCanvas.style.display = 'none';
   }
 }
 
 // Initialize with shader/scene state from main window
 window.electronAPI.onInitFullscreen(async (state) => {
-  console.log('[Fullscreen] Received init-fullscreen');
-  console.log('[Fullscreen] tiledConfig:', state.tiledConfig ? 'present' : 'not present');
-  if (state.tiledConfig) {
-    console.log('[Fullscreen] tiledConfig.layout:', state.tiledConfig.layout);
-    console.log('[Fullscreen] tiledConfig.tiles:', state.tiledConfig.tiles?.length, 'tiles');
-    state.tiledConfig.tiles?.forEach((t, i) => {
-      console.log(`[Fullscreen] Tile ${i}: slot=${t?.gridSlotIndex}, hasShader=${!!t?.shaderCode}`);
-    });
-  }
 
   // Switch renderer if mode specified
   if (state.renderMode) {
@@ -270,6 +274,11 @@ window.electronAPI.onInitFullscreen(async (state) => {
   if (state.tiledConfig) {
     initTiledMode(state.tiledConfig);
   }
+
+  // Initialize mixer mode if configuration provided
+  if (state.mixerConfig) {
+    initMixerMode(state.mixerConfig);
+  }
 });
 
 // Handle shader/scene updates from main window
@@ -312,14 +321,20 @@ window.electronAPI.onTimeSync((data) => {
 window.electronAPI.onParamUpdate((data) => {
   if (data.name && data.value !== undefined) {
     renderer.setParam(data.name, data.value);
+    // Also route to the active mixer channel when in mixer mode
+    if (mixerMode && mixerSelectedChannel >= 0 && mixerRenderers[mixerSelectedChannel]) {
+      mixerRenderers[mixerSelectedChannel].setParam(data.name, data.value);
+    }
   }
 });
 
 // Handle batched param updates from main window (more efficient)
 window.electronAPI.onBatchParamUpdate?.((params) => {
   if (params && typeof params === 'object') {
+    const mixerTarget = (mixerMode && mixerSelectedChannel >= 0) ? mixerRenderers[mixerSelectedChannel] : null;
     Object.entries(params).forEach(([name, value]) => {
       renderer.setParam(name, value);
+      if (mixerTarget) mixerTarget.setParam(name, value);
     });
   }
 });
@@ -328,8 +343,10 @@ window.electronAPI.onBatchParamUpdate?.((params) => {
 window.electronAPI.onPresetSync((data) => {
   // Apply params directly from sync message
   if (data.params) {
+    const mixerTarget = (mixerMode && mixerSelectedChannel >= 0) ? mixerRenderers[mixerSelectedChannel] : null;
     Object.keys(data.params).forEach(name => {
       renderer.setParam(name, data.params[name]);
+      if (mixerTarget) mixerTarget.setParam(name, data.params[name]);
     });
   }
 
@@ -684,6 +701,270 @@ function exitTiledMode() {
   tiledMode = false;
   disposeTileRenderers();
   tileConfig = null;
+}
+
+// =============================================================================
+// Mixer Mode Functions
+// =============================================================================
+
+function initMixerMode(config) {
+  const canvas = document.getElementById('shader-canvas');
+
+  mixerMode = true;
+  mixerBlendMode = config.blendMode || 'lighter';
+
+  // Use the same WebGL context as shaderRenderer
+  if (!sharedGL) {
+    sharedGL = shaderRenderer.gl;
+  }
+
+  // Dispose existing mixer renderers
+  mixerRenderers.forEach(r => { if (r) r.dispose(); });
+  mixerRenderers = [null, null, null, null];
+  mixerChannelAlphas = [1, 1, 1, 1];
+
+  // Create 2D overlay canvas for compositing
+  initMixerModeIfNeeded(canvas);
+
+  const gl = sharedGL;
+
+  for (let i = 0; i < 4; i++) {
+    const channelConfig = config.channels?.[i];
+    if (!channelConfig || !channelConfig.shaderCode) continue;
+
+    const bounds = { tileIndex: i, x: 0, y: 0, width: canvas.width, height: canvas.height };
+    const tr = new TileRenderer(gl, bounds);
+
+    try {
+      tr.compile(channelConfig.shaderCode);
+      if (channelConfig.params) {
+        tr.setParams(channelConfig.params);
+      }
+    } catch (err) {
+      console.error(`Failed to compile mixer channel ${i}:`, err);
+    }
+
+    mixerChannelAlphas[i] = channelConfig.alpha ?? 1;
+    mixerRenderers[i] = tr;
+    mixerSelectedChannel = i;
+  }
+}
+
+function renderMixerFrame() {
+  const canvas = document.getElementById('shader-canvas');
+
+  if (!mixerOverlayCanvas || !mixerOverlayCtx || mixerRenderers.length === 0) return;
+
+  // Ensure overlay matches canvas size
+  if (mixerOverlayCanvas.width !== canvas.width || mixerOverlayCanvas.height !== canvas.height) {
+    mixerOverlayCanvas.width = canvas.width;
+    mixerOverlayCanvas.height = canvas.height;
+    mixerOverlayCtx = mixerOverlayCanvas.getContext('2d');
+
+    // Update TileRenderer bounds
+    mixerRenderers.forEach(tr => {
+      if (tr) tr.setBounds({ tileIndex: tr.bounds.tileIndex, x: 0, y: 0, width: canvas.width, height: canvas.height });
+    });
+  }
+
+  const ctx = mixerOverlayCtx;
+  const gl = sharedGL;
+
+  // Prepare shared state (same as tiled mode)
+  const now = performance.now();
+  const time = (now - shaderRenderer.startTime) / 1000;
+  const timeDelta = (now - shaderRenderer.lastFrameTime) / 1000;
+  shaderRenderer.lastFrameTime = now;
+
+  reusedDate.setTime(Date.now());
+  const dateValues = new Float32Array([
+    reusedDate.getFullYear(),
+    reusedDate.getMonth(),
+    reusedDate.getDate(),
+    reusedDate.getHours() * 3600 + reusedDate.getMinutes() * 60 + reusedDate.getSeconds() + reusedDate.getMilliseconds() / 1000
+  ]);
+
+  shaderRenderer.updateVideoTextures();
+
+  const resolutions = new Float32Array(12);
+  for (let i = 0; i < 4; i++) {
+    resolutions[i * 3] = shaderRenderer.channelResolutions[i][0];
+    resolutions[i * 3 + 1] = shaderRenderer.channelResolutions[i][1];
+    resolutions[i * 3 + 2] = shaderRenderer.channelResolutions[i][2];
+  }
+
+  const sharedState = {
+    time,
+    timeDelta,
+    frame: shaderRenderer.frameCount,
+    mouse: shaderRenderer.mouse,
+    date: dateValues,
+    channelTextures: shaderRenderer.channelTextures,
+    channelResolutions: resolutions
+  };
+
+  // Clear 2D overlay to opaque black
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Set blend mode for compositing
+  ctx.globalCompositeOperation = mixerBlendMode;
+
+  // Ensure clean GL state for mixer rendering
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.disable(gl.DEPTH_TEST);
+  gl.disable(gl.BLEND);
+
+  // Render each active channel
+  for (let i = 0; i < mixerRenderers.length; i++) {
+    const tr = mixerRenderers[i];
+    if (!tr || !tr.program || mixerChannelAlphas[i] <= 0) continue;
+
+    // Render the channel's shader to the WebGL canvas
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    try {
+      tr.render(sharedState);
+    } catch (err) {
+      console.error(`[Fullscreen] Mixer channel ${i} render error:`, err);
+      continue;
+    }
+
+    // Composite WebGL result onto 2D overlay with alpha
+    ctx.globalAlpha = mixerChannelAlphas[i];
+    ctx.drawImage(canvas, 0, 0);
+  }
+
+  ctx.globalAlpha = 1.0;
+  ctx.globalCompositeOperation = 'source-over';
+  mixerOverlayCanvas.style.display = 'block';
+
+  if (shaderRenderer.isPlaying) {
+    shaderRenderer.frameCount++;
+  }
+}
+
+function exitMixerMode() {
+  mixerMode = false;
+  mixerSelectedChannel = -1;
+  mixerRenderers.forEach(r => { if (r) r.dispose(); });
+  mixerRenderers = [];
+  if (mixerOverlayCanvas) {
+    mixerOverlayCanvas.style.display = 'none';
+  }
+}
+
+// =============================================================================
+// Mixer Mode IPC Handlers
+// =============================================================================
+
+window.electronAPI.onMixerParamUpdate?.((data) => {
+  const { channelIndex, paramName, value } = data;
+  if (channelIndex >= 0 && channelIndex < mixerRenderers.length && mixerRenderers[channelIndex]) {
+    mixerRenderers[channelIndex].setParam(paramName, value);
+    mixerSelectedChannel = channelIndex;
+  }
+});
+
+window.electronAPI.onMixerAlphaUpdate?.((data) => {
+  const { channelIndex, alpha } = data;
+  if (channelIndex >= 0 && channelIndex < 4) {
+    mixerChannelAlphas[channelIndex] = alpha;
+  }
+});
+
+window.electronAPI.onMixerBlendMode?.((data) => {
+  const { blendMode } = data;
+  if (blendMode) {
+    mixerBlendMode = blendMode;
+  }
+});
+
+window.electronAPI.onMixerChannelUpdate?.((data) => {
+  const { channelIndex, shaderCode, params, clear } = data;
+  if (channelIndex < 0 || channelIndex > 3) return;
+
+  const canvas = document.getElementById('shader-canvas');
+
+  if (clear) {
+    // Clear this channel
+    if (mixerRenderers[channelIndex]) {
+      mixerRenderers[channelIndex].dispose();
+      mixerRenderers[channelIndex] = null;
+    }
+    mixerChannelAlphas[channelIndex] = 1;
+
+    // Auto-select next active channel if cleared channel was selected
+    if (mixerSelectedChannel === channelIndex) {
+      mixerSelectedChannel = -1;
+      for (let i = 0; i < mixerRenderers.length; i++) {
+        if (i !== channelIndex && mixerRenderers[i]) {
+          mixerSelectedChannel = i;
+          break;
+        }
+      }
+    }
+
+    // If no channels active, exit mixer mode
+    if (!mixerRenderers.some(Boolean)) {
+      exitMixerMode();
+    }
+    return;
+  }
+
+  if (!shaderCode) return;
+
+  // Ensure shared GL is available
+  if (!sharedGL) {
+    sharedGL = shaderRenderer.gl;
+  }
+
+  // Ensure array is padded to 4 elements
+  while (mixerRenderers.length < 4) mixerRenderers.push(null);
+
+  // Create or replace TileRenderer for this channel
+  if (mixerRenderers[channelIndex]) {
+    mixerRenderers[channelIndex].dispose();
+  }
+
+  const bounds = { tileIndex: channelIndex, x: 0, y: 0, width: canvas.width, height: canvas.height };
+  const tr = new TileRenderer(sharedGL, bounds);
+
+  try {
+    tr.compile(shaderCode);
+    if (params) {
+      tr.setParams(params);
+    }
+  } catch (err) {
+    console.error(`Failed to compile mixer channel ${channelIndex}:`, err);
+  }
+
+  mixerRenderers[channelIndex] = tr;
+  mixerSelectedChannel = channelIndex;
+
+  // Ensure mixer mode is active
+  if (!mixerMode) {
+    initMixerModeIfNeeded(canvas);
+  }
+});
+
+function initMixerModeIfNeeded(canvas) {
+  mixerMode = true;
+
+  if (!mixerOverlayCanvas) {
+    mixerOverlayCanvas = document.createElement('canvas');
+    mixerOverlayCanvas.id = 'mixer-overlay-canvas';
+    mixerOverlayCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:1';
+    canvas.parentElement.style.position = 'relative';
+    canvas.parentElement.appendChild(mixerOverlayCanvas);
+  }
+
+  mixerOverlayCanvas.width = canvas.width;
+  mixerOverlayCanvas.height = canvas.height;
+  mixerOverlayCtx = mixerOverlayCanvas.getContext('2d');
 }
 
 // =============================================================================

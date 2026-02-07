@@ -82,9 +82,17 @@ export function initControls() {
   const btnRecord = document.getElementById('btn-record');
   btnRecord.addEventListener('click', toggleRecording);
 
-  // Fullscreen button
-  const btnFullscreen = document.getElementById('btn-fullscreen');
-  btnFullscreen.addEventListener('click', openFullscreenPreview);
+  // Fullscreen display selector
+  const fullscreenSelect = document.getElementById('fullscreen-select');
+  populateFullscreenSelect();
+  fullscreenSelect.addEventListener('change', () => {
+    const displayId = fullscreenSelect.value;
+    if (displayId) {
+      window.electronAPI.openFullscreenOnDisplay(Number(displayId));
+    } else {
+      window.electronAPI.closeFullscreen();
+    }
+  });
 
   // Blackout button
   const btnBlackout = document.getElementById('btn-blackout');
@@ -412,6 +420,30 @@ export function toggleNDI() {
 
 export function openFullscreenPreview() {
   window.electronAPI.openFullscreen();
+}
+
+export async function populateFullscreenSelect() {
+  const select = document.getElementById('fullscreen-select');
+  if (!select) return;
+  const displays = await window.electronAPI.getDisplays();
+  // Keep "No Fullscreen" option, replace the rest
+  const currentValue = select.value;
+  select.innerHTML = '<option value="">\u26F6 No Fullscreen</option>';
+  for (const d of displays) {
+    const opt = document.createElement('option');
+    opt.value = String(d.id);
+    opt.textContent = `\u26F6 ${d.label}`;
+    select.appendChild(opt);
+  }
+  // Restore selection if display still exists
+  if (currentValue && [...select.options].some(o => o.value === currentValue)) {
+    select.value = currentValue;
+  }
+}
+
+export function resetFullscreenSelect() {
+  const select = document.getElementById('fullscreen-select');
+  if (select) select.value = '';
 }
 
 export function toggleBlackout() {

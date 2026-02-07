@@ -73,6 +73,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendFullscreenFps: (fps) => ipcRenderer.send('fullscreen-fps', fps),
   onFullscreenFps: (callback) => onIPC('fullscreen-fps', (event, data) => callback(data)),
   onFullscreenClosed: (callback) => onIPC('fullscreen-closed', () => callback()),
+  onFullscreenOpened: (callback) => onIPC('fullscreen-opened', (event, displayId) => callback(displayId)),
 
   // Grid operations
   loadShaderForGrid: () => ipcRenderer.invoke('load-shader-for-grid'),
@@ -93,6 +94,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendPreviewResolution: (data) => ipcRenderer.send('preview-resolution', data),
   toggleNDI: () => ipcRenderer.send('toggle-ndi'),
   openFullscreen: () => ipcRenderer.send('open-fullscreen-primary'),
+  getDisplays: () => ipcRenderer.invoke('get-displays'),
+  openFullscreenOnDisplay: (displayId) => ipcRenderer.send('open-fullscreen-on-display', displayId),
+  closeFullscreen: () => ipcRenderer.send('close-fullscreen'),
   onNDIFrameSkipChanged: (callback) => onIPC('ndi-frame-skip-changed', (event, data) => callback(data)),
 
   // Syphon output (macOS only)
@@ -147,6 +151,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     if (!validSlot(slotIndex)) return Promise.reject(new Error('Invalid slot index'));
     return ipcRenderer.invoke('delete-shader-from-slot', slotIndex);
   },
+
+  // Mixer fullscreen (renderer → main → fullscreen)
+  sendMixerParamUpdate: (data) => ipcRenderer.send('mixer-param-update', data),
+  sendMixerAlphaUpdate: (data) => ipcRenderer.send('mixer-alpha-update', data),
+  sendMixerBlendMode: (data) => ipcRenderer.send('mixer-blend-mode', data),
+  sendMixerChannelUpdate: (data) => ipcRenderer.send('mixer-channel-update', data),
+
+  // Mixer fullscreen (fullscreen window receives)
+  onMixerParamUpdate: (callback) => onIPC('mixer-param-update', (event, data) => callback(data)),
+  onMixerAlphaUpdate: (callback) => onIPC('mixer-alpha-update', (event, data) => callback(data)),
+  onMixerBlendMode: (callback) => onIPC('mixer-blend-mode', (event, data) => callback(data)),
+  onMixerChannelUpdate: (callback) => onIPC('mixer-channel-update', (event, data) => callback(data)),
 
   // Tiled display operations (main window)
   initTiledFullscreen: (config) => ipcRenderer.send('init-tiled-fullscreen', config),

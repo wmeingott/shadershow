@@ -43,6 +43,17 @@ export const state = {
   // Parameter presets (local only - per shader)
   activeLocalPresetIndex: null,
 
+  // Mixer state
+  mixerChannels: [
+    { slotIndex: null, alpha: 1.0, params: {}, customParams: {}, renderer: null, shaderCode: null },
+    { slotIndex: null, alpha: 1.0, params: {}, customParams: {}, renderer: null, shaderCode: null },
+    { slotIndex: null, alpha: 1.0, params: {}, customParams: {}, renderer: null, shaderCode: null },
+    { slotIndex: null, alpha: 1.0, params: {}, customParams: {}, renderer: null, shaderCode: null },
+  ],
+  mixerArmedChannel: null,     // index 0-3 or null
+  mixerSelectedChannel: null,  // index 0-3 or null — which channel's params are in the UI
+  mixerBlendMode: 'lighter',   // canvas globalCompositeOperation
+
   // Tiled preview state
   tiledPreviewEnabled: false,
   tileRenderers: [],  // Array of MiniShaderRenderer for tiled preview

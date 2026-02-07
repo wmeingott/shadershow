@@ -14,6 +14,7 @@ import { initTileConfig, showTileConfigDialog } from './tile-config.js';
 import { tileState, calculateTileBounds } from './tile-state.js';
 import { setStatus } from './utils.js';
 import { updateLocalPresetsUI } from './presets.js';
+import { initMixer, isMixerActive, renderMixerComposite, hideMixerOverlay } from './mixer.js';
 
 // Initialize application
 document.addEventListener('DOMContentLoaded', async () => {
@@ -35,6 +36,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initPresets();
     initResizer();
     initIPC();
+    initMixer();
     await initTileConfig();
 
     // Compile the initial shader BEFORE loading grid slots to ensure main renderer
@@ -207,12 +209,16 @@ function renderLoop(currentTime) {
 
   let stats;
 
-  // Check if tiled preview mode is enabled
+  // Check if tiled preview mode is enabled, then mixer, then normal
   try {
     if (state.tiledPreviewEnabled && tileState.tiles.length > 0) {
       stats = renderTiledPreview();
+      hideMixerOverlay();
+    } else if (isMixerActive()) {
+      stats = renderMixerComposite();
     } else {
       stats = state.renderer.render();
+      hideMixerOverlay();
     }
   } catch (err) {
     console.error('Render error:', err);

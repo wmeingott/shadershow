@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="css/dialogs.css">
   <link rel="stylesheet" href="css/claude-ai.css">
   <link rel="stylesheet" href="css/benchmark.css">
+  <link rel="stylesheet" href="css/mixer.css">
 </head>
 <body>
   <div id="app">
@@ -53,9 +54,9 @@
         <button id="btn-record" title="Start Recording (Cmd+Shift+R)">
           <span class="icon">REC</span>
         </button>
-        <button id="btn-fullscreen" title="Fullscreen Preview (Cmd+F)">
-          <span class="icon">&#9974;</span>
-        </button>
+        <select id="fullscreen-select" title="Fullscreen Display">
+          <option value="">⛶ No Fullscreen</option>
+        </select>
         <button id="btn-tiled" title="Toggle Tiled Preview">
           <span class="icon">&#9638;</span>
         </button>
@@ -154,6 +155,47 @@
           </div>
         </div>
 
+        <!-- Shader Presets (between preview and bottom row, always visible) -->
+        <div class="grid-presets-section">
+          <div class="presets-row" id="local-presets-row">
+            <span class="no-shader-hint" id="no-shader-hint">Select a shader</span>
+            <button id="btn-add-local-preset" class="preset-btn add-preset hidden" title="Save preset for current shader">+</button>
+          </div>
+        </div>
+
+        <!-- Shader Mixer Panel -->
+        <div id="mixer-panel">
+          <div class="mixer-channel" data-channel="0">
+            <button class="mixer-btn" title="Click to arm, then click a grid shader to assign. Right-click to clear.">—</button>
+            <input type="range" class="mixer-slider" min="0" max="1" step="0.01" value="1">
+          </div>
+          <div class="mixer-channel" data-channel="1">
+            <button class="mixer-btn" title="Click to arm, then click a grid shader to assign. Right-click to clear.">—</button>
+            <input type="range" class="mixer-slider" min="0" max="1" step="0.01" value="1">
+          </div>
+          <div class="mixer-channel" data-channel="2">
+            <button class="mixer-btn" title="Click to arm, then click a grid shader to assign. Right-click to clear.">—</button>
+            <input type="range" class="mixer-slider" min="0" max="1" step="0.01" value="1">
+          </div>
+          <div class="mixer-channel" data-channel="3">
+            <button class="mixer-btn" title="Click to arm, then click a grid shader to assign. Right-click to clear.">—</button>
+            <input type="range" class="mixer-slider" min="0" max="1" step="0.01" value="1">
+          </div>
+          <select id="mixer-blend-mode" title="Blend mode for compositing">
+            <option value="lighter" selected>Add</option>
+            <option value="screen">Screen</option>
+            <option value="source-over">Normal</option>
+            <option value="multiply">Multiply</option>
+            <option value="overlay">Overlay</option>
+            <option value="hard-light">Hard Light</option>
+            <option value="soft-light">Soft Light</option>
+            <option value="difference">Difference</option>
+            <option value="exclusion">Exclusion</option>
+            <option value="color-dodge">Color Dodge</option>
+            <option value="color-burn">Color Burn</option>
+          </select>
+        </div>
+
         <!-- Vertical Resizer between preview and bottom row -->
         <div id="resizer-vertical"></div>
 
@@ -163,13 +205,6 @@
           <div id="grid-panel" class="hidden">
             <div class="shader-grid" id="shader-grid-container">
               <!-- Grid slots are created dynamically by shader-grid.js -->
-            </div>
-            <div class="grid-presets-section">
-              <div class="grid-presets-title">Shader Presets</div>
-              <div class="presets-row" id="local-presets-row">
-                <span class="no-shader-hint" id="no-shader-hint">Select a shader</span>
-                <button id="btn-add-local-preset" class="preset-btn add-preset hidden" title="Save preset for current shader">+</button>
-              </div>
             </div>
           </div>
 

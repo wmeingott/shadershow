@@ -3,6 +3,7 @@ import { state } from './state.js';
 import { setStatus } from './utils.js';
 import { saveGridState } from './shader-grid.js';
 import { loadParamsToSliders, generateCustomParamUI } from './params.js';
+import { updateMixerChannelParam } from './mixer.js';
 import { tileState } from './tile-state.js';
 
 export async function initPresets() {
@@ -15,6 +16,23 @@ export async function initPresets() {
   if (resetBtn) {
     resetBtn.addEventListener('click', () => resetToDefaults());
   }
+
+  // Number keys 1-9, 0 recall local presets (when editor not focused)
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (state.editor && state.editor.isFocused()) return;
+    if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
+
+    const key = e.key;
+    let presetIndex = -1;
+    if (key >= '1' && key <= '9') presetIndex = parseInt(key) - 1;
+    else if (key === '0') presetIndex = 9;
+
+    if (presetIndex >= 0) {
+      e.preventDefault();
+      recallLocalPreset(presetIndex);
+    }
+  });
 }
 
 // Reset parameters to shader defaults
@@ -288,6 +306,7 @@ export function recallLocalPreset(index, fromSync = false) {
 
   const preset = presets[index];
   const params = preset.params || preset;
+  // loadParamsToSliders routes to mixer channel automatically when one is selected
   loadParamsToSliders(params);
 
   // Update selected tile if in tiled mode
@@ -348,6 +367,14 @@ function applyParamsToSelectedTile(params) {
   // Update the MiniShaderRenderer speed if available
   if (slotData.renderer && speed !== undefined) {
     slotData.renderer.setSpeed(speed);
+  }
+}
+
+// Apply params to selected mixer channel
+function applyParamsToMixerChannel(params) {
+  if (!params) return;
+  for (const [name, value] of Object.entries(params)) {
+    updateMixerChannelParam(name, value);
   }
 }
 

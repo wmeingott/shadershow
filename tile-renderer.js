@@ -282,6 +282,7 @@ class TileRenderer {
       case 'vec2':
         gl.uniform2f(location, value[0], value[1]);
         break;
+      case 'color':
       case 'vec3':
         gl.uniform3f(location, value[0], value[1], value[2]);
         break;

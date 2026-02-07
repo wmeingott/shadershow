@@ -2,7 +2,7 @@
 import { state } from './state.js';
 import { setStatus, updateChannelSlot } from './utils.js';
 import { compileShader, setEditorMode } from './editor.js';
-import { togglePlayback, resetTime } from './controls.js';
+import { togglePlayback, resetTime, resetFullscreenSelect } from './controls.js';
 import { runBenchmark } from './benchmark.js';
 import { loadGridPresetsFromData, saveGridState } from './shader-grid.js';
 import { recallLocalPreset } from './presets.js';
@@ -10,6 +10,7 @@ import { loadParamsToSliders } from './params.js';
 import { updatePreviewFrameLimit, setRenderMode, detectRenderMode } from './renderer.js';
 import { createTab, openInTab, activeTabHasChanges, markTabSaved, getActiveTab } from './tabs.js';
 import { tileState } from './tile-state.js';
+import { isMixerActive } from './mixer.js';
 
 export async function initIPC() {
   // Load initial settings (including ndiFrameSkip)
@@ -185,7 +186,39 @@ export async function initIPC() {
       console.log('Built tiledConfig:', tiledConfig);
     }
 
-    console.log('Sending fullscreen state with tiledConfig:', tiledConfig ? 'yes' : 'no');
+    // Build mixer configuration if mixer is active
+    let mixerConfig = null;
+    if (isMixerActive()) {
+      const previewCanvas = document.getElementById('shader-canvas');
+      mixerConfig = {
+        blendMode: state.mixerBlendMode,
+        channels: state.mixerChannels.map(ch => {
+          // Grid-assigned channel: use tab-aware lookup
+          if (ch.slotIndex !== null && ch.tabIndex !== null) {
+            const tab = state.shaderTabs[ch.tabIndex];
+            const slotData = tab?.slots?.[ch.slotIndex];
+            if (!slotData) return null;
+            return {
+              shaderCode: slotData.shaderCode,
+              alpha: ch.alpha,
+              params: { speed: ch.params.speed ?? slotData.params?.speed ?? 1, ...ch.customParams }
+            };
+          }
+          // Recalled mix preset: use stored shaderCode
+          if (ch.shaderCode) {
+            return {
+              shaderCode: ch.shaderCode,
+              alpha: ch.alpha,
+              params: { speed: ch.params.speed ?? 1, ...ch.customParams }
+            };
+          }
+          return null;
+        }),
+        previewResolution: { width: previewCanvas.width, height: previewCanvas.height }
+      };
+    }
+
+    console.log('Sending fullscreen state with tiledConfig:', tiledConfig ? 'yes' : 'no', 'mixerConfig:', mixerConfig ? 'yes' : 'no');
     const fullscreenState = {
       shaderCode: shaderCode,
       renderMode: state.renderMode,  // Include render mode for scene support
@@ -196,7 +229,8 @@ export async function initIPC() {
       params: state.renderer.getParams(),
       localPresets: localPresets,
       activeLocalPresetIndex: state.activeLocalPresetIndex,
-      tiledConfig: tiledConfig  // Include tiled mode config
+      tiledConfig: tiledConfig,  // Include tiled mode config
+      mixerConfig: mixerConfig   // Include mixer mode config
     };
     window.electronAPI.sendFullscreenState(fullscreenState);
   });
@@ -362,5 +396,14 @@ export async function initIPC() {
       fpsDisplay.textContent = '-- fps';
       fpsDisplay.classList.remove('active', 'low', 'very-low');
     }
+
+    // Reset fullscreen select to "No Fullscreen"
+    resetFullscreenSelect();
+  });
+
+  // Sync fullscreen select when opened via menu (Cmd+F)
+  window.electronAPI.onFullscreenOpened((displayId) => {
+    const select = document.getElementById('fullscreen-select');
+    if (select) select.value = String(displayId);
   });
 }

@@ -675,6 +675,13 @@ function createFullscreenWindow(display, shaderState) {
 
   fullscreenWindow.loadFile('fullscreen.html');
 
+  // Pipe fullscreen console.log to main process terminal for debugging
+  fullscreenWindow.webContents.on('console-message', (event, level, message) => {
+    if (message.startsWith('[Fullscreen]')) {
+      console.log(message);
+    }
+  });
+
   // Send shader state once the window is ready
   fullscreenWindow.webContents.on('did-finish-load', () => {
     fullscreenWindow.webContents.send('init-fullscreen', shaderState);
@@ -686,6 +693,11 @@ function createFullscreenWindow(display, shaderState) {
       fullscreenWindow.close();
     }
   });
+
+  // Notify renderer which display was selected
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('fullscreen-opened', display.id);
+  }
 
   fullscreenWindow.on('closed', () => {
     // Notify main window that fullscreen closed (for adaptive preview framerate)
@@ -1664,11 +1676,6 @@ function animate(context, time, deltaTime, params) {
 
 // Fullscreen state handler
 ipcMain.on('fullscreen-state', (event, shaderState) => {
-  console.log('[Main] Received fullscreen-state, tiledConfig:', shaderState?.tiledConfig ? 'present' : 'not present');
-  if (shaderState?.tiledConfig) {
-    console.log('[Main] tiledConfig layout:', shaderState.tiledConfig.layout);
-    console.log('[Main] tiledConfig tiles count:', shaderState.tiledConfig.tiles?.length);
-  }
   if (pendingFullscreenDisplay) {
     createFullscreenWindow(pendingFullscreenDisplay, shaderState);
     pendingFullscreenDisplay = null;
@@ -1796,6 +1803,12 @@ ipcMain.on('save-grid-state', async (event, gridState) => {
       const tabs = [];
       let globalSlotIndex = 0;
       for (const tab of gridState.tabs) {
+        // Mix tabs: pass through directly (no shader files to read)
+        if (tab.type === 'mix') {
+          tabs.push({ name: tab.name, type: 'mix', mixPresets: tab.mixPresets || [] });
+          continue;
+        }
+
         const slots = [];
         for (let i = 0; i < tab.slots.length; i++) {
           const slot = tab.slots[i];
@@ -1816,7 +1829,7 @@ ipcMain.on('save-grid-state', async (event, gridState) => {
           }
           globalSlotIndex++;
         }
-        tabs.push({ name: tab.name, slots });
+        tabs.push({ name: tab.name, type: tab.type || 'shaders', slots });
       }
       const saveData = {
         version: 2,
@@ -2081,6 +2094,29 @@ ipcMain.on('open-fullscreen-primary', () => {
   const displays = screen.getAllDisplays();
   const primaryDisplay = displays.find(d => d.bounds.x === 0 && d.bounds.y === 0) || displays[0];
   openFullscreen(primaryDisplay);
+});
+
+// Get available displays for the fullscreen selector
+ipcMain.handle('get-displays', () => {
+  return screen.getAllDisplays().map((display, index) => ({
+    id: display.id,
+    label: `Display ${index + 1} (${display.size.width}x${display.size.height})`,
+    primary: display.bounds.x === 0 && display.bounds.y === 0
+  }));
+});
+
+// Open fullscreen on a specific display by ID
+ipcMain.on('open-fullscreen-on-display', (event, displayId) => {
+  const display = screen.getAllDisplays().find(d => d.id === displayId);
+  if (display) openFullscreen(display);
+});
+
+// Close fullscreen window
+ipcMain.on('close-fullscreen', () => {
+  if (fullscreenWindow) {
+    fullscreenWindow.close();
+    fullscreenWindow = null;
+  }
 });
 
 // Get settings
@@ -2360,6 +2396,31 @@ ipcMain.on('tile-assign', (event, data) => {
 ipcMain.on('tile-param-update', (event, data) => {
   if (fullscreenWindow && !fullscreenWindow.isDestroyed()) {
     fullscreenWindow.webContents.send('tile-param-update', data);
+  }
+});
+
+// Mixer fullscreen forwarding (main window → fullscreen window)
+ipcMain.on('mixer-param-update', (event, data) => {
+  if (fullscreenWindow && !fullscreenWindow.isDestroyed()) {
+    fullscreenWindow.webContents.send('mixer-param-update', data);
+  }
+});
+
+ipcMain.on('mixer-alpha-update', (event, data) => {
+  if (fullscreenWindow && !fullscreenWindow.isDestroyed()) {
+    fullscreenWindow.webContents.send('mixer-alpha-update', data);
+  }
+});
+
+ipcMain.on('mixer-blend-mode', (event, data) => {
+  if (fullscreenWindow && !fullscreenWindow.isDestroyed()) {
+    fullscreenWindow.webContents.send('mixer-blend-mode', data);
+  }
+});
+
+ipcMain.on('mixer-channel-update', (event, data) => {
+  if (fullscreenWindow && !fullscreenWindow.isDestroyed()) {
+    fullscreenWindow.webContents.send('mixer-channel-update', data);
   }
 });
 

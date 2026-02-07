@@ -9,6 +9,7 @@ import { parseShaderParams, generateUniformDeclarations } from './param-parser.j
 import { openInTab } from './tabs.js';
 import { tileState, assignTile } from './tile-state.js';
 import { updateTileRenderer, refreshTileRenderers } from './controls.js';
+import { assignShaderToMixer, recallMixState, resetMixer, isMixerActive } from './mixer.js';
 
 // Track drag state
 let dragSourceIndex = null;
@@ -35,10 +36,13 @@ function buildTabBar() {
   // Create tabs for each shader tab
   state.shaderTabs.forEach((tab, index) => {
     const tabEl = document.createElement('div');
+    const isMix = tab.type === 'mix';
     tabEl.className = `shader-grid-tab${index === state.activeShaderTab ? ' active' : ''}`;
     tabEl.dataset.tabIndex = index;
-    tabEl.textContent = tab.name;
-    tabEl.title = `${tab.name} (${tab.slots.filter(s => s).length} shaders)`;
+    tabEl.textContent = isMix ? `\u2666 ${tab.name}` : tab.name;
+    const count = isMix ? (tab.mixPresets || []).length : tab.slots.filter(s => s).length;
+    const countLabel = isMix ? 'mixes' : 'shaders';
+    tabEl.title = `${tab.name} (${count} ${countLabel})`;
 
     // Click to switch tab
     tabEl.addEventListener('click', () => switchShaderTab(index));
@@ -62,8 +66,12 @@ function buildTabBar() {
   const addTabBtn = document.createElement('div');
   addTabBtn.className = 'shader-grid-tab add-tab';
   addTabBtn.textContent = '+';
-  addTabBtn.title = 'Add new shader tab';
+  addTabBtn.title = 'Add new shader tab (right-click for options)';
   addTabBtn.addEventListener('click', addNewShaderTab);
+  addTabBtn.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    showAddTabContextMenu(e.clientX, e.clientY);
+  });
   tabBar.appendChild(addTabBtn);
 }
 
@@ -79,17 +87,23 @@ export function switchShaderTab(tabIndex) {
 
   // Update active tab
   state.activeShaderTab = tabIndex;
-  state.gridSlots = state.shaderTabs[tabIndex].slots;
-  state.activeGridSlot = null;
+  const tab = state.shaderTabs[tabIndex];
 
-  // Rebuild DOM for new tab
-  rebuildGridDOM();
+  if (tab.type === 'mix') {
+    state.gridSlots = [];
+    state.activeGridSlot = null;
+    rebuildMixPanelDOM();
+  } else {
+    state.gridSlots = tab.slots;
+    state.activeGridSlot = null;
+    rebuildGridDOM();
+  }
 
   // Rebuild tab bar to update active state
   buildTabBar();
 
-  // Restart animation if grid is visible
-  if (state.gridEnabled) {
+  // Restart animation if grid is visible (only for shader tabs)
+  if (state.gridEnabled && tab.type !== 'mix') {
     startGridAnimation();
   }
 
@@ -97,7 +111,7 @@ export function switchShaderTab(tabIndex) {
   updateLocalPresetsUI();
   updateSaveButtonState();
 
-  setStatus(`Switched to "${state.shaderTabs[tabIndex].name}"`, 'success');
+  setStatus(`Switched to "${tab.name}"`, 'success');
 }
 
 // Add a new shader tab
@@ -161,19 +175,22 @@ async function deleteShaderTab(tabIndex) {
   }
 
   const tab = state.shaderTabs[tabIndex];
-  const shaderCount = tab.slots.filter(s => s).length;
+  const isMix = tab.type === 'mix';
+  const itemCount = isMix ? (tab.mixPresets || []).length : tab.slots.filter(s => s).length;
+  const itemLabel = isMix ? 'mix preset(s)' : 'shader(s)';
 
-  if (shaderCount > 0) {
-    // Confirm deletion
-    if (!confirm(`Delete "${tab.name}" with ${shaderCount} shader(s)?`)) {
+  if (itemCount > 0) {
+    if (!confirm(`Delete "${tab.name}" with ${itemCount} ${itemLabel}?`)) {
       return;
     }
   }
 
-  // Dispose renderers in this tab
-  for (const slot of tab.slots) {
-    if (slot && slot.renderer && slot.renderer.dispose) {
-      slot.renderer.dispose();
+  // Dispose renderers in this tab (only for shader tabs)
+  if (!isMix) {
+    for (const slot of tab.slots) {
+      if (slot && slot.renderer && slot.renderer.dispose) {
+        slot.renderer.dispose();
+      }
     }
   }
 
@@ -189,10 +206,15 @@ async function deleteShaderTab(tabIndex) {
   }
 
   // Update gridSlots reference
-  state.gridSlots = state.shaderTabs[state.activeShaderTab].slots;
+  const newActiveTab = state.shaderTabs[state.activeShaderTab];
+  state.gridSlots = newActiveTab.type === 'mix' ? [] : newActiveTab.slots;
 
   // Rebuild UI
-  rebuildGridDOM();
+  if (newActiveTab.type === 'mix') {
+    rebuildMixPanelDOM();
+  } else {
+    rebuildGridDOM();
+  }
   buildTabBar();
   saveGridState();
 
@@ -259,6 +281,370 @@ function hideTabContextMenu() {
     document.removeEventListener('click', tabContextMenuHandler);
     tabContextMenuHandler = null;
   }
+}
+
+// =============================================================================
+// Add Tab Context Menu + Mix Panel
+// =============================================================================
+
+// Show context menu when right-clicking the "+" tab button
+function showAddTabContextMenu(x, y) {
+  hideContextMenu();
+  hideTabContextMenu();
+
+  const menu = document.createElement('div');
+  menu.className = 'context-menu';
+  menu.id = 'tab-context-menu';
+
+  const shaderItem = document.createElement('div');
+  shaderItem.className = 'context-menu-item';
+  shaderItem.textContent = 'Add Shader Panel';
+  shaderItem.addEventListener('click', () => {
+    hideTabContextMenu();
+    addNewShaderTab();
+  });
+  menu.appendChild(shaderItem);
+
+  const mixItem = document.createElement('div');
+  mixItem.className = 'context-menu-item';
+  mixItem.textContent = 'Add Mix Panel';
+  mixItem.addEventListener('click', () => {
+    hideTabContextMenu();
+    addNewMixTab();
+  });
+  menu.appendChild(mixItem);
+
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+  document.body.appendChild(menu);
+
+  // Adjust position if off screen
+  const rect = menu.getBoundingClientRect();
+  if (rect.right > window.innerWidth) {
+    menu.style.left = `${window.innerWidth - rect.width - 5}px`;
+  }
+  if (rect.bottom > window.innerHeight) {
+    menu.style.top = `${window.innerHeight - rect.height - 5}px`;
+  }
+
+  tabContextMenuHandler = (e) => {
+    if (!menu.contains(e.target)) {
+      hideTabContextMenu();
+    }
+  };
+  setTimeout(() => document.addEventListener('click', tabContextMenuHandler), 0);
+}
+
+// Add a new mix tab
+function addNewMixTab() {
+  // Count existing mix tabs for naming
+  const mixTabCount = state.shaderTabs.filter(t => t.type === 'mix').length;
+  const newName = `Mixes ${mixTabCount + 1}`;
+  state.shaderTabs.push({ name: newName, type: 'mix', mixPresets: [] });
+
+  switchShaderTab(state.shaderTabs.length - 1);
+  saveGridState();
+
+  setStatus(`Created mix panel "${newName}"`, 'success');
+}
+
+// Build the mix preset panel DOM (replaces the shader grid when a mix tab is active)
+function rebuildMixPanelDOM() {
+  const container = document.getElementById('shader-grid-container');
+
+  // Build tab bar first
+  buildTabBar();
+
+  // Cleanup grid-specific stuff
+  slotEventListeners.forEach((listeners, slot) => {
+    listeners.forEach(({ event, handler }) => {
+      slot.removeEventListener(event, handler);
+    });
+  });
+  slotEventListeners.clear();
+  cleanupGridVisibilityObserver();
+
+  // Clear container
+  container.innerHTML = '';
+
+  const tab = state.shaderTabs[state.activeShaderTab];
+  if (!tab || tab.type !== 'mix') return;
+
+  // Create the mix preset grid
+  const grid = document.createElement('div');
+  grid.className = 'mix-preset-grid';
+
+  const presets = tab.mixPresets || [];
+  for (let i = 0; i < presets.length; i++) {
+    const preset = presets[i];
+    const btn = document.createElement('div');
+    btn.className = 'mix-preset-btn';
+    btn.dataset.presetIndex = i;
+    btn.textContent = preset.name || `Mix ${i + 1}`;
+    btn.title = buildMixPresetTooltip(preset);
+
+    btn.addEventListener('click', () => {
+      recallMixPresetFromTab(i);
+    });
+    btn.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      showMixPresetContextMenu(e.clientX, e.clientY, i);
+    });
+
+    grid.appendChild(btn);
+  }
+
+  // Add "+" button to save current mix state
+  const addBtn = document.createElement('div');
+  addBtn.className = 'mix-preset-btn mix-add-btn';
+  addBtn.textContent = '+';
+  addBtn.title = 'Save current mixer state as a preset';
+  addBtn.addEventListener('click', () => {
+    saveMixPreset();
+  });
+  grid.appendChild(addBtn);
+
+  // Add reset button to clear all mixer channels
+  const resetBtn = document.createElement('div');
+  resetBtn.className = 'mix-preset-btn mix-reset-btn';
+  resetBtn.textContent = 'Reset';
+  resetBtn.title = 'Clear all mixer channels';
+  resetBtn.addEventListener('click', () => {
+    resetMixer();
+  });
+  grid.appendChild(resetBtn);
+
+  container.appendChild(grid);
+}
+
+// Build a tooltip string for a mix preset
+function buildMixPresetTooltip(preset) {
+  const channelCount = preset.channels.filter(ch => ch !== null).length;
+  return `${preset.name} — ${channelCount} channel(s), blend: ${preset.blendMode || 'lighter'}`;
+}
+
+// Snapshot the current mixer state into a new mix preset
+function saveMixPreset() {
+  const tab = state.shaderTabs[state.activeShaderTab];
+  if (!tab || tab.type !== 'mix') return;
+
+  // Check that the mixer has at least one active channel
+  if (!isMixerActive()) {
+    setStatus('Mixer has no active channels to save', 'error');
+    return;
+  }
+
+  const channels = state.mixerChannels.map(ch => {
+    if (ch.slotIndex === null && ch.tabIndex === null && !ch.renderer) return null;
+
+    // Get shader code: stored on channel (always set), or look up from tab
+    let shaderCode = ch.shaderCode;
+    if (!shaderCode && ch.slotIndex !== null && ch.tabIndex !== null) {
+      const srcTab = state.shaderTabs[ch.tabIndex];
+      shaderCode = srcTab?.slots?.[ch.slotIndex]?.shaderCode;
+    }
+    if (!shaderCode) return null;
+
+    return {
+      shaderCode,
+      alpha: ch.alpha,
+      params: { ...ch.params },
+      customParams: { ...ch.customParams }
+    };
+  });
+
+  const presetName = `Mix ${(tab.mixPresets || []).length + 1}`;
+  const preset = {
+    name: presetName,
+    blendMode: state.mixerBlendMode,
+    channels
+  };
+
+  if (!tab.mixPresets) tab.mixPresets = [];
+  tab.mixPresets.push(preset);
+
+  rebuildMixPanelDOM();
+  saveGridState();
+
+  setStatus(`Saved mix preset "${presetName}"`, 'success');
+}
+
+// Recall a mix preset and load it into the mixer
+function recallMixPresetFromTab(presetIndex) {
+  const tab = state.shaderTabs[state.activeShaderTab];
+  if (!tab || tab.type !== 'mix') return;
+
+  const preset = tab.mixPresets?.[presetIndex];
+  if (!preset) return;
+
+  recallMixState(preset);
+
+  // Update active highlight on buttons
+  const grid = document.querySelector('.mix-preset-grid');
+  if (grid) {
+    grid.querySelectorAll('.mix-preset-btn').forEach(btn => {
+      btn.classList.remove('active');
+    });
+    const activeBtn = grid.querySelector(`[data-preset-index="${presetIndex}"]`);
+    if (activeBtn) activeBtn.classList.add('active');
+  }
+}
+
+// Show context menu for a mix preset button
+function showMixPresetContextMenu(x, y, presetIndex) {
+  hideContextMenu();
+  hideTabContextMenu();
+
+  const tab = state.shaderTabs[state.activeShaderTab];
+  if (!tab || tab.type !== 'mix') return;
+
+  const menu = document.createElement('div');
+  menu.className = 'context-menu';
+  menu.id = 'tab-context-menu';
+
+  // Update preset with current mixer state
+  const updateItem = document.createElement('div');
+  updateItem.className = 'context-menu-item';
+  updateItem.textContent = 'Update with Current Mix';
+  updateItem.addEventListener('click', () => {
+    hideTabContextMenu();
+    updateMixPreset(presetIndex);
+  });
+  menu.appendChild(updateItem);
+
+  // Rename preset
+  const renameItem = document.createElement('div');
+  renameItem.className = 'context-menu-item';
+  renameItem.textContent = 'Rename';
+  renameItem.addEventListener('click', () => {
+    hideTabContextMenu();
+    renameMixPreset(presetIndex);
+  });
+  menu.appendChild(renameItem);
+
+  // Delete preset
+  const deleteItem = document.createElement('div');
+  deleteItem.className = 'context-menu-item';
+  deleteItem.textContent = 'Delete';
+  deleteItem.addEventListener('click', () => {
+    hideTabContextMenu();
+    deleteMixPreset(presetIndex);
+  });
+  menu.appendChild(deleteItem);
+
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+  document.body.appendChild(menu);
+
+  const rect = menu.getBoundingClientRect();
+  if (rect.right > window.innerWidth) {
+    menu.style.left = `${window.innerWidth - rect.width - 5}px`;
+  }
+  if (rect.bottom > window.innerHeight) {
+    menu.style.top = `${window.innerHeight - rect.height - 5}px`;
+  }
+
+  tabContextMenuHandler = (e) => {
+    if (!menu.contains(e.target)) {
+      hideTabContextMenu();
+    }
+  };
+  setTimeout(() => document.addEventListener('click', tabContextMenuHandler), 0);
+}
+
+// Update a mix preset with the current mixer state
+function updateMixPreset(presetIndex) {
+  const tab = state.shaderTabs[state.activeShaderTab];
+  if (!tab || tab.type !== 'mix') return;
+
+  if (!isMixerActive()) {
+    setStatus('Mixer has no active channels to save', 'error');
+    return;
+  }
+
+  const preset = tab.mixPresets?.[presetIndex];
+  if (!preset) return;
+
+  const channels = state.mixerChannels.map(ch => {
+    if (ch.slotIndex === null && ch.tabIndex === null && !ch.renderer) return null;
+
+    let shaderCode = ch.shaderCode;
+    if (!shaderCode && ch.slotIndex !== null && ch.tabIndex !== null) {
+      const srcTab = state.shaderTabs[ch.tabIndex];
+      shaderCode = srcTab?.slots?.[ch.slotIndex]?.shaderCode;
+    }
+    if (!shaderCode) return null;
+
+    return {
+      shaderCode,
+      alpha: ch.alpha,
+      params: { ...ch.params },
+      customParams: { ...ch.customParams }
+    };
+  });
+
+  preset.blendMode = state.mixerBlendMode;
+  preset.channels = channels;
+
+  saveGridState();
+  setStatus(`Updated mix preset "${preset.name}"`, 'success');
+}
+
+// Rename a mix preset inline
+function renameMixPreset(presetIndex) {
+  const tab = state.shaderTabs[state.activeShaderTab];
+  if (!tab || tab.type !== 'mix') return;
+
+  const preset = tab.mixPresets?.[presetIndex];
+  if (!preset) return;
+
+  const grid = document.querySelector('.mix-preset-grid');
+  const btn = grid?.querySelector(`[data-preset-index="${presetIndex}"]`);
+  if (!btn) return;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'shader-tab-rename-input';
+  input.value = preset.name;
+  input.style.width = '90%';
+
+  const finishRename = () => {
+    const newName = input.value.trim() || preset.name;
+    preset.name = newName;
+    rebuildMixPanelDOM();
+    saveGridState();
+  };
+
+  input.addEventListener('blur', finishRename);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      input.blur();
+    } else if (e.key === 'Escape') {
+      input.value = preset.name;
+      input.blur();
+    }
+  });
+
+  btn.textContent = '';
+  btn.appendChild(input);
+  input.focus();
+  input.select();
+}
+
+// Delete a mix preset
+function deleteMixPreset(presetIndex) {
+  const tab = state.shaderTabs[state.activeShaderTab];
+  if (!tab || tab.type !== 'mix') return;
+
+  const preset = tab.mixPresets?.[presetIndex];
+  if (!preset) return;
+
+  tab.mixPresets.splice(presetIndex, 1);
+  rebuildMixPanelDOM();
+  saveGridState();
+
+  setStatus(`Deleted mix preset "${preset.name}"`, 'success');
 }
 
 // Move a shader to another tab
@@ -408,10 +794,14 @@ function createGridSlotElement(index) {
   slot.addEventListener('drop', dropHandler);
   listeners.push({ event: 'drop', handler: dropHandler });
 
-  // Left click - select slot and load parameters
+  // Left click - select slot and load parameters (or assign to mixer if armed)
   const clickHandler = () => {
     if (state.gridSlots[index]) {
-      selectGridSlot(index);
+      if (state.mixerArmedChannel !== null) {
+        assignShaderToMixer(state.mixerArmedChannel, index);
+      } else {
+        selectGridSlot(index);
+      }
     }
   };
   slot.addEventListener('click', clickHandler);
@@ -507,6 +897,13 @@ function removeGridSlotElement(index) {
 
 // Rebuild all grid slot DOM elements from state
 function rebuildGridDOM() {
+  // If active tab is a mix panel, delegate to mix panel builder
+  const activeTab = state.shaderTabs[state.activeShaderTab];
+  if (activeTab && activeTab.type === 'mix') {
+    rebuildMixPanelDOM();
+    return;
+  }
+
   const container = document.getElementById('shader-grid-container');
 
   // Build tab bar first
@@ -1256,23 +1653,45 @@ export function updateSaveButtonState() {
 
 export function saveGridState() {
   // Save all tabs with embedded shader code
-  const tabsState = state.shaderTabs.map(tab => ({
-    name: tab.name,
-    slots: tab.slots.map(slot => {
-      if (!slot) return null;
+  const tabsState = state.shaderTabs.map(tab => {
+    if (tab.type === 'mix') {
       return {
-        shaderCode: slot.shaderCode,  // Include shader code for tabbed format
-        filePath: slot.filePath,
-        params: slot.params,
-        customParams: slot.customParams || {},
-        presets: slot.presets || [],
-        type: slot.type || 'shader'
+        name: tab.name,
+        type: 'mix',
+        mixPresets: (tab.mixPresets || []).map(preset => ({
+          name: preset.name,
+          blendMode: preset.blendMode,
+          channels: preset.channels.map(ch => {
+            if (!ch) return null;
+            return {
+              shaderCode: ch.shaderCode,
+              alpha: ch.alpha,
+              params: ch.params,
+              customParams: ch.customParams || {}
+            };
+          })
+        }))
       };
-    })
-  }));
+    }
+    return {
+      name: tab.name,
+      type: tab.type || 'shaders',
+      slots: tab.slots.map(slot => {
+        if (!slot) return null;
+        return {
+          shaderCode: slot.shaderCode,
+          filePath: slot.filePath,
+          params: slot.params,
+          customParams: slot.customParams || {},
+          presets: slot.presets || [],
+          type: slot.type || 'shader'
+        };
+      })
+    };
+  });
 
   const gridState = {
-    version: 2,  // New format version for tabs
+    version: 2,
     activeTab: state.activeShaderTab,
     tabs: tabsState
   };
@@ -1316,7 +1735,20 @@ async function loadTabbedGridState(savedState) {
 
   for (let tabIndex = 0; tabIndex < savedState.tabs.length; tabIndex++) {
     const tabData = savedState.tabs[tabIndex];
-    const tab = { name: tabData.name || `Tab ${tabIndex + 1}`, slots: [] };
+
+    // Handle mix tabs — just load preset data directly
+    if (tabData.type === 'mix') {
+      const tab = {
+        name: tabData.name || `Mixes ${tabIndex + 1}`,
+        type: 'mix',
+        mixPresets: tabData.mixPresets || []
+      };
+      state.shaderTabs.push(tab);
+      totalLoaded += tab.mixPresets.length;
+      continue;
+    }
+
+    const tab = { name: tabData.name || `Tab ${tabIndex + 1}`, type: tabData.type || 'shaders', slots: [] };
 
     // Compact: only keep slots with shader data
     const compactSlots = (tabData.slots || []).filter(s => s && s.shaderCode);
@@ -1358,10 +1790,15 @@ async function loadTabbedGridState(savedState) {
 
   // Restore active tab
   state.activeShaderTab = Math.min(savedState.activeTab || 0, state.shaderTabs.length - 1);
-  state.gridSlots = state.shaderTabs[state.activeShaderTab].slots;
+  const restoredTab = state.shaderTabs[state.activeShaderTab];
+  state.gridSlots = restoredTab.type === 'mix' ? [] : restoredTab.slots;
 
   // Rebuild DOM for active tab
-  rebuildGridDOM();
+  if (restoredTab.type === 'mix') {
+    rebuildMixPanelDOM();
+  } else {
+    rebuildGridDOM();
+  }
 
   if (allFailedSlots.length > 0) {
     setStatus(`Restored ${totalLoaded} items, ${allFailedSlots.length} failed`, 'success');
@@ -1526,6 +1963,25 @@ export async function loadGridShaderToEditor(slotIndex) {
 export async function selectGridSlot(slotIndex) {
   const slotData = state.gridSlots[slotIndex];
   if (!slotData) return;
+
+  // If this slot is assigned to a mixer channel, select that channel instead of clearing
+  const mixerBtns = document.querySelectorAll('#mixer-panel .mixer-btn');
+  let foundMixerCh = false;
+  for (let i = 0; i < state.mixerChannels.length; i++) {
+    const ch = state.mixerChannels[i];
+    if (ch.slotIndex === slotIndex && ch.tabIndex === state.activeShaderTab) {
+      // Import selectMixerChannel via the exported function from mixer.js
+      state.mixerSelectedChannel = i;
+      mixerBtns.forEach(b => b.classList.remove('selected'));
+      mixerBtns[i]?.classList.add('selected');
+      foundMixerCh = true;
+      break;
+    }
+  }
+  if (!foundMixerCh) {
+    state.mixerSelectedChannel = null;
+    mixerBtns.forEach(b => b.classList.remove('selected'));
+  }
 
   // Clear previous active slot highlight
   if (state.activeGridSlot !== null) {

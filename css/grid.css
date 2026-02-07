@@ -276,22 +276,80 @@
   font-size: 12px;
 }
 
-/* Shader Presets Section in Grid Panel */
-.grid-presets-section {
+/* =============================================================================
+   Mix Preset Panel
+   ============================================================================= */
+
+.mix-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
   width: 100%;
-  padding: 8px 12px;
-  background-color: var(--bg-secondary);
-  border-radius: 4px;
-  flex-shrink: 0;
 }
 
-.grid-presets-title {
-  font-size: 11px;
-  font-weight: 600;
+.mix-preset-btn {
+  aspect-ratio: 16 / 9;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--text-primary);
+  transition: border-color 0.15s, transform 0.1s;
+  text-align: center;
+  padding: 4px;
+  word-break: break-word;
+}
+
+.mix-preset-btn:hover {
+  border-color: var(--accent-color);
+  transform: scale(1.02);
+}
+
+.mix-preset-btn.active {
+  border-color: var(--warning-color);
+  box-shadow: 0 0 8px var(--warning-color);
+}
+
+.mix-preset-btn.mix-add-btn {
+  border-style: dashed;
+  border-color: var(--border-color);
+  background: transparent;
+  font-size: 36px;
+  font-weight: 300;
   color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 8px;
+}
+
+.mix-preset-btn.mix-add-btn:hover {
+  border-color: var(--accent-color);
+  background: rgba(0, 120, 212, 0.1);
+  color: var(--accent-color);
+}
+
+.mix-preset-btn.mix-reset-btn {
+  border-style: dashed;
+  border-color: var(--border-color);
+  background: transparent;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.mix-preset-btn.mix-reset-btn:hover {
+  border-color: var(--error-color, #e44);
+  background: rgba(228, 68, 68, 0.1);
+  color: var(--error-color, #e44);
+}
+
+/* Shader Presets Section (between preview and bottom row) */
+.grid-presets-section {
+  width: 100%;
+  padding: 6px 12px;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
 }
 
 .grid-presets-section .presets-row {

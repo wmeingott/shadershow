@@ -3,6 +3,7 @@ import { state } from './state.js';
 import { setStatus } from './utils.js';
 import { saveGridState } from './shader-grid.js';
 import { tileState } from './tile-state.js';
+import { updateMixerChannelParam } from './mixer.js';
 
 // Debounced grid state save
 let saveGridStateTimeout = null;
@@ -31,6 +32,13 @@ export function initParams() {
       speedValue.textContent = value.toFixed(2);
       window.electronAPI.sendParamUpdate({ name: 'speed', value });
 
+      // Route to mixer channel or grid slot
+      if (state.mixerSelectedChannel !== null) {
+        updateMixerChannelParam('speed', value);
+      } else {
+        syncSpeedToActiveSlot(value);
+      }
+
       // Also update selected tile's renderer if in tiled mode
       updateSelectedTileParam('speed', value);
     });
@@ -42,9 +50,28 @@ export function initParams() {
       speedValue.textContent = '1.00';
       window.electronAPI.sendParamUpdate({ name: 'speed', value: 1 });
 
+      // Route to mixer channel or grid slot
+      if (state.mixerSelectedChannel !== null) {
+        updateMixerChannelParam('speed', 1);
+      } else {
+        syncSpeedToActiveSlot(1);
+      }
+
       // Also update selected tile's renderer if in tiled mode
       updateSelectedTileParam('speed', 1);
     });
+  }
+}
+
+// Sync speed to the active grid slot's MiniShaderRenderer (for mixer compositing)
+function syncSpeedToActiveSlot(value) {
+  if (state.activeGridSlot !== null && state.gridSlots[state.activeGridSlot]) {
+    const slot = state.gridSlots[state.activeGridSlot];
+    if (!slot.params) slot.params = {};
+    slot.params.speed = value;
+    if (slot.renderer?.setSpeed) {
+      slot.renderer.setSpeed(value);
+    }
   }
 }
 
@@ -74,7 +101,7 @@ export function initMouseAssignment() {
   // This function is kept for API compatibility but does nothing
 }
 
-export function loadParamsToSliders(params) {
+export function loadParamsToSliders(params, { skipMixerSync = false } = {}) {
   if (!params) return;
 
   // Load speed if present
@@ -86,6 +113,11 @@ export function loadParamsToSliders(params) {
       if (speedValue) speedValue.textContent = params.speed.toFixed(2);
       if (state.renderer) state.renderer.setParam('speed', params.speed);
 
+      // Route to mixer channel if selected
+      if (!skipMixerSync && state.mixerSelectedChannel !== null) {
+        updateMixerChannelParam('speed', params.speed);
+      }
+
       // Also update selected tile if in tiled mode
       updateSelectedTileParam('speed', params.speed);
     }
@@ -96,6 +128,12 @@ export function loadParamsToSliders(params) {
     Object.entries(params).forEach(([name, value]) => {
       if (name !== 'speed') {
         state.renderer.setParam(name, value);
+
+        // Route to mixer channel if selected
+        if (!skipMixerSync && state.mixerSelectedChannel !== null) {
+          updateMixerChannelParam(name, value);
+        }
+
         // Also update selected tile if in tiled mode
         if (state.tiledPreviewEnabled) {
           updateSelectedTileParam(name, value);
@@ -485,11 +523,17 @@ function updateCustomParamValue(paramName, value, arrayIndex = null) {
     : value;
   window.electronAPI.sendParamUpdate({ name: paramName, value: fullValue });
 
-  // Save to active grid slot (debounced)
-  if (state.activeGridSlot !== null && state.gridSlots[state.activeGridSlot]) {
+  // Route to mixer channel if one is selected, otherwise save to grid slot
+  const paramValue = state.renderer.getCustomParamValues()[paramName];
+  if (state.mixerSelectedChannel !== null) {
+    updateMixerChannelParam(paramName, paramValue);
+  } else if (state.activeGridSlot !== null && state.gridSlots[state.activeGridSlot]) {
     const slot = state.gridSlots[state.activeGridSlot];
     if (!slot.customParams) slot.customParams = {};
-    slot.customParams[paramName] = state.renderer.getCustomParamValues()[paramName];
+    slot.customParams[paramName] = paramValue;
+    if (slot.renderer?.setParam) {
+      slot.renderer.setParam(paramName, paramValue);
+    }
     debouncedSaveGridState();
   }
 

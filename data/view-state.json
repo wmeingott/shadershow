@@ -1,9 +1,9 @@
 {
   "editorEnabled": true,
-  "previewEnabled": true,
-  "gridEnabled": true,
-  "paramsEnabled": true,
-  "editorWidth": "50%",
+  "previewEnabled": false,
+  "gridEnabled": false,
+  "paramsEnabled": false,
+  "editorWidth": "100%",
   "resolution": "1536x864",
   "customWidth": "1280",
   "customHeight": "720"

@@ -382,6 +382,41 @@
               1,
               0.54,
               0.23
+            ],
+            "light2": [
+              0.2,
+              0.6,
+              0.8
+            ],
+            "light3": [
+              0.9,
+              0,
+              1
+            ],
+            "light4": [
+              0.2,
+              0.3,
+              0.8
+            ],
+            "light5": [
+              0.9,
+              0.4,
+              0.6
+            ],
+            "light6": [
+              0.2,
+              0.6,
+              0.7
+            ],
+            "light7": [
+              0.9,
+              0.4,
+              0.3
+            ],
+            "light8": [
+              0.2,
+              0.3,
+              0.8
             ]
           },
           "presets": [],
@@ -436,7 +471,7 @@
           "shaderCode": "// Colorful flames effect\n// Custom params: // @param name type [default] [min, max] \"description\"\n// @texture iChannel0 RGBANoise\n// @param light1 color[2] [[0.9, 0.4, 0.1],[0.9,0.7,0.3]] \"Flamme 1\"\n// @param light2 color[2] [[0.2, 0.6, 0.7],[0.6,0.8,0.9]] \"Flamme 2\"\n// @param light3 color[2] [[0.9, 0.3, 0.0],[0.9,0.3,0.0]] \"Flamme 3\"\n// @param light4 color[2] [[0.2, 0.3, 0.8],[0.9,0.6,0.9]] \"Flamme 4\"\n// @param light5 color[2] [[0.9, 0.4, 0.6],[0.9,0.7,0.3]] \"Flamme 5\"\n// @param light6 color[2] [[0.2, 0.6, 0.0],[0.6,0.8,0.9]] \"Flamme 6\"\n// @param light7 color[2] [[0.9, 0.4, 0.7],[0.1,0.8,0.5]] \"Flamme 7\"\n// @param light8 color[2] [[0.2, 0.3, 0.3],[0.9,0.6,0.9]] \"Flamme 8\"\n\n#define R iResolution.xy\n#define S smoothstep\n#define T texture\n\nvec3 flame (vec2 u, float s, vec3 c1, vec3 c2) {\n    float y = S(-.6,.6,u.y);\n    u += T(iChannel0, u*.02 + vec2(s - iTime*.03, s - iTime*.1)).r * y * vec2(0.7, 0.2);\n    float f = S(.1, 0., length(u) - .4);\n    f *= S(0., 1., length(u + vec2(0., .35)));\n    return f*mix(c1,c2,y);\n}\n\nvoid mainImage( out vec4 O, in vec2 I )\n{\n    vec2 u = (I-.5*R)/R.y*vec2(10.,1.3);\n    \n    vec3 f1 = flame(u+vec2( 7.5,0.0),.1,light1[0],light1[1]);\n    vec3 f2 = flame(u+vec2( 6.,0.),.2,light2[0],light2[1]);\n    vec3 f3 = flame(u+vec2( 4.5,0.),.3,light3[0],light3[1]);\n    vec3 f4 = flame(u+vec2( 3.,0.),.4,light4[0],light4[1]);\n    vec3 f5 = flame(u+vec2( 1.5,0.),.5,light5[0],light5[1]);\n    vec3 f6 = flame(u+vec2( 0.,0.),.6,light6[0],light6[1]);\n    vec3 f7 = flame(u+vec2( -1.5,0.),.7,light7[0],light7[1]);\n    vec3 f8 = flame(u+vec2(-3.,0.),.8,light8[0],light8[1]);\n\n    vec3 C = f1+f2+f3+f4+f5+f6+f7+f8;\n    O = vec4(C+C,1.0);\n}",
           "filePath": null,
           "params": {
-            "speed": 1
+            "speed": 0.26
           },
           "customParams": {
             "light1": [
@@ -791,53 +826,22 @@
           "type": "shader"
         },
         {
-          "shaderCode": "// @param cColor color [1.0, 0.3, 0.1] \"Fire color\"\n// @param rradius float 0.5 [0.0, 1.0] \"radius\"\n\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    // Normalize coordinates to 0-1 range\n    vec2 uv = fragCoord.xy / iResolution.xy;\n    \n    // Grid parameters\n    float gridSize = 10.0;\n    float radius = rradius * 0.1;\n    \n    // Scale UV to grid space (0 to 10)\n    vec2 gridUV = uv * gridSize;\n    \n    // Get the cell index (0-9) and position within cell (0-1)\n    vec2 cellIndex = floor(gridUV);\n    vec2 cellUV = fract(gridUV);\n    \n    // Center of each cell is at (0.5, 0.5) in cell space\n    // Convert radius to cell space (cell is 1/10 of screen, so radius * 10)\n    float cellRadius = radius * gridSize;\n    \n    // Distance from center of cell\n    float dist = distance(cellUV, vec2(0.5));\n    \n    // Draw circle: white inside, black outside\n    float circle = step(cellRadius, dist);\n    \n    // Output color\n    vec3 color = cColor - vec3(circle);\n    \n    fragColor = vec4(color, 1.0);\n}\n",
+          "shaderCode": "// @param cColor color [1.0, 0.3, 0.1] \"Fire color\"\n// @param rradius float 0.5 [0.0, 1.0] \"radius halo\"\n// @param mradius float 0.1 [0.0, 1.0] \"Radius voll\"\n// @param gridsize int 10 [0,100] \"Anzahl\"\n// @param speedx float 0.0 [-2.0,2.0] \"Geschwindigkeit X\"\n// @param speedy float 0.0 [-2.0,2.0] \"Geschwindigkeit Y\"\n\n\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    // Normalize coordinates to 0-1 range\n    vec2 uv = fragCoord.xy / iResolution.xy;\n    \n    uv.x = uv.x + (mod(iTime, iResolution.x) * speedx);\n    uv.y = uv.y + (mod(iTime, iResolution.y) * speedy);\n    \n    // Grid parameters\n    float gridSize = float(gridsize);\n    float radius = rradius * (1.0 / gridSize);\n    \n    // Scale UV to grid space (0 to 10)\n    vec2 gridUV = uv * gridSize;\n    \n    // Get the cell index (0-9) and position within cell (0-1)\n    vec2 cellIndex = floor(gridUV);\n    vec2 cellUV = fract(gridUV);\n    \n    // Center of each cell is at (0.5, 0.5) in cell space\n    // Convert radius to cell space (cell is 1/10 of screen, so radius * 10)\n    float cellRadius = radius * gridSize;\n    \n    // Distance from center of cell\n    float dist = distance(cellUV, vec2(0.5));\n    \n    // Draw circle: white inside, black outside\n    float circle = smoothstep(mradius, cellRadius, dist);\n    \n    // Output color\n    vec3 color = cColor - vec3(circle);\n    \n    fragColor = vec4(color, 1.0);\n}\n",
           "filePath": null,
           "params": {
-            "speed": 1,
-            "p0": 0.5,
-            "p1": 0.5,
-            "p2": 0.5,
-            "p3": 0.5,
-            "p4": 0.5,
-            "r0": 1,
-            "g0": 1,
-            "b0": 1,
-            "r1": 1,
-            "g1": 1,
-            "b1": 1,
-            "r2": 1,
-            "g2": 1,
-            "b2": 1,
-            "r3": 1,
-            "g3": 1,
-            "b3": 1,
-            "r4": 1,
-            "g4": 1,
-            "b4": 1,
-            "r5": 1,
-            "g5": 1,
-            "b5": 1,
-            "r6": 1,
-            "g6": 1,
-            "b6": 1,
-            "r7": 1,
-            "g7": 1,
-            "b7": 1,
-            "r8": 1,
-            "g8": 1,
-            "b8": 1,
-            "r9": 1,
-            "g9": 1,
-            "b9": 1
+            "speed": 1
           },
           "customParams": {
             "cColor": [
               1,
-              1,
-              1
+              0.3,
+              0.1
             ],
-            "rradius": 0.5
+            "rradius": 0.5,
+            "mradius": 0.1,
+            "gridsize": 5,
+            "speedx": 0.84,
+            "speedy": 0.12
           },
           "presets": [],
           "type": "shader"

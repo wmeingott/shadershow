@@ -17,6 +17,7 @@
 //   // @param center vec2 0.5, 0.5 "Center position"
 //   // @param tint color [1.0, 0.5, 0.0] "Main color"
 //   // @param colors vec3[10] 1.0, 1.0, 1.0 "Color palette"
+//   // @param lights color[2] [[0.9, 0.4, 0.1],[0.9, 0.7, 0.3]] "Per-element defaults"
 
 const PARAM_REGEX = /^\s*\/\/\s*@param\s+(\w+)\s+(int|float|vec[234]|color)(\[(\d+)\])?\s*(.*)/;
 
@@ -99,6 +100,43 @@ function parseRest(restStr, baseType, arraySize) {
   if (descMatch) {
     description = descMatch[1];
     remaining = remaining.slice(0, -descMatch[0].length).trim();
+  }
+
+  // For vector/color types, check if [x,y,z] is a default value (not a range)
+  const vecComponents = { vec2: 2, vec3: 3, color: 3, vec4: 4 };
+  const expectedComponents = vecComponents[baseType];
+  if (expectedComponents) {
+    // Per-element array defaults: [[x,y,z],[a,b,c]]
+    if (arraySize) {
+      const nestedMatch = remaining.match(/^\s*\[((?:\s*\[[^\]]+\]\s*,?\s*)+)\]\s*$/);
+      if (nestedMatch) {
+        const innerBrackets = [];
+        const innerRegex = /\[([^\]]+)\]/g;
+        let m;
+        while ((m = innerRegex.exec(nestedMatch[1])) !== null) {
+          const parts = m[1].split(',').map(s => s.trim());
+          if (parts.length === expectedComponents) {
+            innerBrackets.push(parseValue(parts.join(', '), baseType));
+          }
+        }
+        if (innerBrackets.length === arraySize) {
+          defaultValue = innerBrackets;
+          return { defaultValue, min, max, description };
+        }
+      }
+    }
+    // Single vec default: [x,y,z]
+    const bracketMatch = remaining.match(/^\s*\[([^\]]+)\]\s*$/);
+    if (bracketMatch) {
+      const parts = bracketMatch[1].split(',').map(s => s.trim());
+      if (parts.length === expectedComponents) {
+        defaultValue = parseValue(parts.join(', '), baseType);
+        if (arraySize) {
+          defaultValue = Array(arraySize).fill(null).map(() => [...defaultValue]);
+        }
+        return { defaultValue, min, max, description };
+      }
+    }
   }
 
   // Extract range [min, max]
@@ -197,6 +235,45 @@ export function createParamValues(params) {
       : (Array.isArray(param.default) ? [...param.default] : param.default);
   }
   return values;
+}
+
+// Valid built-in texture names for @texture directives
+const VALID_TEXTURE_NAMES = new Set([
+  'RGBANoise', 'RGBANoiseSmall', 'GrayNoise', 'GrayNoiseSmall'
+]);
+
+const TEXTURE_REGEX = /^\s*\/\/\s*@texture\s+(iChannel[0-3])\s+(texture:(\w+)|(\w+))/;
+
+// Validate file texture names (alphanumeric, underscores, hyphens only)
+const FILE_TEXTURE_NAME_REGEX = /^[\w-]+$/;
+
+// Parse @texture directives from shader source
+// Returns array of { channel: 0-3, textureName: string, type: 'builtin' | 'file' }
+export function parseTextureDirectives(shaderSource) {
+  const directives = [];
+  const lines = shaderSource.split('\n');
+
+  for (const line of lines) {
+    const match = line.match(TEXTURE_REGEX);
+    if (match) {
+      const channel = parseInt(match[1].charAt(8), 10);
+      if (match[3]) {
+        // texture:filename syntax
+        const fileName = match[3];
+        if (FILE_TEXTURE_NAME_REGEX.test(fileName)) {
+          directives.push({ channel, textureName: fileName, type: 'file' });
+        }
+      } else {
+        // Built-in texture name
+        const textureName = match[4];
+        if (VALID_TEXTURE_NAMES.has(textureName)) {
+          directives.push({ channel, textureName, type: 'builtin' });
+        }
+      }
+    }
+  }
+
+  return directives;
 }
 
 // Validate and clamp a value to param's range

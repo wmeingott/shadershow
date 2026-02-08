@@ -1,113 +1,42 @@
-// Starfield with fractal geometry
+// Colorful flames effect
 // Custom params: // @param name type [default] [min, max] "description"
+// @texture iChannel0 RGBANoise
+// @param iFlame float 0.3 [0.0,5.0] "Flamme"
+// @param light1 color [0.9, 0.4, 0.1] "Flame 1"
+// @param light2 color [0.2, 0.6, 0.8] "Flame 2"
+// @param light3 color [0.9, 0.0, 1.0] "Flame 3"
+// @param light4 color [0.2, 0.3, 0.8] "Flame 4"
+// @param light5 color [0.9, 0.4, 0.6] "Flame 5"
+// @param light6 color [0.2, 0.6, 0.7] "Flame 6"
+// @param light7 color [0.9, 0.4, 0.3] "Flame 7"
+// @param light8 color [0.2, 0.3, 0.8] "Flame 8"
 
-#define NUM_LAYERS 10.
+#define R iResolution.xy
+#define S smoothstep
+#define T texture
 
-mat2 Rot(float a) {
-  float c = cos(a), s = sin(a);
-  return mat2(c, -s, s, c);
+vec3 flame (vec2 u, float s, vec3 c1, vec3 c2) {
+    float y = S(-.6,.6,u.y);
+    u += T(iChannel0, u*.02 + vec2(s - iTime*.03*iFlame, s - iTime*.1*iFlame)).r * y * vec2(0.7, 0.2);
+    float f = S(.1, 0., length(u) - .4);
+    f *= S(0., 1., length(u + vec2(0., .35)));
+    return f*mix(c1,c2,y);
 }
 
-float Star(vec2 uv, float flare) {
-    float col = 0.;
-    float d = length(uv);
-    float m = .02/d;
-    
-    float rays = max(0., 1. - abs(uv.x * uv.y * 500.));
-    m += rays * flare;
-    uv *= Rot(3.1415/4.);
-    rays = max(0., 1. - abs(uv.x * uv.y * 500.));
-    m += rays * .3 * flare;
-    
-    m *= smoothstep(1., .2, d);
-
-    return m;
-}
-
-float Hash21(vec2 p) {
-  p = fract(p * vec2(123.34, 456.21));
-  p += dot(p, p+25.32);
-  
-  return fract(p.x*p.y);
-}
-
-vec3 StarLayer(vec2 uv) {
-    vec3 col = vec3(0.);
-    
-    vec2 gv = fract(uv) - 0.5;
-    vec2 id = floor(uv);
-    
-    for(int y = -1; y <= 1; y++ ) {
-        for(int x = -1; x <= 1; x++) {
-            vec2 offs = vec2(x, y);
-
-            float n = Hash21(id + offs);
-            float size = fract(n*345.32);
-            
-            vec2 p = vec2(n, fract(n*34.));
-            
-            float star = Star(gv - offs - p + .5, smoothstep(.8, 1., size) * .6);
-            
-            vec3 hueShift = fract(n*2345.2 + dot(uv /420.,texture(iChannel0, vec2(0.25, 0.)).rg))*vec3(.2, .3, .9)*123.2;
-
-            vec3 color = sin(hueShift) * .5 + .5;
-            color = color * vec3(1., .25, 1.+size);
-
-            star *= sin(iTime*3.+n*6.2831)*.4+1.;
-            col += star * size * color;
-        }
-    }
-    
-    return col;
-
-}
-
-vec2 N(float angle) {
-  return vec2(sin(angle), cos(angle));
-}
-
-void mainImage( out vec4 fragColor, in vec2 fragCoord )
+void mainImage( out vec4 O, in vec2 I )
 {
-    vec2 uv = (fragCoord - 0.5*iResolution.xy)/iResolution.y;
-    vec2 M = (iMouse.xy - iResolution.xy*.5)/iResolution.y;
-    float t = iTime * .01;
+    vec2 u = (I-.5*R)/R.y*vec2(10.,1.3);
     
-    uv.x = abs(uv.x);
-    uv.y += tan((5./6.) * 3.1415) * .1;
+    vec3 f1 = flame(u+vec2( 7.5,0.2),.1,light1,vec3(.9,.7,.3));
+    vec3 f2 = flame(u+vec2( 6.,0.),.2,light2,vec3(.6,.8,.9));
+    vec3 f3 = flame(u+vec2( 4.5,0.),.3,light3,vec3(.9,.3,.0));
+    vec3 f4 = flame(u+vec2( 3.,0.),.4,light4,vec3(.9,.6,.9));
+    vec3 f5 = flame(u+vec2( 1.5,0.),.5,light5,vec3(.9,.7,.3));
+    vec3 f6 = flame(u+vec2( 0.,0.),.6,light6,vec3(.6,.8,.9));
+    vec3 f7 = flame(u+vec2( -1.5,0.),.7,light7,vec3(1.,.8,.5));
+    vec3 f8 = flame(u+vec2(-3.,0.),.8,light8,vec3(.9,.6,.9));
 
-    vec2 n = N((5./6.) * 3.1415);
-    float d = dot(uv - vec2(.5, 0.), n);
-    uv -= n * max(0., d) * 2.;
-
-    // col += smoothstep(.01, .0, abs(d));
-
-    n = N((2./3.) * 3.1415);
-    float scale = 1.;
-    uv.x += 1.0 / 1.25;
-    for(int i=0; i<5; i++) {
-        scale *= 1.25;
-        uv *= 1.25;
-        uv.x -= 1.5;
-
-        uv.x = abs(uv.x);
-        uv.x -= 0.5;
-        uv -= n * min(0., dot(uv, n)) * 2.;
-    }
-
- 
-    uv += M * 4.;
-
-    uv *= Rot(t);
-    vec3 col = vec3(0.);
+    vec3 C = f1+f2+f3+f4+f5+f6+f7+f8;
+    O = vec4(C+C,1.0);
     
-    float layers = 20.;
-    
-    for(float i=0.; i < 1.; i+=1./NUM_LAYERS) {
-        float depth = fract(i+t);
-        float scale = mix(20., .5, depth);
-        float fade = depth * smoothstep(0., .9, depth);
-        col += StarLayer(uv * scale + i * 453.2) * fade;
-    }
-
-    fragColor = vec4(col,1.0);
 }

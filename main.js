@@ -23,6 +23,7 @@ const ffmpegPath = require('ffmpeg-static');
 const NDISender = require('./ndi-sender');
 const NDIReceiver = require('./ndi-receiver');
 const SyphonSender = require('./syphon-sender');
+const RemoteServer = require('./remote-server');
 
 let mainWindow;
 let fullscreenWindow = null;
@@ -49,6 +50,11 @@ let recordingLastWidth = 0;
 let recordingLastHeight = 0;
 let recordingFilePath = null;
 let recordingBackpressure = false;
+
+// Remote control server
+let remoteServer = null;
+let remoteEnabled = false;
+let remotePort = 9876;
 
 // Recording resolution presets (same as NDI)
 const recordingResolutions = [
@@ -86,11 +92,13 @@ const settingsFile = path.join(dataDir, 'settings.json');
 const viewStateFile = path.join(dataDir, 'view-state.json');
 const tileStateFile = path.join(dataDir, 'tile-state.json');
 const tilePresetsFile = path.join(dataDir, 'tile-presets.json');
+const texturesDir = path.join(dataDir, 'textures');
 const claudeKeyFile = path.join(dataDir, 'claude-key.json');
 
 // Claude AI state
 let claudeApiKey = null;
 let claudeModel = 'claude-sonnet-4-20250514';
+let claudeModels = [];
 let claudeActiveRequest = null;
 
 // Track tiled mode state
@@ -101,6 +109,7 @@ let tiledModeActive = false;
 async function ensureDataDir() {
   await fsPromises.mkdir(dataDir, { recursive: true });
   await fsPromises.mkdir(shadersDir, { recursive: true });
+  await fsPromises.mkdir(texturesDir, { recursive: true });
 
   // Migrate old grid state from userData if exists
   const oldGridStateFile = path.join(app.getPath('userData'), 'grid-state.json');
@@ -292,6 +301,11 @@ function createMenu() {
         {
           label: 'NDI Source for Channel 3',
           submenu: buildNDISourceSubmenu(3)
+        },
+        { type: 'separator' },
+        {
+          label: 'Create Texture...',
+          click: () => showTextureCreatorDialog()
         },
         { type: 'separator' },
         {
@@ -1527,6 +1541,14 @@ function updateTitle() {
 }
 
 // IPC Handlers
+
+// Remote state change relay: renderer → main → web clients
+ipcMain.on('remote-state-changed', (event, { type, data }) => {
+  if (remoteServer) {
+    remoteServer.broadcast(type, data);
+  }
+});
+
 ipcMain.on('save-content', async (event, content) => {
   if (currentFilePath) {
     try {
@@ -2151,7 +2173,10 @@ ipcMain.handle('get-settings', async () => {
     recordingResolution: recordingResolution,
     recordingResolutions: recordingResolutions,
     paramRanges: paramRanges,
-    gridSlotWidth: gridSlotWidth
+    gridSlotWidth: gridSlotWidth,
+    remoteEnabled: remoteEnabled,
+    remotePort: remotePort,
+    remoteIPs: getLocalIPs()
   };
 });
 
@@ -2182,6 +2207,26 @@ ipcMain.on('save-settings', async (event, settings) => {
     recordingResolution = settings.recordingResolution;
   }
 
+  // Handle remote control settings
+  if (typeof settings.remoteEnabled === 'boolean') {
+    remoteEnabled = settings.remoteEnabled;
+    if (remoteEnabled) {
+      if (typeof settings.remotePort === 'number' && settings.remotePort >= 1024 && settings.remotePort <= 65535) {
+        // Port changed — restart server
+        if (remotePort !== settings.remotePort) {
+          remotePort = settings.remotePort;
+          stopRemoteServer();
+        }
+      }
+      startRemoteServer();
+    } else {
+      stopRemoteServer();
+    }
+  }
+  if (typeof settings.remotePort === 'number' && settings.remotePort >= 1024 && settings.remotePort <= 65535) {
+    remotePort = settings.remotePort;
+  }
+
   // Save all settings including param ranges and grid slot width
   const additionalData = {};
   if (settings.paramRanges) {
@@ -2190,6 +2235,8 @@ ipcMain.on('save-settings', async (event, settings) => {
   if (settings.gridSlotWidth) {
     additionalData.gridSlotWidth = settings.gridSlotWidth;
   }
+  additionalData.remoteEnabled = remoteEnabled;
+  additionalData.remotePort = remotePort;
   saveSettingsToFile(additionalData);
 
   mainWindow.webContents.send('settings-changed', settings);
@@ -2219,7 +2266,15 @@ app.whenReady().then(async () => {
   await ensureDataDir();
   await loadSettings();
   await loadClaudeKey();
+  if (claudeApiKey) {
+    fetchClaudeModels();
+  }
   createWindow();
+
+  // Start remote control server if enabled
+  if (remoteEnabled) {
+    startRemoteServer();
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -2242,6 +2297,12 @@ async function loadSettings() {
       }
       if (typeof data.ndiFrameSkip === 'number' && data.ndiFrameSkip >= 1) {
         ndiFrameSkip = data.ndiFrameSkip;
+      }
+      if (typeof data.remoteEnabled === 'boolean') {
+        remoteEnabled = data.remoteEnabled;
+      }
+      if (typeof data.remotePort === 'number' && data.remotePort >= 1024 && data.remotePort <= 65535) {
+        remotePort = data.remotePort;
       }
     }
   } catch (err) {
@@ -2271,6 +2332,59 @@ async function saveSettingsToFile(additionalData = {}) {
   } catch (err) {
     console.error('Failed to save settings:', err);
   }
+}
+
+// =============================================================================
+// Remote Control Server
+// =============================================================================
+
+function queryRenderer(channel, data = null) {
+  return new Promise((resolve, reject) => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return reject(new Error('No main window'));
+    }
+    const timeout = setTimeout(() => reject(new Error('timeout')), 3000);
+    ipcMain.once(`${channel}-response`, (event, result) => {
+      clearTimeout(timeout);
+      resolve(result);
+    });
+    mainWindow.webContents.send(channel, data);
+  });
+}
+
+function startRemoteServer() {
+  if (remoteServer) return;
+  remoteServer = new RemoteServer({
+    queryRenderer,
+    dispatchAction: (channel, data) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(channel, data);
+      }
+    }
+  });
+  remoteServer.start(remotePort);
+}
+
+function stopRemoteServer() {
+  if (remoteServer) {
+    remoteServer.stop();
+    remoteServer = null;
+  }
+}
+
+// Get local LAN IP addresses
+function getLocalIPs() {
+  const os = require('os');
+  const interfaces = os.networkInterfaces();
+  const ips = [];
+  for (const iface of Object.values(interfaces)) {
+    for (const info of iface) {
+      if (info.family === 'IPv4' && !info.internal) {
+        ips.push(info.address);
+      }
+    }
+  }
+  return ips;
 }
 
 // Save shader to slot file
@@ -2311,6 +2425,295 @@ ipcMain.handle('delete-shader-from-slot', async (event, slotIndex) => {
     return { success: false, error: err.message };
   }
 });
+
+// =============================================================================
+// File Texture IPC Handlers
+// =============================================================================
+
+// Load a file texture by name from data/textures/ directory
+ipcMain.handle('load-file-texture', async (event, name) => {
+  try {
+    if (!name || !/^[\w-]+$/.test(name)) {
+      return { success: false, error: 'Invalid texture name' };
+    }
+    const filePath = path.join(texturesDir, `${name}.png`);
+    const data = await fsPromises.readFile(filePath);
+    const dataUrl = `data:image/png;base64,${data.toString('base64')}`;
+    return { success: true, dataUrl };
+  } catch (err) {
+    if (err.code === 'ENOENT') return { success: false, error: `Texture "${name}" not found` };
+    console.error(`Failed to load file texture "${name}":`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Save a texture (base64 PNG data URL) to data/textures/
+ipcMain.handle('save-texture', async (event, name, dataUrl) => {
+  try {
+    if (!name || !/^[\w-]+$/.test(name)) {
+      return { success: false, error: 'Invalid texture name. Use only letters, numbers, underscores, and hyphens.' };
+    }
+    await ensureDataDir();
+    const base64Data = dataUrl.replace(/^data:image\/png;base64,/, '');
+    const filePath = path.join(texturesDir, `${name}.png`);
+    await fsPromises.writeFile(filePath, Buffer.from(base64Data, 'base64'));
+    return { success: true, path: filePath };
+  } catch (err) {
+    console.error(`Failed to save texture "${name}":`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Open image file dialog for texture creator
+ipcMain.handle('open-image-for-texture', async () => {
+  const parentWindow = BrowserWindow.getFocusedWindow() || mainWindow;
+  const result = await dialog.showOpenDialog(parentWindow, {
+    properties: ['openFile'],
+    filters: [
+      { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'tiff'] },
+      { name: 'All Files', extensions: ['*'] }
+    ]
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return { canceled: true };
+  }
+
+  const filePath = result.filePaths[0];
+  try {
+    const data = await fsPromises.readFile(filePath);
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeType = {
+      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif', '.bmp': 'image/bmp', '.webp': 'image/webp',
+      '.tiff': 'image/tiff'
+    }[ext] || 'image/png';
+    const dataUrl = `data:${mimeType};base64,${data.toString('base64')}`;
+    return { canceled: false, dataUrl, fileName: path.basename(filePath, ext) };
+  } catch (err) {
+    return { canceled: true, error: err.message };
+  }
+});
+
+// Close texture dialog window
+ipcMain.on('close-texture-dialog', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win) win.close();
+});
+
+// List available file textures in data/textures/
+ipcMain.handle('list-file-textures', async () => {
+  try {
+    await ensureDataDir();
+    const files = await fsPromises.readdir(texturesDir);
+    return files
+      .filter(f => f.endsWith('.png'))
+      .map(f => f.replace(/\.png$/, ''));
+  } catch (err) {
+    console.error('Failed to list file textures:', err);
+    return [];
+  }
+});
+
+// Texture creator dialog
+function showTextureCreatorDialog() {
+  const dialogWindow = new BrowserWindow({
+    width: 620,
+    height: 720,
+    modal: true,
+    parent: mainWindow,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload-texture-dialog.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    },
+    backgroundColor: '#1e1e1e',
+    title: 'Create Texture',
+    autoHideMenuBar: true
+  });
+
+  dialogWindow.setMenu(null);
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1e1e1e; color: #ccc; padding: 16px; overflow: hidden; }
+  h2 { font-size: 16px; color: #eee; margin-bottom: 12px; }
+  .row { display: flex; gap: 12px; margin-bottom: 10px; align-items: center; }
+  .row label { min-width: 80px; font-size: 13px; color: #aaa; }
+  .row input[type="range"] { flex: 1; accent-color: #4a9eff; }
+  .row .val { min-width: 48px; text-align: right; font-size: 12px; color: #888; }
+  .preview-wrap { position: relative; width: 512px; height: 512px; margin: 0 auto 12px; border: 1px solid #333; background-image: repeating-conic-gradient(#2a2a2a 0% 25%, #222 0% 50%); background-size: 16px 16px; }
+  canvas#preview { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+  .no-image { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #666; font-size: 14px; pointer-events: none; }
+  input[type="text"] { background: #2a2a2a; border: 1px solid #444; color: #eee; padding: 4px 8px; border-radius: 3px; font-size: 13px; width: 200px; }
+  select { background: #2a2a2a; border: 1px solid #444; color: #eee; padding: 4px 8px; border-radius: 3px; font-size: 13px; }
+  button { padding: 6px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
+  .btn-primary { background: #4a9eff; color: #fff; }
+  .btn-primary:hover { background: #3a8eef; }
+  .btn-secondary { background: #444; color: #ccc; }
+  .btn-secondary:hover { background: #555; }
+  .btn-choose { background: #3a6; color: #fff; }
+  .btn-choose:hover { background: #2a5; }
+  .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+  .controls { max-width: 580px; margin: 0 auto; }
+</style>
+</head>
+<body>
+  <div class="controls">
+    <div class="row" style="margin-bottom:12px">
+      <button class="btn-choose" id="choose-btn">Choose Image...</button>
+      <span id="file-name" style="font-size:12px;color:#888;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+    </div>
+    <div class="preview-wrap">
+      <canvas id="preview" width="512" height="512"></canvas>
+      <div class="no-image" id="no-image-hint">No image loaded</div>
+    </div>
+    <div class="row">
+      <label>Output Size</label>
+      <select id="output-size">
+        <option value="64">64x64</option>
+        <option value="128">128x128</option>
+        <option value="256">256x256</option>
+        <option value="512" selected>512x512</option>
+        <option value="1024">1024x1024</option>
+        <option value="2048">2048x2048</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>Translate X</label>
+      <input type="range" id="tx" min="-512" max="512" value="0" step="1">
+      <span class="val" id="tx-val">0</span>
+    </div>
+    <div class="row">
+      <label>Translate Y</label>
+      <input type="range" id="ty" min="-512" max="512" value="0" step="1">
+      <span class="val" id="ty-val">0</span>
+    </div>
+    <div class="row">
+      <label>Rotation</label>
+      <input type="range" id="rot" min="0" max="360" value="0" step="1">
+      <span class="val" id="rot-val">0\u00b0</span>
+    </div>
+    <div class="row">
+      <label>Scale X</label>
+      <input type="range" id="sx" min="0.1" max="4.0" value="1.0" step="0.01">
+      <span class="val" id="sx-val">1.00</span>
+    </div>
+    <div class="row">
+      <label>Scale Y</label>
+      <input type="range" id="sy" min="0.1" max="4.0" value="1.0" step="0.01">
+      <span class="val" id="sy-val">1.00</span>
+    </div>
+    <div class="row">
+      <label>Name</label>
+      <input type="text" id="tex-name" placeholder="myTexture" pattern="[\\\\w-]+">
+    </div>
+    <div class="actions">
+      <button class="btn-secondary" id="cancel-btn">Cancel</button>
+      <button class="btn-primary" id="save-btn" disabled>Save Texture</button>
+    </div>
+  </div>
+  <script>
+    const preview = document.getElementById('preview');
+    const ctx = preview.getContext('2d');
+    const hint = document.getElementById('no-image-hint');
+    let img = null;
+
+    function updatePreview() {
+      ctx.clearRect(0, 0, 512, 512);
+      if (!img) return;
+      const tx = parseFloat(document.getElementById('tx').value);
+      const ty = parseFloat(document.getElementById('ty').value);
+      const rot = parseFloat(document.getElementById('rot').value) * Math.PI / 180;
+      const sx = parseFloat(document.getElementById('sx').value);
+      const sy = parseFloat(document.getElementById('sy').value);
+      ctx.save();
+      ctx.translate(256 + tx, 256 + ty);
+      ctx.rotate(rot);
+      ctx.scale(sx, sy);
+      ctx.drawImage(img, -img.width / 2, -img.height / 2);
+      ctx.restore();
+    }
+
+    document.getElementById('choose-btn').addEventListener('click', async () => {
+      const result = await window.textureAPI.openImage();
+      if (result.canceled) return;
+      img = new Image();
+      img.onload = () => {
+        hint.style.display = 'none';
+        updatePreview();
+        document.getElementById('save-btn').disabled = false;
+        if (!document.getElementById('tex-name').value && result.fileName) {
+          document.getElementById('tex-name').value = result.fileName.replace(/[^\\w-]/g, '_');
+        }
+      };
+      img.src = result.dataUrl;
+      document.getElementById('file-name').textContent = result.fileName || '';
+    });
+
+    ['tx', 'ty', 'rot', 'sx', 'sy'].forEach(id => {
+      const el = document.getElementById(id);
+      const valEl = document.getElementById(id + '-val');
+      el.addEventListener('input', () => {
+        let v = el.value;
+        if (id === 'rot') v += '\u00b0';
+        else if (id === 'sx' || id === 'sy') v = parseFloat(v).toFixed(2);
+        valEl.textContent = v;
+        updatePreview();
+      });
+    });
+
+    document.getElementById('cancel-btn').addEventListener('click', () => {
+      window.textureAPI.close();
+    });
+
+    document.getElementById('save-btn').addEventListener('click', async () => {
+      const name = document.getElementById('tex-name').value.trim();
+      if (!name || !/^[\\w-]+$/.test(name)) {
+        alert('Please enter a valid name (letters, numbers, underscores, hyphens).');
+        return;
+      }
+      if (!img) return;
+
+      const size = parseInt(document.getElementById('output-size').value);
+      const offscreen = document.createElement('canvas');
+      offscreen.width = size;
+      offscreen.height = size;
+      const offCtx = offscreen.getContext('2d');
+
+      const scale = size / 512;
+      const tx = parseFloat(document.getElementById('tx').value) * scale;
+      const ty = parseFloat(document.getElementById('ty').value) * scale;
+      const rot = parseFloat(document.getElementById('rot').value) * Math.PI / 180;
+      const sx = parseFloat(document.getElementById('sx').value);
+      const sy = parseFloat(document.getElementById('sy').value);
+
+      offCtx.translate(size / 2 + tx, size / 2 + ty);
+      offCtx.rotate(rot);
+      offCtx.scale(sx * scale, sy * scale);
+      offCtx.drawImage(img, -img.width / 2, -img.height / 2);
+
+      const dataUrl = offscreen.toDataURL('image/png');
+      const result = await window.textureAPI.saveTexture(name, dataUrl);
+      if (result.success) {
+        window.textureAPI.close();
+      } else {
+        alert('Failed to save: ' + (result.error || 'Unknown error'));
+      }
+    });
+  </script>
+</body>
+</html>`;
+
+  dialogWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+}
 
 // Save view state
 ipcMain.on('save-view-state', async (event, viewState) => {
@@ -2517,6 +2920,60 @@ async function loadClaudeKey() {
   }
 }
 
+// Fetch available Claude models from API
+async function fetchClaudeModels() {
+  if (!claudeApiKey) return;
+  return new Promise((resolve) => {
+    const options = {
+      hostname: 'api.anthropic.com',
+      port: 443,
+      path: '/v1/models',
+      method: 'GET',
+      headers: {
+        'x-api-key': claudeApiKey,
+        'anthropic-version': '2023-06-01'
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          try {
+            const parsed = JSON.parse(data);
+            if (Array.isArray(parsed.data)) {
+              claudeModels = parsed.data.map(m => ({
+                id: m.id,
+                display_name: m.display_name || m.id
+              }));
+              console.log(`Fetched ${claudeModels.length} Claude models from API`);
+            }
+          } catch (err) {
+            console.warn('Failed to parse Claude models response:', err.message);
+          }
+        } else {
+          console.warn(`Failed to fetch Claude models: HTTP ${res.statusCode}`);
+        }
+        resolve();
+      });
+    });
+
+    req.on('error', (err) => {
+      console.warn('Failed to fetch Claude models:', err.message);
+      resolve();
+    });
+
+    req.setTimeout(10000, () => {
+      req.destroy();
+      console.warn('Claude models fetch timed out');
+      resolve();
+    });
+
+    req.end();
+  });
+}
+
 // Save Claude API key
 ipcMain.handle('save-claude-key', async (event, key, model) => {
   try {
@@ -2530,6 +2987,10 @@ ipcMain.handle('save-claude-key', async (event, key, model) => {
       apiKey: claudeApiKey,
       model: claudeModel
     }, null, 2), 'utf-8');
+    // Refresh model list if we have a key
+    if (claudeApiKey) {
+      await fetchClaudeModels();
+    }
     return { success: true };
   } catch (err) {
     console.error('Failed to save Claude API key:', err);
@@ -2547,9 +3008,15 @@ ipcMain.handle('get-claude-settings', async () => {
   return {
     hasKey: !!claudeApiKey,
     model: claudeModel,
+    models: claudeModels,
     // Return masked key for display
     maskedKey: claudeApiKey ? '****' + claudeApiKey.slice(-4) : null
   };
+});
+
+// Get Claude models list
+ipcMain.handle('get-claude-models', async () => {
+  return claudeModels;
 });
 
 // Test Claude API key
@@ -2826,6 +3293,9 @@ app.on('before-quit', () => {
     claudeActiveRequest.destroy();
     claudeActiveRequest = null;
   }
+
+  // Stop remote control server
+  stopRemoteServer();
 
   // Finalize recording if active
   if (recordingProcess) {

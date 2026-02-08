@@ -1,15 +1,40 @@
 // Shader Grid module
-import { state } from './state.js';
+import { state, notifyRemoteStateChanged } from './state.js';
 import { setStatus } from './utils.js';
 import { loadParamsToSliders, generateCustomParamUI } from './params.js';
 import { updateLocalPresetsUI } from './presets.js';
 import { setRenderMode, ensureSceneRenderer } from './renderer.js';
 import { setEditorMode } from './editor.js';
-import { parseShaderParams, generateUniformDeclarations } from './param-parser.js';
+import { parseShaderParams, generateUniformDeclarations, parseTextureDirectives } from './param-parser.js';
 import { openInTab } from './tabs.js';
 import { tileState, assignTile } from './tile-state.js';
 import { updateTileRenderer, refreshTileRenderers } from './controls.js';
 import { assignShaderToMixer, recallMixState, resetMixer, isMixerActive, captureMixerThumbnail } from './mixer.js';
+
+// Cache for file texture data URLs (avoids re-reading from disk for each grid slot)
+const fileTextureCache = new Map();
+
+// Load file textures for a MiniShaderRenderer after compile
+async function loadFileTexturesForRenderer(renderer) {
+  if (!renderer.fileTextureDirectives || renderer.fileTextureDirectives.length === 0) return;
+  for (const { channel, textureName } of renderer.fileTextureDirectives) {
+    try {
+      let dataUrl = fileTextureCache.get(textureName);
+      if (!dataUrl) {
+        const result = await window.electronAPI.loadFileTexture(textureName);
+        if (result.success) {
+          dataUrl = result.dataUrl;
+          fileTextureCache.set(textureName, dataUrl);
+        } else {
+          continue; // Texture not found, skip silently for grid
+        }
+      }
+      await renderer.loadFileTexture(channel, dataUrl);
+    } catch (err) {
+      // Silently skip failed textures in grid thumbnails
+    }
+  }
+}
 
 // Track drag state
 let dragSourceIndex = null;
@@ -144,6 +169,7 @@ export function switchShaderTab(tabIndex) {
   updateSaveButtonState();
 
   setStatus(`Switched to "${tab.name}"`, 'success');
+  notifyRemoteStateChanged();
 }
 
 // Add a new shader tab
@@ -1455,6 +1481,8 @@ export async function assignShaderToSlot(slotIndex, shaderCode, filePath, skipSa
 
   try {
     miniRenderer.compile(shaderCode);
+    // Load file textures asynchronously (non-blocking for grid)
+    loadFileTexturesForRenderer(miniRenderer);
 
     // Get custom params: start with defaults from the shader, then overlay any saved values
     // This ensures all params have values even if saved state is incomplete
@@ -2191,6 +2219,7 @@ export async function selectGridSlot(slotIndex) {
 
   const tileInfo = state.tiledPreviewEnabled ? ` -> tile ${state.selectedTileIndex + 1}` : '';
   setStatus(`Playing ${slotName} (slot ${slotIndex + 1}${tileInfo})`, 'success');
+  notifyRemoteStateChanged();
 }
 
 export function playGridShader(slotIndex) {
@@ -2447,6 +2476,46 @@ function getSharedGL() {
   return sharedGL;
 }
 
+// Built-in noise texture specs for @texture directives
+const MINI_BUILTIN_TEXTURES = {
+  RGBANoise:      { width: 256, height: 256, gray: false },
+  RGBANoiseSmall: { width: 64,  height: 64,  gray: false },
+  GrayNoise:      { width: 256, height: 256, gray: true },
+  GrayNoiseSmall: { width: 64,  height: 64,  gray: true }
+};
+
+// Create a new GL texture with unique random noise data (each shader gets its own)
+function createMiniBuiltinTexture(gl, name) {
+  const spec = MINI_BUILTIN_TEXTURES[name];
+  if (!spec) return null;
+
+  const { width, height, gray } = spec;
+  const data = new Uint8Array(width * height * 4);
+  for (let i = 0; i < width * height; i++) {
+    const off = i * 4;
+    if (gray) {
+      const v = Math.floor(Math.random() * 256);
+      data[off] = data[off + 1] = data[off + 2] = v;
+    } else {
+      data[off]     = Math.floor(Math.random() * 256);
+      data[off + 1] = Math.floor(Math.random() * 256);
+      data[off + 2] = Math.floor(Math.random() * 256);
+    }
+    data[off + 3] = 255;
+  }
+
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+
+  return { texture, width, height };
+}
+
 // Mini shader renderer for grid previews - uses shared WebGL context
 export class MiniShaderRenderer {
   constructor(canvas) {
@@ -2464,6 +2533,11 @@ export class MiniShaderRenderer {
     this.startTime = performance.now();
     this.uniforms = {};
     this.speed = 1.0;
+
+    // Built-in texture assignments (from @texture directives)
+    this.channelTextures = [null, null, null, null];
+    this.channelResolutions = [[0, 0, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1]];
+    this._channelResArray = new Float32Array(12);
 
     // Pre-allocated buffers with default values (for backward compatibility)
     this._colorArray = new Float32Array(30).fill(1.0);  // 10 colors * 3 components, all white
@@ -2627,7 +2701,12 @@ export class MiniShaderRenderer {
       iTime: gl.getUniformLocation(program, 'iTime'),
       iColorRGB: gl.getUniformLocation(program, 'iColorRGB'),
       iParams: gl.getUniformLocation(program, 'iParams'),
-      iSpeed: gl.getUniformLocation(program, 'iSpeed')
+      iSpeed: gl.getUniformLocation(program, 'iSpeed'),
+      iChannel0: gl.getUniformLocation(program, 'iChannel0'),
+      iChannel1: gl.getUniformLocation(program, 'iChannel1'),
+      iChannel2: gl.getUniformLocation(program, 'iChannel2'),
+      iChannel3: gl.getUniformLocation(program, 'iChannel3'),
+      iChannelResolution: gl.getUniformLocation(program, 'iChannelResolution')
     };
 
     // Store custom params and their uniform locations
@@ -2639,6 +2718,60 @@ export class MiniShaderRenderer {
 
     gl.deleteShader(vertexShader);
     gl.deleteShader(fragmentShader);
+
+    // Clean up old builtin textures before creating new ones
+    for (let i = 0; i < 4; i++) {
+      if (this.channelTextures[i]) {
+        gl.deleteTexture(this.channelTextures[i]);
+        this.channelTextures[i] = null;
+        this.channelResolutions[i] = [0, 0, 1];
+      }
+    }
+
+    // Parse @texture directives and separate builtin vs file
+    const allDirectives = parseTextureDirectives(fragmentSource);
+    const builtinDirectives = allDirectives.filter(d => d.type === 'builtin');
+    this.fileTextureDirectives = allDirectives.filter(d => d.type === 'file');
+
+    // Apply builtin noise textures (each shader gets unique noise)
+    for (const { channel, textureName } of builtinDirectives) {
+      const entry = createMiniBuiltinTexture(gl, textureName);
+      if (entry) {
+        this.channelTextures[channel] = entry.texture;
+        this.channelResolutions[channel] = [entry.width, entry.height, 1];
+      }
+    }
+  }
+
+  // Load a file texture into a channel from a data URL
+  loadFileTexture(channel, dataUrl) {
+    return new Promise((resolve, reject) => {
+      const gl = this.gl;
+      if (!gl || !this.contextValid) {
+        reject(new Error('WebGL context not available'));
+        return;
+      }
+      const img = new Image();
+      img.onload = () => {
+        // Delete old texture for this channel
+        if (this.channelTextures[channel]) {
+          gl.deleteTexture(this.channelTextures[channel]);
+        }
+        const texture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        this.channelTextures[channel] = texture;
+        this.channelResolutions[channel] = [img.width, img.height, 1];
+        resolve({ width: img.width, height: img.height });
+      };
+      img.onerror = () => reject(new Error('Failed to load texture image'));
+      img.src = dataUrl;
+    });
   }
 
   render() {
@@ -2726,6 +2859,25 @@ export class MiniShaderRenderer {
       }
     }
 
+    // Bind built-in textures from @texture directives
+    let hasTextures = false;
+    for (let i = 0; i < 4; i++) {
+      if (this.channelTextures[i]) {
+        hasTextures = true;
+        gl.activeTexture(gl.TEXTURE0 + i);
+        gl.bindTexture(gl.TEXTURE_2D, this.channelTextures[i]);
+        gl.uniform1i(this.uniforms[`iChannel${i}`], i);
+      }
+    }
+    if (hasTextures && this.uniforms.iChannelResolution) {
+      for (let i = 0; i < 4; i++) {
+        this._channelResArray[i * 3]     = this.channelResolutions[i][0];
+        this._channelResArray[i * 3 + 1] = this.channelResolutions[i][1];
+        this._channelResArray[i * 3 + 2] = this.channelResolutions[i][2];
+      }
+      gl.uniform3fv(this.uniforms.iChannelResolution, this._channelResArray);
+    }
+
     // Use shared VAO and draw
     gl.bindVertexArray(sharedVAO);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -2748,5 +2900,13 @@ export class MiniShaderRenderer {
     this.uniforms = {};
     this.customUniformLocations = {};
     this.customParams = [];
+    // Delete per-instance builtin textures
+    for (let i = 0; i < 4; i++) {
+      if (this.channelTextures[i] && gl) {
+        gl.deleteTexture(this.channelTextures[i]);
+      }
+    }
+    this.channelTextures = [null, null, null, null];
+    this.channelResolutions = [[0, 0, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1]];
   }
 }

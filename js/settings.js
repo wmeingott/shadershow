@@ -4,6 +4,19 @@ import { setStatus } from './utils.js';
 
 let settingsKeyHandler = null;
 
+const FALLBACK_MODELS = [
+  { id: 'claude-sonnet-4-20250514', display_name: 'Claude Sonnet 4 (Recommended)' },
+  { id: 'claude-opus-4-5-20251101', display_name: 'Claude Opus 4.5 (Most Capable)' },
+  { id: 'claude-3-5-haiku-20241022', display_name: 'Claude 3.5 Haiku (Fast)' }
+];
+
+function buildModelOptions(models, selectedModel) {
+  const list = (models && models.length > 0) ? models : FALLBACK_MODELS;
+  return list.map(m =>
+    `<option value="${m.id}" ${m.id === selectedModel ? 'selected' : ''}>${m.display_name}</option>`
+  ).join('');
+}
+
 export function applyGridSlotWidth(width) {
   document.documentElement.style.setProperty('--grid-slot-width', `${width}px`);
 }
@@ -94,6 +107,24 @@ export async function showSettingsDialog() {
           </div>
         </div>
 
+        <div class="settings-section">
+          <h3>Remote Control</h3>
+          <div class="setting-row">
+            <label>Enable:</label>
+            <input type="checkbox" id="settings-remote-enabled" ${settings.remoteEnabled ? 'checked' : ''}>
+          </div>
+          <div class="setting-row">
+            <label>Port:</label>
+            <input type="number" id="settings-remote-port" value="${settings.remotePort || 9876}" min="1024" max="65535" style="width:80px">
+          </div>
+          <div class="setting-row">
+            <label>URL:</label>
+            <span id="settings-remote-url" style="color: var(--text-secondary); user-select: all">${settings.remoteEnabled && settings.remoteIPs?.length
+              ? `http://${settings.remoteIPs[0]}:${settings.remotePort || 9876}`
+              : '(disabled)'}</span>
+          </div>
+        </div>
+
         <div class="settings-section claude-settings-section">
           <h3>Claude AI Assistant</h3>
           <div class="setting-row">
@@ -107,9 +138,7 @@ export async function showSettingsDialog() {
           <div class="setting-row">
             <label>Model:</label>
             <select id="settings-claude-model">
-              <option value="claude-sonnet-4-20250514" ${claudeSettings.model === 'claude-sonnet-4-20250514' ? 'selected' : ''}>Claude Sonnet 4 (Recommended)</option>
-              <option value="claude-opus-4-5-20251101" ${claudeSettings.model === 'claude-opus-4-5-20251101' ? 'selected' : ''}>Claude Opus 4.5 (Most Capable)</option>
-              <option value="claude-3-5-haiku-20241022" ${claudeSettings.model === 'claude-3-5-haiku-20241022' ? 'selected' : ''}>Claude 3.5 Haiku (Fast)</option>
+              ${buildModelOptions(claudeSettings.models, claudeSettings.model)}
             </select>
           </div>
           <div class="setting-row">
@@ -154,6 +183,23 @@ export async function showSettingsDialog() {
     slotWidthValue.textContent = `${slotWidthSlider.value}px`;
   });
 
+  // Remote control — update URL display when toggling/changing port
+  const remoteEnabledCb = document.getElementById('settings-remote-enabled');
+  const remotePortInput = document.getElementById('settings-remote-port');
+  const remoteUrlSpan = document.getElementById('settings-remote-url');
+
+  function updateRemoteUrlDisplay() {
+    const enabled = remoteEnabledCb.checked;
+    const port = parseInt(remotePortInput.value) || 9876;
+    if (enabled && settings.remoteIPs?.length) {
+      remoteUrlSpan.textContent = `http://${settings.remoteIPs[0]}:${port}`;
+    } else {
+      remoteUrlSpan.textContent = '(disabled)';
+    }
+  }
+  remoteEnabledCb.addEventListener('change', updateRemoteUrlDisplay);
+  remotePortInput.addEventListener('input', updateRemoteUrlDisplay);
+
   // Close on overlay click
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) closeSettingsDialog();
@@ -196,6 +242,16 @@ async function testClaudeKey() {
     if (result.success) {
       resultSpan.textContent = 'Valid!';
       resultSpan.className = 'test-result success';
+      // Save the key so fetchClaudeModels can use it, then refresh dropdown
+      if (key) {
+        const modelSelect = document.getElementById('settings-claude-model');
+        const currentModel = modelSelect.value;
+        await window.electronAPI.saveClaudeKey(key, currentModel);
+        const models = await window.electronAPI.getClaudeModels();
+        if (models && models.length > 0) {
+          modelSelect.innerHTML = buildModelOptions(models, currentModel);
+        }
+      }
     } else {
       resultSpan.textContent = result.error || 'Invalid';
       resultSpan.className = 'test-result error';
@@ -266,8 +322,12 @@ async function applySettings() {
   // Parse grid slot width
   const gridSlotWidth = parseInt(document.getElementById('settings-grid-slot-width').value) || 150;
 
+  // Parse remote control settings
+  const remoteEnabled = document.getElementById('settings-remote-enabled').checked;
+  const remotePort = parseInt(document.getElementById('settings-remote-port').value) || 9876;
+
   // Save to file
-  const settingsData = { ndiResolution, ndiFrameSkip, gridSlotWidth };
+  const settingsData = { ndiResolution, ndiFrameSkip, gridSlotWidth, remoteEnabled, remotePort };
   if (recordingResolution) {
     settingsData.recordingResolution = recordingResolution;
   }

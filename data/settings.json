@@ -9,5 +9,8 @@
     "width": 1920,
     "height": 1080,
     "label": "1920x1080 (1080p)"
-  }
+  },
+  "gridSlotWidth": 160,
+  "remoteEnabled": true,
+  "remotePort": 9876
 }

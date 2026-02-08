@@ -16,6 +16,53 @@
 // Pre-compiled regex for shader error parsing (avoid recompiling on each error)
 const SHADER_ERROR_REGEX = /ERROR:\s*\d+:(\d+):\s*(.+)/;
 
+const BUILTIN_TEXTURES = {
+  RGBANoise:      { width: 256, height: 256, gray: false },
+  RGBANoiseSmall: { width: 64,  height: 64,  gray: false },
+  GrayNoise:      { width: 256, height: 256, gray: true },
+  GrayNoiseSmall: { width: 64,  height: 64,  gray: true }
+};
+
+function generateNoiseData(width, height, gray) {
+  const data = new Uint8Array(width * height * 4);
+  for (let i = 0; i < width * height; i++) {
+    const off = i * 4;
+    if (gray) {
+      const v = Math.floor(Math.random() * 256);
+      data[off] = data[off + 1] = data[off + 2] = v;
+    } else {
+      data[off]     = Math.floor(Math.random() * 256);
+      data[off + 1] = Math.floor(Math.random() * 256);
+      data[off + 2] = Math.floor(Math.random() * 256);
+    }
+    data[off + 3] = 255;
+  }
+  return data;
+}
+
+// Create a new GL texture with unique random noise data
+function createBuiltinTexture(gl, name) {
+  const spec = BUILTIN_TEXTURES[name];
+  if (!spec) return null;
+
+  const { width, height, gray } = spec;
+  const data = generateNoiseData(width, height, gray);
+
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+
+  return { texture, width, height };
+}
+
+const TEXTURE_DIRECTIVE_REGEX = /^\s*\/\/\s*@texture\s+(iChannel[0-3])\s+(texture:(\w+)|(\w+))/;
+const FILE_TEXTURE_NAME_REGEX = /^[\w-]+$/;
+
 const ShaderParamParser = {
   PARAM_REGEX: /^\s*\/\/\s*@param\s+(\w+)\s+(int|float|vec[234]|color)(\[(\d+)\])?\s*(.*)/,
 
@@ -59,6 +106,43 @@ const ShaderParamParser = {
     if (descMatch) {
       description = descMatch[1];
       remaining = remaining.slice(0, -descMatch[0].length).trim();
+    }
+
+    // For vector/color types, check if [x,y,z] is a default value (not a range)
+    const vecComponents = { vec2: 2, vec3: 3, color: 3, vec4: 4 };
+    const expectedComponents = vecComponents[baseType];
+    if (expectedComponents) {
+      // Per-element array defaults: [[x,y,z],[a,b,c]]
+      if (arraySize) {
+        const nestedMatch = remaining.match(/^\s*\[((?:\s*\[[^\]]+\]\s*,?\s*)+)\]\s*$/);
+        if (nestedMatch) {
+          const innerBrackets = [];
+          const innerRegex = /\[([^\]]+)\]/g;
+          let m;
+          while ((m = innerRegex.exec(nestedMatch[1])) !== null) {
+            const parts = m[1].split(',').map(s => s.trim());
+            if (parts.length === expectedComponents) {
+              innerBrackets.push(this.parseValue(parts.join(', '), baseType));
+            }
+          }
+          if (innerBrackets.length === arraySize) {
+            defaultValue = innerBrackets;
+            return { defaultValue, min, max, description };
+          }
+        }
+      }
+      // Single vec default: [x,y,z]
+      const bracketMatch = remaining.match(/^\s*\[([^\]]+)\]\s*$/);
+      if (bracketMatch) {
+        const parts = bracketMatch[1].split(',').map(s => s.trim());
+        if (parts.length === expectedComponents) {
+          defaultValue = this.parseValue(parts.join(', '), baseType);
+          if (arraySize) {
+            defaultValue = Array(arraySize).fill(null).map(() => [...defaultValue]);
+          }
+          return { defaultValue, min, max, description };
+        }
+      }
     }
 
     // Extract range [min, max]
@@ -142,6 +226,31 @@ const ShaderParamParser = {
         : (Array.isArray(param.default) ? [...param.default] : param.default);
     }
     return values;
+  },
+
+  parseTextureDirectives(shaderSource) {
+    const directives = [];
+    const lines = shaderSource.split('\n');
+    for (const line of lines) {
+      const match = line.match(TEXTURE_DIRECTIVE_REGEX);
+      if (match) {
+        const channel = parseInt(match[1].charAt(8), 10);
+        if (match[3]) {
+          // texture:filename syntax
+          const fileName = match[3];
+          if (FILE_TEXTURE_NAME_REGEX.test(fileName)) {
+            directives.push({ channel, textureName: fileName, type: 'file' });
+          }
+        } else {
+          // Built-in texture name
+          const textureName = match[4];
+          if (BUILTIN_TEXTURES[textureName]) {
+            directives.push({ channel, textureName, type: 'builtin' });
+          }
+        }
+      }
+    }
+    return directives;
   }
 };
 
@@ -663,7 +772,7 @@ class ShaderRenderer {
     for (let i = 0; i < 4; i++) {
       // Skip empty channels early to avoid unnecessary checks
       const channelType = this.channelTypes[i];
-      if (channelType === 'empty' || channelType === 'image') {
+      if (channelType === 'empty' || channelType === 'image' || channelType === 'builtin') {
         continue;  // Static textures don't need per-frame updates
       }
 
@@ -831,6 +940,27 @@ class ShaderRenderer {
     }
   }
 
+  applyTextureDirectives(directives) {
+    const gl = this.gl;
+    for (const { channel, textureName } of directives) {
+      const entry = createBuiltinTexture(gl, textureName);
+      if (!entry) continue;
+
+      // Delete old texture for this channel
+      if (this.channelTextures[channel]) {
+        gl.deleteTexture(this.channelTextures[channel]);
+      }
+
+      this.channelTextures[channel] = entry.texture;
+      this.channelResolutions[channel] = [entry.width, entry.height, 1];
+      this.channelTypes[channel] = 'builtin';
+      // Clear any video/audio/NDI source on this channel
+      this.channelVideoSources[channel] = null;
+      this.channelAudioSources[channel] = null;
+      this.channelNDIData[channel] = null;
+    }
+  }
+
   setResolution(width, height) {
     this.canvas.width = width;
     this.canvas.height = height;
@@ -976,6 +1106,12 @@ class ShaderRenderer {
     // Clean up shaders (they're now part of program)
     gl.deleteShader(vertexShader);
     gl.deleteShader(fragmentShader);
+
+    // Parse @texture directives and separate builtin vs file
+    const allDirectives = ShaderParamParser.parseTextureDirectives(fragmentSource);
+    this.textureDirectives = allDirectives.filter(d => d.type === 'builtin');
+    this.fileTextureDirectives = allDirectives.filter(d => d.type === 'file');
+    this.applyTextureDirectives(this.textureDirectives);
 
     return { success: true };
   }

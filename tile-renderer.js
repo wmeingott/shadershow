@@ -24,6 +24,14 @@ class TileRenderer {
     // Shader source
     this.shaderSource = null;
 
+    // File texture directives (populated on compile)
+    this.fileTextureDirectives = [];
+
+    // Per-tile channel textures (overrides shared textures when set)
+    this.channelTextures = [null, null, null, null];
+    this.channelResolutions = [[0, 0, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1]];
+    this._resArray = new Float32Array(12);  // Pre-allocated for render loop
+
     // Setup geometry (shared quad vertices)
     this.setupGeometry();
   }
@@ -211,6 +219,13 @@ class TileRenderer {
     gl.deleteShader(vertexShader);
     gl.deleteShader(fragmentShader);
 
+    // Parse @texture directives for file textures
+    this.fileTextureDirectives = [];
+    if (typeof ShaderParamParser !== 'undefined') {
+      const allDirectives = ShaderParamParser.parseTextureDirectives(fragmentSource);
+      this.fileTextureDirectives = allDirectives.filter(d => d.type === 'file');
+    }
+
     return { success: true };
   }
 
@@ -292,6 +307,32 @@ class TileRenderer {
     }
   }
 
+  // Load a texture into a per-tile channel from a data URL
+  loadTexture(channel, dataUrl) {
+    return new Promise((resolve, reject) => {
+      const gl = this.gl;
+      const img = new Image();
+      img.onload = () => {
+        if (this.channelTextures[channel]) {
+          gl.deleteTexture(this.channelTextures[channel]);
+        }
+        const texture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        this.channelTextures[channel] = texture;
+        this.channelResolutions[channel] = [img.width, img.height, 1];
+        resolve({ width: img.width, height: img.height });
+      };
+      img.onerror = () => reject(new Error('Failed to load texture image'));
+      img.src = dataUrl;
+    });
+  }
+
   // Render this tile to its viewport region
   // Uses shared time, textures, and channel resolutions passed from the main renderer
   render(sharedState) {
@@ -343,15 +384,26 @@ class TileRenderer {
     // Set custom parameter uniforms
     this.setCustomUniforms();
 
-    // Bind shared textures
+    // Bind textures (per-tile overrides shared when available)
+    const resArray = this._resArray;
     for (let i = 0; i < 4; i++) {
       gl.activeTexture(gl.TEXTURE0 + i);
-      gl.bindTexture(gl.TEXTURE_2D, channelTextures[i]);
+      const tex = this.channelTextures[i] || channelTextures[i];
+      gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.uniform1i(this.uniforms[`iChannel${i}`], i);
+      if (this.channelTextures[i]) {
+        resArray[i * 3] = this.channelResolutions[i][0];
+        resArray[i * 3 + 1] = this.channelResolutions[i][1];
+        resArray[i * 3 + 2] = this.channelResolutions[i][2];
+      } else {
+        resArray[i * 3] = channelResolutions[i * 3];
+        resArray[i * 3 + 1] = channelResolutions[i * 3 + 1];
+        resArray[i * 3 + 2] = channelResolutions[i * 3 + 2];
+      }
     }
 
     // Set channel resolutions
-    gl.uniform3fv(this.uniforms.iChannelResolution, channelResolutions);
+    gl.uniform3fv(this.uniforms.iChannelResolution, resArray);
 
     // Draw
     gl.bindVertexArray(this.vao);
@@ -373,6 +425,14 @@ class TileRenderer {
     if (this.vao) {
       gl.deleteVertexArray(this.vao);
       this.vao = null;
+    }
+
+    // Clean up per-tile textures
+    for (let i = 0; i < 4; i++) {
+      if (this.channelTextures[i]) {
+        gl.deleteTexture(this.channelTextures[i]);
+        this.channelTextures[i] = null;
+      }
     }
   }
 }

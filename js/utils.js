@@ -56,6 +56,11 @@ export function updateChannelSlot(channel, type, source = '', width = 0, height 
       slot.title = `iChannel${channel}: ${source} (${width}x${height}) [NDI]`;
       slot.textContent = 'N';
       break;
+    case 'builtin':
+      slot.classList.add('has-texture');
+      slot.title = `iChannel${channel}: ${source} (${width}x${height}) [Built-in]`;
+      slot.textContent = 'T';
+      break;
     default:
       slot.title = `iChannel${channel} - Click File > Load Texture/Video/Camera`;
       slot.textContent = channel;

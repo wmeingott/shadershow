@@ -18,275 +18,79 @@
  * Types: int, float, vec2, vec3, vec4, color
  */
 
-// CC0: A Dead Planet of Silicon Dreams
-//  Had a dream of a planet of AI factories
+// CC0: Clearly a bug
+//   A "Happy Accident" Shader
 
-// License: WTFPL, author: sam hocevar, found: https://stackoverflow.com/a/17897228/418488
-const vec4 hsv2rgb_K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+//  Twigl: https://twigl.app?ol=true&ss=-OUOudmBPJ57CIb7rAxS
 
-// License: WTFPL, author: sam hocevar, found: https://stackoverflow.com/a/17897228/418488
-//  Macro version of above to enable compile-time constants
-#define HSV2RGB(c)  (c.z * mix(hsv2rgb_K.xxx, clamp(abs(fract(c.xxx + hsv2rgb_K.xyz) * 6.0 - hsv2rgb_K.www) - hsv2rgb_K.xxx, 0.0, 1.0), c.y))
-
-// License: WTFPL, author: sam hocevar, found: https://stackoverflow.com/a/17897228/418488
-vec3 hsv2rgb(vec3 c) {
-  vec3 p = abs(fract(c.xxx + hsv2rgb_K.xyz) * 6.0 - hsv2rgb_K.www);
-  return c.z * mix(hsv2rgb_K.xxx, clamp(p - hsv2rgb_K.xxx, 0.0, 1.0), c.y);
-}
-
-const float
-  PI=3.141592654
-, TAU=2.*PI
-, OFF=.7           // Change this for some different color themes
-, PR =.66          // How many pyramids should there be?
-, ZZ =11.          // How spread out are the pyramids?
-;
-
-const vec2
-  // Path parameters
-  PA=vec2(6,1.41)
-, PB=vec2(.056,.035)
-, PO=vec2(25,3.3)
-;
-
-const vec3
-  BY=HSV2RGB(vec3(.05+OFF,.7,.8))
-, BG=HSV2RGB(vec3(.95+OFF,.6,.3))
-, BW=HSV2RGB(vec3(.55+OFF,.3,2.))
-, BF=HSV2RGB(vec3(.82+OFF,.6,2.))
-, FC=.04*vec3(1,2,0)              // "Color burn"
-, LD=normalize(vec3(1,-0.5,3))    // Light dir
-, RN=normalize(vec3(-.1,1,.1))    // Ring normal
-;
-
-const vec4
-  GG=vec4(vec3(-700,300,1000),400.)  // Gas giant dimensions
-  ;
-
-const mat2 
-  R=mat2(1.2,1.6,-1.6,1.2)
-;
-
-
-// License: Unknown, author: Unknown, found: don't remember
-float hash(vec2 co) {
-  return fract(sin(dot(co.xy ,vec2(12.9898,58.233))) * 13758.5453);
-}
-
-// License: Unknown, author: Claude Brezinski, found: https://mathr.co.uk/blog/2017-09-06_approximating_hyperbolic_tangent.html
-vec3 tanh_approx(vec3 x) {
-  vec3 
-    x2 = x*x
-  ;
-  return clamp(x*(27.0 + x2)/(27.0+9.0*x2), -1.0, 1.0);
-}
-
-// License: MIT, author: Inigo Quilez, found: https://www.iquilezles.org/www/articles/spherefunctions/spherefunctions.htm
-float ray_sphere(vec3 ro, vec3 rd, vec4 sph) {
-  vec3 
-    oc=ro - sph.xyz
-    ;
-  float 
-    b=dot(oc, rd)
-  , c=dot(oc, oc)- sph.w*sph.w
-  , h=b*b-c
-  ;
-  if(h<0.) return -1.;
-  return -b-sqrt(h);
-}
-
-// License: MIT, author: Inigo Quilez, found: https://iquilezles.org/articles/intersectors/
-float ray_plane(vec3 ro, vec3 rd, vec4 p) {
-  return -(dot(ro,p.xyz)+p.w)/dot(rd,p.xyz);
-}
-
-// License: MIT, author: Inigo Quilez, found: https://iquilezles.org/articles/distfunctions/
-float doctahedron(vec3 p, float s) {
-  p = abs(p);
-  return (p.x+p.y+p.z-s)*0.57735027;
-}
-
-vec3 path(float z) {
-  return vec3(PO+PA*cos(PB*z),z);
-}
-
-vec3 dpath(float z) {
-  return vec3(-PA*PB*sin(PB*z),1);
-}
-
-vec3 ddpath(float z) {
-  return vec3(-PA*PB*PB*cos(PB*z),0);
-}
-
-float dfbm(vec3 p) {
-  float
-    d=p.y+.6
-  , a=1.
-  ;
-
-  vec2
-    D=vec2(0)
-  , P=.23*p.xz
-  ;
-
-  vec4
-    o
-  ;
-
-  for(int j=0;j<7;++j) {
-    o=cos(P.xxyy+vec4(11,0,11,0));
-    p=o.yxx*o.zwz;
-    D+=p.xy;
-    // This technique "borrowed" from IQ
-    d-=a*(1.+p.z)/(1.+3.*dot(D,D));
-    P*=R;
-    a*=.55;
-  }
-  
-  return d;
-}
-
-float dpyramid(vec3 p, out vec3 oo) {
-  vec2
-    n=floor(p.xz/ZZ+.5)
-  ;
-  p.xz-=n*ZZ;
-
-  float
-    h0=hash(n)
-  , h1=fract(9677.*h0)
-  , h =.3*ZZ*h0*h0+0.1
-  , d =doctahedron(p,h)
-  ;
-
-  oo=vec3(1e3,0,0);
-  if(h1<PR) return 1e3;
-  oo=vec3(d,h0,h);
-  return d;
-}
-
-float df(vec3 p, out vec3 oo) {
-  p.y=abs(p.y);
-
-  float
-    d0=dfbm(p)
-  , d1=dpyramid(p,oo)
-  , d
-  ;
-  d=d0;
-  d=min(d,d1);
-  return d;
-}
-
-float fbm(float x) {
-  float 
-    a=1.
-  , h=0.
-  ;
-  
-  for(int i=0;i<5;++i) {
-    h+=a*sin(x);
-    x*=2.03;
-    x+=123.4;
-    a*=.55;
-  }
-  
-  return abs(h);
-}
-
-vec4 render(vec2 p2, vec2 q2) {
-  float
-      d=1.
-    , z=0.
-    , T=iTime*3.
-    ;
-    
-  vec3
-      oo
-    , O=vec3(0)
-    , p
-    , P=path(T)
-    , ZZ=normalize(dpath(T)+vec3(0,-0.1,0))
-    , XX=normalize(cross(ZZ,vec3(0,1,0)+ddpath(T)))
-    , YY=cross(XX,ZZ)
-    , R=normalize(-p2.x*XX+p2.y*YY+2.*ZZ)
-    , Y=(1.+R.x)*BY
-    , S=(1.+R.y)*BW*Y
-    ;
-    
-  vec4
-      M
-    ;
-
-  for(int i=0;i<50&&d>1e-5&&z<2e2;++i) {
-    p=z*R+P;
-    d=df(p,oo);
-    if(p.y>0.) {
-      O+=BG+min(d,9.)*Y;
-    } else {
-      O+=S;
-      oo.x*=9.;
-    }
-
-    O+=
-        mix(.02,1.,.5+.5*sin(iTime+TAU*oo.y))
-      * smoothstep(oo.z*.78,oo.z*.8,abs(p.y))
-      / max(oo.x+oo.x*oo.x*oo.x*oo.x*9.,1e-2)
-      * BF
-      ;
-
-    z+=d*.7;
-  }
-
-  O*=9E-3;
-  
-  if(R.y>0.0) {
-    M=GG;
-    S=M.xyz+P;
-    M.xyz=S;
-    z=d=ray_sphere(P,R,M);
-    
-    Y=vec3(.0);
-    if(z>0.) {
-      p=P+R*z;
-      ZZ=normalize(p-M.xyz);
-      Y+=
-          max(dot(LD,ZZ),0.)
-        * smoothstep(1.0,.89,1.+dot(R,ZZ))
-        * fbm(2e-2*dot(p,RN))
-        ;
-    }
-    M=vec4(RN,-dot(RN,S));
-    z=ray_plane(P,R,M);
-    if(z>0.&&(d>0.&&z<d||d==-1.)) {
-      p=P+R*z;
-      d=distance(S,p);
-      Y+=
-          abs(dot(LD,RN))
-        * step(GG.w*1.41,d)
-        * step(d,GG.w*2.)
-        * fbm(.035*d)
-        ;
-    }
-    Y*=smoothstep(0.0,0.2,R.y);
-    Y+=clamp((hsv2rgb(vec3(OFF-.4*R.y,.5+1.*R.y,3./(1.+800.*R.y*R.y*R.y)))),0.,1.);
-
-    O*=Y;
-  }
-
-  O-=(length(q2)+.2)*FC;
-  O=tanh_approx(O);
-  O=max(O,0.);
-  O=sqrt(O);
-
-  return vec4(O,1);
-}
+// This shader uses a technique called "raymarching" to render 3D
+// Think of it like casting rays from your eye through each pixel into a 3D world,
+// then stepping along each ray until we hit something interesting.
+//
+// Key concepts for C developers:
+// - vec4/vec3/vec2: Like structs with x,y,z,w components (SIMD-style)
+// - Swizzling: p.xy means "give me just the x,y parts of vector p"
+// - mat2(): Creates a 2x2 rotation matrix from an angle
+// - All math operations work on vectors component-wise
+//
+// ATTRIBUTION: Shader techniques inspired by (alphabetical):
+//   @byt3_m3chanic
+//   @FabriceNeyrat2
+//   @iq
+//   @shane
+//   @XorDev
+//   + many more
 
 void mainImage(out vec4 O, vec2 C) {
-  vec2
-    r=iResolution.xy
-  , p2=(C+C-r)/r.y
-  , q2=C/r
-  ;
-  O=render(p2,q2);
+  float 
+      i     // Loop counter (starts at 0)
+    , d     // Distance to nearest surface
+    , z = fract(dot(C,sin(C)))-.5  // Ray distance + noise for anti-banding
+    ;
+  vec4 
+      o     // Accumulated color/lighting
+    , p     // Current 3D position along ray
+    ;
+  for(
+      vec2 r = iResolution.xy  // Screen resolution
+    ; ++i < 77.                
+    ; z += .6*d                // Step forward (larger steps when far from surfaces)
+    )
+      // Convert 2D pixel to 3D ray direction
+      p = vec4(z*normalize(vec3(C-.5*r,r.y)),.1*iTime)
+      
+      // Move through 3D space over time
+    , p.z += iTime
+    
+      // Save position for lighting calculations
+    , O = p
+    
+      // Apply rotation matrices to create fractal patterns
+      // (These transform the 3D coordinates in interesting ways)
+    , p.xy *= mat2(cos(2.+O.z+vec4(0,11,33,0)))
+      
+      // This was originally a bug in the matrix calculation
+      // The incorrect transformation created an unexpectedly interesting pattern
+      // Bob Ross would call this a "happy little accident"
+    , p.xy *= mat2(cos(O+vec4(0,11,33,0)))
+    
+      // Calculate color based on position and space distortion
+      // The sin() creates a nice looking palette, division by dot() creates falloff
+    , O = (1.+sin(.5*O.z+length(p-O)+vec4(0,4,3,6)))
+       / (.5+2.*dot(O.xy,O.xy))
+    
+      // Domain repetition, repeats the single line and the 2 planes infinitely
+    , p = abs(fract(p)-.5)
+    
+      // Calculate distance to nearest surface
+      // This combines a cylinder (length(p.xy)-.125) with 2 planesbox (min(p.x,p.y))
+    , d = abs(min(length(p.xy)-.125,min(p.x,p.y)+1e-3))+1e-3
+    
+      // Add lighting contribution (brighter when closer to surfaces)
+    , o += O.w/d*O
+    ;
+  
+  // tanh() compresses the accumulated brightness to 0-1 range
+  // (Like HDR tone mapping in photography)
+  O = tanh(o/2e4);
 }

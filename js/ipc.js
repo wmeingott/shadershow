@@ -1,16 +1,16 @@
 // IPC Handlers module
-import { state } from './state.js';
+import { state, notifyRemoteStateChanged } from './state.js';
 import { setStatus, updateChannelSlot } from './utils.js';
 import { compileShader, setEditorMode } from './editor.js';
 import { togglePlayback, resetTime, resetFullscreenSelect } from './controls.js';
 import { runBenchmark } from './benchmark.js';
-import { loadGridPresetsFromData, saveGridState } from './shader-grid.js';
+import { loadGridPresetsFromData, saveGridState, selectGridSlot, switchShaderTab } from './shader-grid.js';
 import { recallLocalPreset } from './presets.js';
 import { loadParamsToSliders } from './params.js';
 import { updatePreviewFrameLimit, setRenderMode, detectRenderMode } from './renderer.js';
 import { createTab, openInTab, activeTabHasChanges, markTabSaved, getActiveTab } from './tabs.js';
 import { tileState } from './tile-state.js';
-import { isMixerActive } from './mixer.js';
+import { isMixerActive, assignShaderToMixer, clearMixerChannel, resetMixer, recallMixState } from './mixer.js';
 
 export async function initIPC() {
   // Load initial settings (including ndiFrameSkip)
@@ -405,5 +405,282 @@ export async function initIPC() {
   window.electronAPI.onFullscreenOpened((displayId) => {
     const select = document.getElementById('fullscreen-select');
     if (select) select.value = String(displayId);
+  });
+
+  // =========================================================================
+  // Remote Control Handlers
+  // =========================================================================
+  initRemoteHandlers();
+
+  // Listen for remote state change notifications from other modules
+  window.addEventListener('remote-state-changed', () => {
+    sendRemoteStateUpdate();
+  });
+}
+
+// =============================================================================
+// Remote Control — State Snapshot Builders & Action Handlers
+// =============================================================================
+
+function buildRemoteStateSnapshot() {
+  const filename = (fp) => fp ? fp.split('/').pop().split('\\').pop() : null;
+
+  return {
+    tabs: state.shaderTabs.map((tab, i) => ({
+      name: tab.name,
+      type: tab.type || 'shaders',
+      slots: tab.type !== 'mix' ? (tab.slots || []).map((s, j) => s ? {
+        index: j,
+        label: s.label || filename(s.filePath) || `Slot ${j + 1}`,
+        hasShader: !!s.shaderCode,
+        presetCount: (s.presets || []).length,
+        presetNames: (s.presets || []).map(p => p.name || `Preset ${(s.presets || []).indexOf(p) + 1}`)
+      } : null).filter(Boolean) : undefined,
+      mixPresets: tab.type === 'mix' ? (tab.mixPresets || []).map((p, j) => ({
+        index: j,
+        name: p.name
+      })) : undefined
+    })),
+    activeTab: state.activeShaderTab,
+    activeSlot: state.activeGridSlot,
+    mixer: {
+      enabled: state.mixerEnabled,
+      blendMode: state.mixerBlendMode,
+      selectedChannel: state.mixerSelectedChannel,
+      channels: state.mixerChannels.map(ch => ({
+        slotIndex: ch.slotIndex,
+        tabIndex: ch.tabIndex,
+        alpha: ch.alpha,
+        hasShader: ch.slotIndex !== null || !!ch.renderer,
+        label: ch.slotIndex !== null ? `Slot ${ch.slotIndex + 1}` : ch.renderer ? 'Mix' : null
+      }))
+    },
+    params: buildCurrentParams(),
+    customParamDefs: getCustomParamDefs(),
+    presets: getCurrentSlotPresetNames(),
+    playback: {
+      isPlaying: state.renderer?.getStats?.()?.isPlaying ?? true,
+      time: state.renderer?.getStats?.()?.time || 0
+    },
+    blackout: state.blackoutEnabled
+  };
+}
+
+function buildCurrentParams() {
+  const params = {};
+  if (state.renderer) {
+    const stats = state.renderer.getStats?.();
+    // Speed
+    const speedSlider = document.getElementById('param-speed');
+    if (speedSlider) params.speed = parseFloat(speedSlider.value);
+
+    // Custom params
+    const customValues = state.renderer.getCustomParamValues?.();
+    if (customValues) {
+      Object.assign(params, customValues);
+    }
+  }
+  return params;
+}
+
+function getCustomParamDefs() {
+  if (!state.renderer?.getCustomParamDefs) return [];
+  return state.renderer.getCustomParamDefs().map(p => ({
+    name: p.name,
+    type: p.type,
+    min: p.min,
+    max: p.max,
+    default: p.default,
+    description: p.description,
+    isArray: p.isArray || false,
+    arraySize: p.arraySize || 0
+  }));
+}
+
+function getCurrentSlotPresetNames() {
+  if (state.activeGridSlot === null || !state.gridSlots[state.activeGridSlot]) return [];
+  const presets = state.gridSlots[state.activeGridSlot].presets || [];
+  return presets.map((p, i) => p.name || `Preset ${i + 1}`);
+}
+
+// Send full state update to remote clients
+export function sendRemoteStateUpdate() {
+  window.electronAPI.sendRemoteStateChanged({
+    type: 'state-update',
+    data: buildRemoteStateSnapshot()
+  });
+}
+
+function initRemoteHandlers() {
+  // ---- State queries (request → response) ----
+
+  window.electronAPI.onRemoteGetState(() => {
+    const snapshot = buildRemoteStateSnapshot();
+    window.electronAPI.sendRemoteGetStateResponse(snapshot);
+  });
+
+  window.electronAPI.onRemoteGetThumbnail((req) => {
+    const { tabIndex, slotIndex } = req || {};
+    let dataUrl = null;
+
+    try {
+      const tab = state.shaderTabs[tabIndex];
+      if (tab && tab.type !== 'mix') {
+        const slot = tab.slots?.[slotIndex];
+        if (slot && slot.renderer) {
+          // Use existing canvas to capture thumbnail
+          const canvas = slot.renderer.canvas;
+          if (canvas && canvas.width > 0) {
+            dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Remote thumbnail error:', err);
+    }
+
+    window.electronAPI.sendRemoteGetThumbnailResponse({
+      tabIndex, slotIndex, dataUrl
+    });
+  });
+
+  // ---- Action dispatch (fire-and-forget) ----
+
+  window.electronAPI.onRemoteSelectTab(({ tabIndex }) => {
+    if (typeof tabIndex === 'number') {
+      switchShaderTab(tabIndex);
+      sendRemoteStateUpdate();
+    }
+  });
+
+  window.electronAPI.onRemoteSelectSlot(({ slotIndex }) => {
+    if (typeof slotIndex === 'number') {
+      selectGridSlot(slotIndex);
+      sendRemoteStateUpdate();
+    }
+  });
+
+  window.electronAPI.onRemoteSetParam(({ name, value }) => {
+    if (!name || !state.renderer) return;
+
+    if (name === 'speed') {
+      const speedSlider = document.getElementById('param-speed');
+      const speedValue = document.getElementById('param-speed-value');
+      if (speedSlider) {
+        speedSlider.value = value;
+        if (speedValue) speedValue.textContent = parseFloat(value).toFixed(2);
+      }
+      state.renderer.setParam('speed', value);
+      window.electronAPI.sendParamUpdate({ name: 'speed', value });
+    } else {
+      state.renderer.setParam(name, value);
+      window.electronAPI.sendParamUpdate({ name, value });
+    }
+
+    // Store to active grid slot
+    if (state.activeGridSlot !== null && state.gridSlots[state.activeGridSlot]) {
+      const slot = state.gridSlots[state.activeGridSlot];
+      if (name === 'speed') {
+        if (!slot.params) slot.params = {};
+        slot.params.speed = value;
+      } else {
+        if (!slot.customParams) slot.customParams = {};
+        slot.customParams[name] = value;
+      }
+    }
+  });
+
+  window.electronAPI.onRemoteRecallPreset(({ presetIndex }) => {
+    if (typeof presetIndex === 'number') {
+      recallLocalPreset(presetIndex);
+      sendRemoteStateUpdate();
+    }
+  });
+
+  window.electronAPI.onRemoteMixerAssign(({ channelIndex, slotIndex }) => {
+    if (typeof channelIndex === 'number' && typeof slotIndex === 'number') {
+      assignShaderToMixer(channelIndex, slotIndex);
+      sendRemoteStateUpdate();
+    }
+  });
+
+  window.electronAPI.onRemoteMixerClear(({ channelIndex }) => {
+    if (typeof channelIndex === 'number') {
+      clearMixerChannel(channelIndex);
+      sendRemoteStateUpdate();
+    }
+  });
+
+  window.electronAPI.onRemoteMixerAlpha(({ channelIndex, value }) => {
+    if (typeof channelIndex !== 'number') return;
+    const ch = state.mixerChannels[channelIndex];
+    if (ch) {
+      ch.alpha = value;
+      const slider = document.querySelectorAll('#mixer-panel .mixer-slider')[channelIndex];
+      if (slider) slider.value = String(value);
+      window.electronAPI.sendMixerAlphaUpdate({ channelIndex, alpha: value });
+    }
+  });
+
+  window.electronAPI.onRemoteMixerSelect(({ channelIndex }) => {
+    if (typeof channelIndex === 'number') {
+      // Simulate selecting the mixer channel
+      const btns = document.querySelectorAll('#mixer-panel .mixer-btn');
+      btns.forEach(b => b.classList.remove('selected'));
+      btns[channelIndex]?.classList.add('selected');
+      state.mixerSelectedChannel = channelIndex;
+      sendRemoteStateUpdate();
+    }
+  });
+
+  window.electronAPI.onRemoteMixerBlend(({ mode }) => {
+    if (mode) {
+      state.mixerBlendMode = mode;
+      const select = document.getElementById('mixer-blend-mode');
+      if (select) select.value = mode;
+      window.electronAPI.sendMixerBlendMode({ blendMode: mode });
+      sendRemoteStateUpdate();
+    }
+  });
+
+  window.electronAPI.onRemoteMixerReset(() => {
+    resetMixer();
+    sendRemoteStateUpdate();
+  });
+
+  window.electronAPI.onRemoteMixerToggle(() => {
+    state.mixerEnabled = !state.mixerEnabled;
+    const btn = document.getElementById('mixer-toggle-btn');
+    if (btn) btn.classList.toggle('active', state.mixerEnabled);
+    sendRemoteStateUpdate();
+  });
+
+  window.electronAPI.onRemoteRecallMixPreset(({ tabIndex, presetIndex }) => {
+    if (typeof tabIndex !== 'number' || typeof presetIndex !== 'number') return;
+    const tab = state.shaderTabs[tabIndex];
+    if (tab?.type === 'mix' && tab.mixPresets?.[presetIndex]) {
+      recallMixState(tab.mixPresets[presetIndex]);
+      sendRemoteStateUpdate();
+    }
+  });
+
+  window.electronAPI.onRemoteTogglePlayback(() => {
+    togglePlayback();
+    sendRemoteStateUpdate();
+  });
+
+  window.electronAPI.onRemoteResetTime(() => {
+    resetTime();
+    sendRemoteStateUpdate();
+  });
+
+  window.electronAPI.onRemoteBlackout(({ enabled }) => {
+    state.blackoutEnabled = !!enabled;
+    window.electronAPI.sendBlackout(state.blackoutEnabled);
+
+    const canvas = document.getElementById('shader-canvas');
+    if (canvas) canvas.style.opacity = state.blackoutEnabled ? '0' : '1';
+
+    sendRemoteStateUpdate();
   });
 }

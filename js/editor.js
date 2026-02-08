@@ -1,6 +1,6 @@
 // Editor module
 import { state } from './state.js';
-import { setStatus } from './utils.js';
+import { setStatus, updateChannelSlot } from './utils.js';
 import { saveActiveSlotShader } from './shader-grid.js';
 import { generateCustomParamUI } from './params.js';
 import { initTabs, markTabSaved, getActiveTab } from './tabs.js';
@@ -87,7 +87,7 @@ export function setEditorMode(mode) {
 }
 
 // Compile current editor content (shader or scene)
-export function compileShader() {
+export async function compileShader() {
   // Guard: renderer may not be initialized yet during startup
   if (!state.renderer) return;
 
@@ -105,6 +105,36 @@ export function compileShader() {
 
     // Generate dynamic UI for custom parameters
     generateCustomParamUI();
+
+    // Update channel UI for builtin @texture directives
+    if (state.renderer.textureDirectives) {
+      for (const { channel, textureName } of state.renderer.textureDirectives) {
+        const spec = { RGBANoise: [256, 256], RGBANoiseSmall: [64, 64], GrayNoise: [256, 256], GrayNoiseSmall: [64, 64] };
+        const [w, h] = spec[textureName] || [0, 0];
+        updateChannelSlot(channel, 'builtin', textureName, w, h);
+      }
+    }
+
+    // Load file textures from @texture directives (async)
+    if (state.renderer.fileTextureDirectives) {
+      for (const { channel, textureName } of state.renderer.fileTextureDirectives) {
+        try {
+          const result = await window.electronAPI.loadFileTexture(textureName);
+          if (result.success) {
+            await state.renderer.loadTexture(channel, result.dataUrl);
+            state.channelState[channel] = { type: 'file-texture', name: textureName };
+            updateChannelSlot(channel, 'builtin', `texture:${textureName}`,
+              state.renderer.channelResolutions[channel][0],
+              state.renderer.channelResolutions[channel][1]);
+          } else {
+            setStatus(`Texture "${textureName}" not found in data/textures/`, 'error');
+          }
+        } catch (texErr) {
+          console.error(`Failed to load file texture "${textureName}":`, texErr);
+          setStatus(`Failed to load texture "${textureName}"`, 'error');
+        }
+      }
+    }
 
     // Sync to fullscreen window
     window.electronAPI.sendShaderUpdate({

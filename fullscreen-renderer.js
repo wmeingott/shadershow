@@ -35,6 +35,21 @@ let mixerOverlayCtx = null;
 // Reused Date object to avoid allocation per frame
 const reusedDate = new Date();
 
+// Load file textures for a renderer after compile (reads from data/textures/ via IPC)
+async function loadFileTexturesForRenderer(targetRenderer) {
+  if (!targetRenderer.fileTextureDirectives || targetRenderer.fileTextureDirectives.length === 0) return;
+  for (const { channel, textureName } of targetRenderer.fileTextureDirectives) {
+    try {
+      const result = await window.electronAPI.loadFileTexture(textureName);
+      if (result.success) {
+        await targetRenderer.loadTexture(channel, result.dataUrl);
+      }
+    } catch (err) {
+      console.error(`Failed to load file texture "${textureName}":`, err);
+    }
+  }
+}
+
 // Lazy-initialize ThreeSceneRenderer (Three.js is lazy-loaded in fullscreen)
 async function ensureSceneRenderer() {
   if (sceneRenderer) return sceneRenderer;
@@ -231,6 +246,7 @@ window.electronAPI.onInitFullscreen(async (state) => {
   if (state.shaderCode) {
     try {
       renderer.compile(state.shaderCode);
+      loadFileTexturesForRenderer(renderer);
     } catch (err) {
       console.error('Compile error:', err);
     }
@@ -299,6 +315,7 @@ window.electronAPI.onShaderUpdate(async (data) => {
   if (data.shaderCode) {
     try {
       renderer.compile(data.shaderCode);
+      loadFileTexturesForRenderer(renderer);
     } catch (err) {
       console.error('Compile error:', err);
     }
@@ -380,6 +397,18 @@ async function loadChannel(index, channel) {
         break;
       case 'audio':
         await renderer.loadAudio(index);
+        break;
+      case 'file-texture':
+        if (channel.name) {
+          try {
+            const result = await window.electronAPI.loadFileTexture(channel.name);
+            if (result.success) {
+              await renderer.loadTexture(index, result.dataUrl);
+            }
+          } catch (texErr) {
+            console.error(`Failed to load file texture "${channel.name}":`, texErr);
+          }
+        }
         break;
     }
   } catch (err) {
@@ -737,6 +766,7 @@ function initMixerMode(config) {
 
     try {
       tr.compile(channelConfig.shaderCode);
+      loadFileTexturesForRenderer(tr);
       if (channelConfig.params) {
         tr.setParams(channelConfig.params);
       }
@@ -935,6 +965,7 @@ window.electronAPI.onMixerChannelUpdate?.((data) => {
 
   try {
     tr.compile(shaderCode);
+    loadFileTexturesForRenderer(tr);
     if (params) {
       tr.setParams(params);
     }

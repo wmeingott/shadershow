@@ -1,5 +1,5 @@
 // Shader Mixer - 4-channel compositor with per-channel parameters
-import { state } from './state.js';
+import { state, notifyRemoteStateChanged } from './state.js';
 import { MiniShaderRenderer } from './shader-grid.js';
 import { loadParamsToSliders, generateCustomParamUI } from './params.js';
 import { updateLocalPresetsUI } from './presets.js';
@@ -190,6 +190,7 @@ export function assignShaderToMixer(channelIndex, slotIndex) {
 
   const name = slotData?.filePath?.split('/').pop() || `Slot ${slotIndex + 1}`;
   setStatus(`Mixer ${channelIndex + 1} ← ${name}`, 'success');
+  notifyRemoteStateChanged();
 }
 
 export function clearMixerChannel(channelIndex) {
@@ -240,6 +241,7 @@ export function clearMixerChannel(channelIndex) {
   window.electronAPI.sendMixerChannelUpdate({ channelIndex, clear: true });
 
   setStatus(`Mixer channel ${channelIndex + 1} cleared`, 'success');
+  notifyRemoteStateChanged();
 }
 
 export function isMixerActive() {
@@ -263,6 +265,7 @@ export function resetMixer() {
   syncToggleButton();
   hideMixerOverlay();
   setStatus('Mixer reset', 'success');
+  notifyRemoteStateChanged();
 }
 
 // Called from params.js when a mixer channel is selected and a param changes
@@ -484,4 +487,5 @@ export function recallMixState(preset) {
   }
 
   setStatus(`Recalled mix preset: ${preset.name}`, 'success');
+  notifyRemoteStateChanged();
 }

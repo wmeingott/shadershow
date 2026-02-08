@@ -1,175 +1,292 @@
-// Stage Lights Array Simulation - OPTIMIZED
-// Creates an array of animated stage lights with volumetric fog
+/*
+ * ShaderShow - Available Uniforms
+ * ================================
+ * vec3  iResolution      - Viewport resolution (width, height, 1.0)
+ * float iTime            - Playback time in seconds
+ * float iTimeDelta       - Time since last frame in seconds
+ * int   iFrame           - Current frame number
+ * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)
+ * vec4  iDate            - (year, month, day, time in seconds)
+ *
+ * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)
+ * vec3  iChannelResolution[4] - Resolution of each channel
+ *
+ * Custom Parameters (@param)
+ * --------------------------
+ * Define custom uniforms with UI controls using @param comments:
+ *   // @param name type [default] [min, max] "description"
+ * Types: int, float, vec2, vec3, vec4, color
+ */
 
-// @param showGround float 0.5 [0.0, 1.0] "Show ground (>0.5)"
-// @param lightHeight float 0.5 [0.0, 1.0] "Light height"
-// @param lightDepth float 0.5 [0.0, 1.0] "Light depth"
-// @param light1 color [1.0, 0.0, 0.0] "Light 1"
-// @param light2 color [0.0, 1.0, 0.0] "Light 2"
-// @param light3 color [0.0, 0.0, 1.0] "Light 3"
-// @param light4 color [1.0, 1.0, 0.0] "Light 4"
-// @param light5 color [1.0, 0.0, 1.0] "Light 5"
-// @param light6 color [0.0, 1.0, 1.0] "Light 6"
-// @param light7 color [1.0, 0.5, 0.0] "Light 7"
-// @param light8 color [0.5, 0.0, 1.0] "Light 8"
+// CC0: A Dead Planet of Silicon Dreams
+//  Had a dream of a planet of AI factories
 
-#define NUM_LIGHTS 8
-#define PI 3.14159265359
-#define MAX_STEPS 88  // Reduziert von ~100
+// License: WTFPL, author: sam hocevar, found: https://stackoverflow.com/a/17897228/418488
+const vec4 hsv2rgb_K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
 
-// Vereinfachte Noise-Funktion
-float hash(float n) {
-    return fract(sin(n) * 43758.5453123);
+// License: WTFPL, author: sam hocevar, found: https://stackoverflow.com/a/17897228/418488
+//  Macro version of above to enable compile-time constants
+#define HSV2RGB(c)  (c.z * mix(hsv2rgb_K.xxx, clamp(abs(fract(c.xxx + hsv2rgb_K.xyz) * 6.0 - hsv2rgb_K.www) - hsv2rgb_K.xxx, 0.0, 1.0), c.y))
+
+// License: WTFPL, author: sam hocevar, found: https://stackoverflow.com/a/17897228/418488
+vec3 hsv2rgb(vec3 c) {
+  vec3 p = abs(fract(c.xxx + hsv2rgb_K.xyz) * 6.0 - hsv2rgb_K.www);
+  return c.z * mix(hsv2rgb_K.xxx, clamp(p - hsv2rgb_K.xxx, 0.0, 1.0), c.y);
 }
 
-// Schnellerer Noise - weniger Operationen
-float noise2(vec3 x) {
-    vec3 p = floor(x);
-    vec3 f = fract(x);
-    f = f * f * (3.0 - 2.0 * f);
+const float
+  PI=3.141592654
+, TAU=2.*PI
+, OFF=.7           // Change this for some different color themes
+, PR =.66          // How many pyramids should there be?
+, ZZ =11.          // How spread out are the pyramids?
+;
+
+const vec2
+  // Path parameters
+  PA=vec2(6,1.41)
+, PB=vec2(.056,.035)
+, PO=vec2(25,3.3)
+;
+
+const vec3
+  BY=HSV2RGB(vec3(.05+OFF,.7,.8))
+, BG=HSV2RGB(vec3(.95+OFF,.6,.3))
+, BW=HSV2RGB(vec3(.55+OFF,.3,2.))
+, BF=HSV2RGB(vec3(.82+OFF,.6,2.))
+, FC=.04*vec3(1,2,0)              // "Color burn"
+, LD=normalize(vec3(1,-0.5,3))    // Light dir
+, RN=normalize(vec3(-.1,1,.1))    // Ring normal
+;
+
+const vec4
+  GG=vec4(vec3(-700,300,1000),400.)  // Gas giant dimensions
+  ;
+
+const mat2 
+  R=mat2(1.2,1.6,-1.6,1.2)
+;
+
+
+// License: Unknown, author: Unknown, found: don't remember
+float hash(vec2 co) {
+  return fract(sin(dot(co.xy ,vec2(12.9898,58.233))) * 13758.5453);
+}
+
+// License: Unknown, author: Claude Brezinski, found: https://mathr.co.uk/blog/2017-09-06_approximating_hyperbolic_tangent.html
+vec3 tanh_approx(vec3 x) {
+  vec3 
+    x2 = x*x
+  ;
+  return clamp(x*(27.0 + x2)/(27.0+9.0*x2), -1.0, 1.0);
+}
+
+// License: MIT, author: Inigo Quilez, found: https://www.iquilezles.org/www/articles/spherefunctions/spherefunctions.htm
+float ray_sphere(vec3 ro, vec3 rd, vec4 sph) {
+  vec3 
+    oc=ro - sph.xyz
+    ;
+  float 
+    b=dot(oc, rd)
+  , c=dot(oc, oc)- sph.w*sph.w
+  , h=b*b-c
+  ;
+  if(h<0.) return -1.;
+  return -b-sqrt(h);
+}
+
+// License: MIT, author: Inigo Quilez, found: https://iquilezles.org/articles/intersectors/
+float ray_plane(vec3 ro, vec3 rd, vec4 p) {
+  return -(dot(ro,p.xyz)+p.w)/dot(rd,p.xyz);
+}
+
+// License: MIT, author: Inigo Quilez, found: https://iquilezles.org/articles/distfunctions/
+float doctahedron(vec3 p, float s) {
+  p = abs(p);
+  return (p.x+p.y+p.z-s)*0.57735027;
+}
+
+vec3 path(float z) {
+  return vec3(PO+PA*cos(PB*z),z);
+}
+
+vec3 dpath(float z) {
+  return vec3(-PA*PB*sin(PB*z),1);
+}
+
+vec3 ddpath(float z) {
+  return vec3(-PA*PB*PB*cos(PB*z),0);
+}
+
+float dfbm(vec3 p) {
+  float
+    d=p.y+.6
+  , a=1.
+  ;
+
+  vec2
+    D=vec2(0)
+  , P=.23*p.xz
+  ;
+
+  vec4
+    o
+  ;
+
+  for(int j=0;j<7;++j) {
+    o=cos(P.xxyy+vec4(11,0,11,0));
+    p=o.yxx*o.zwz;
+    D+=p.xy;
+    // This technique "borrowed" from IQ
+    d-=a*(1.+p.z)/(1.+3.*dot(D,D));
+    P*=R;
+    a*=.55;
+  }
+  
+  return d;
+}
+
+float dpyramid(vec3 p, out vec3 oo) {
+  vec2
+    n=floor(p.xz/ZZ+.5)
+  ;
+  p.xz-=n*ZZ;
+
+  float
+    h0=hash(n)
+  , h1=fract(9677.*h0)
+  , h =.3*ZZ*h0*h0+0.1
+  , d =doctahedron(p,h)
+  ;
+
+  oo=vec3(1e3,0,0);
+  if(h1<PR) return 1e3;
+  oo=vec3(d,h0,h);
+  return d;
+}
+
+float df(vec3 p, out vec3 oo) {
+  p.y=abs(p.y);
+
+  float
+    d0=dfbm(p)
+  , d1=dpyramid(p,oo)
+  , d
+  ;
+  d=d0;
+  d=min(d,d1);
+  return d;
+}
+
+float fbm(float x) {
+  float 
+    a=1.
+  , h=0.
+  ;
+  
+  for(int i=0;i<5;++i) {
+    h+=a*sin(x);
+    x*=2.03;
+    x+=123.4;
+    a*=.55;
+  }
+  
+  return abs(h);
+}
+
+vec4 render(vec2 p2, vec2 q2) {
+  float
+      d=1.
+    , z=0.
+    , T=iTime*3.
+    ;
     
-    float n = p.x + p.y * 57.0 + 113.0 * p.z;
-    float a = hash(n);
-    float b = hash(n + 1.0);
-    float c = hash(n + 57.0);
-    float d = hash(n + 58.0);
-    float e = hash(n + 113.0);
-    float f1 = hash(n + 114.0);
-    float g = hash(n + 170.0);
-    float h = hash(n + 171.0);
+  vec3
+      oo
+    , O=vec3(0)
+    , p
+    , P=path(T)
+    , ZZ=normalize(dpath(T)+vec3(0,-0.1,0))
+    , XX=normalize(cross(ZZ,vec3(0,1,0)+ddpath(T)))
+    , YY=cross(XX,ZZ)
+    , R=normalize(-p2.x*XX+p2.y*YY+2.*ZZ)
+    , Y=(1.+R.x)*BY
+    , S=(1.+R.y)*BW*Y
+    ;
     
-    return mix(mix(mix(a, b, f.x), mix(c, d, f.x), f.y),
-               mix(mix(e, f1, f.x), mix(g, h, f.x), f.y), f.z);
-}
+  vec4
+      M
+    ;
 
-float noise(vec3 x){
-  return 1.0;
-}
-// Vorberechnete Lichtdaten
-struct Light {
-    vec3 pos;
-    vec3 dir;
-    vec3 color;
-    float angle;
-    float intensity;
-};
-
-// Lichtparameter einmal pro Frame berechnen
-void setupLights(out Light lights[NUM_LIGHTS]) {
-    // Build color array from named parameters
-    vec3 lightColors[NUM_LIGHTS];
-    lightColors[0] = light1;
-    lightColors[1] = light2;
-    lightColors[2] = light3;
-    lightColors[3] = light4;
-    lightColors[4] = light5;
-    lightColors[5] = light6;
-    lightColors[6] = light7;
-    lightColors[7] = light8;
-
-    for (int j = 0; j < NUM_LIGHTS; j++) {
-        float lightIndex = float(j);
-        float phase = lightIndex * PI * 2.0 / float(NUM_LIGHTS);
-        float swing = sin(iTime * 0.5 + phase) * 0.3;
-        float tilt = cos(iTime * 0.7 + phase * 1.5) * 0.2;
-
-        lights[j].pos = vec3(-35.0 + lightIndex * 1.0, 3.0 * lightHeight + 3.0, 10.0 * lightDepth - 10.0);
-        lights[j].dir = normalize(vec3(swing, -0.8 + tilt, 1.0));
-        lights[j].angle = 0.3 + 0.1 * sin(iTime + phase);
-
-        // Flicker
-        float flicker = 0.9 + 0.1 * sin(iTime * 20.0 + lightIndex * 7.0);
-        lights[j].intensity = 2.0 * flicker;
-        lights[j].color = lightColors[j];
+  for(int i=0;i<50&&d>1e-5&&z<2e2;++i) {
+    p=z*R+P;
+    d=df(p,oo);
+    if(p.y>0.) {
+      O+=BG+min(d,9.)*Y;
+    } else {
+      O+=S;
+      oo.x*=9.;
     }
-}
 
-// Optimierte Spotlight-Berechnung
-vec3 spotlightFast(vec3 pos, Light light, float fog) {
-    vec3 toLight = light.pos - pos;
-    float dist2 = dot(toLight, toLight);  // Quadrat statt length()
-    vec3 lightVec = toLight * inversesqrt(dist2);
-    
-    float spotEffect = dot(lightVec, -light.dir);
-    float spotCutoff = cos(light.angle);
-    
-    if (spotEffect < spotCutoff) return vec3(0.0);
-    
-    float edge = smoothstep(spotCutoff, 1.0, spotEffect);
-    float dist = sqrt(dist2);
-    float attenuation = 1.0 / (1.0 + 0.1 * dist + 0.01 * dist2);
-    
-    return light.color * (edge * attenuation * fog * light.intensity);
-}
+    O+=
+        mix(.02,1.,.5+.5*sin(iTime+TAU*oo.y))
+      * smoothstep(oo.z*.78,oo.z*.8,abs(p.y))
+      / max(oo.x+oo.x*oo.x*oo.x*oo.x*9.,1e-2)
+      * BF
+      ;
 
-// Optimiertes Ray Marching
-vec3 volumetricLighting(vec3 ro, vec3 rd, float maxDist, Light lights[NUM_LIGHTS]) {
-    vec3 color = vec3(0.0);
+    z+=d*.7;
+  }
+
+  O*=9E-3;
+  
+  if(R.y>0.0) {
+    M=GG;
+    S=M.xyz+P;
+    M.xyz=S;
+    z=d=ray_sphere(P,R,M);
     
-    // Adaptive Schrittweite
-    float stepSize = maxDist / float(MAX_STEPS);
-    stepSize = max(stepSize, 0.15);  // Minimum 0.15
-    
-    float t = stepSize * 0.5;  // Start mit halber Schrittweite (besseres Sampling)
-    
-    for (int i = 0; i < MAX_STEPS; i++) {
-        if (t >= maxDist) break;
-        
-        vec3 pos = ro + rd * t;
-        
-        // Fog nur einmal pro Schritt berechnen
-        float fog = 0.1 + noise(pos * 0.5 + vec3(0.0, -iTime * 0.1, 0.0)) * 0.05;
-        
-        // Alle Lichter akkumulieren
-        vec3 lightContrib = vec3(0.0);
-        for (int j = 0; j < NUM_LIGHTS; j++) {
-            lightContrib += spotlightFast(pos, lights[j], fog);
-        }
-        
-        color += lightContrib;
-        t += stepSize;
+    Y=vec3(.0);
+    if(z>0.) {
+      p=P+R*z;
+      ZZ=normalize(p-M.xyz);
+      Y+=
+          max(dot(LD,ZZ),0.)
+        * smoothstep(1.0,.89,1.+dot(R,ZZ))
+        * fbm(2e-2*dot(p,RN))
+        ;
     }
-    
-    return color * stepSize;
+    M=vec4(RN,-dot(RN,S));
+    z=ray_plane(P,R,M);
+    if(z>0.&&(d>0.&&z<d||d==-1.)) {
+      p=P+R*z;
+      d=distance(S,p);
+      Y+=
+          abs(dot(LD,RN))
+        * step(GG.w*1.41,d)
+        * step(d,GG.w*2.)
+        * fbm(.035*d)
+        ;
+    }
+    Y*=smoothstep(0.0,0.2,R.y);
+    Y+=clamp((hsv2rgb(vec3(OFF-.4*R.y,.5+1.*R.y,3./(1.+800.*R.y*R.y*R.y)))),0.,1.);
+
+    O*=Y;
+  }
+
+  O-=(length(q2)+.2)*FC;
+  O=tanh_approx(O);
+  O=max(O,0.);
+  O=sqrt(O);
+
+  return vec4(O,1);
 }
 
-float groundPlane(vec3 ro, vec3 rd) {
-    return rd.y < 0.0 ? -ro.y / rd.y : -1.0;
+void mainImage(out vec4 O, vec2 C) {
+  vec2
+    r=iResolution.xy
+  , p2=(C+C-r)/r.y
+  , q2=C/r
+  ;
+  O=render(p2,q2);
 }
-
-void mainImage(out vec4 fragColor, in vec2 fragCoord) {
-    vec2 uv = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;
-    
-    // Lichter einmal pro Pixel vorberechnen
-    Light lights[NUM_LIGHTS];
-    setupLights(lights);
-    
-    // Camera
-    vec3 ro = vec3(0.0, 1.5, 5.0);
-    vec3 forward = normalize(vec3(0.0, 1.0, 0.0) - ro);
-    vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), forward));
-    vec3 up = cross(forward, right);
-    vec3 rd = normalize(forward + uv.x * right + uv.y * up);
-    
-    // Background
-    vec3 color = vec3(0.02, 0.02, 0.05) * (1.0 - uv.y * 0.5);
-    
-    // Ground
-    float groundT = 0.0;
-    if(showGround >= 0.5){
-    groundT = groundPlane(ro, rd);
-    if (groundT > 0.0) {
-        vec3 groundPos = ro + rd * groundT;
-        vec2 checker = floor(groundPos.xz * 2.0);
-        float pattern = mod(checker.x + checker.y, 2.0);
-        color = mix(color, mix(vec3(0.05), vec3(0.1), pattern), exp(-groundT * 0.1));
-    }
-    }
-    // Volumetric lighting
-    color += volumetricLighting(ro, rd, groundT > 0.0 ? groundT : 10.0, lights);
-    
-    // Tonemapping + Gamma + Vignette kombiniert
-    color = pow(color / (1.0 + color), vec3(0.4545)) * (1.0 - dot(uv, uv) * 0.3);
-    
-    fragColor = vec4(color, 1.0);
-} 

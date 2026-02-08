@@ -170,6 +170,10 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     
     // Tonemapping + Gamma + Vignette kombiniert
     color = pow(color / (1.0 + color), vec3(0.4545)) * (1.0 - dot(uv, uv) * 0.3);
+    if(uv.y < 0.48 || uv.y > 0.52){
+      fragColor = vec4(color, 1.0);
+    } else {
+      fragColor = vec4(0.0,0.0,0.0,1.0);
+    }
     
-    fragColor = vec4(color, 1.0);
 } 

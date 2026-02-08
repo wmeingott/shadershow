@@ -1,3 +1,13 @@
+// Debounced remote state notification
+let _remoteNotifyTimeout = null;
+export function notifyRemoteStateChanged() {
+  if (_remoteNotifyTimeout) return; // Already scheduled
+  _remoteNotifyTimeout = setTimeout(() => {
+    _remoteNotifyTimeout = null;
+    window.dispatchEvent(new Event('remote-state-changed'));
+  }, 50);
+}
+
 // Global state - shared across modules
 export const state = {
   editor: null,

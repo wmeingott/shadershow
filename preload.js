@@ -192,6 +192,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Menu handlers for tile config
   onOpenTileConfig: (callback) => onIPC('open-tile-config', () => callback()),
 
+  // Remote control
+  sendRemoteStateChanged: (data) => ipcRenderer.send('remote-state-changed', data),
+  onRemoteGetState: (callback) => onIPC('remote-get-state', (event, data) => callback(data)),
+  sendRemoteGetStateResponse: (state) => ipcRenderer.send('remote-get-state-response', state),
+  onRemoteGetThumbnail: (callback) => onIPC('remote-get-thumbnail', (event, data) => callback(data)),
+  sendRemoteGetThumbnailResponse: (data) => ipcRenderer.send('remote-get-thumbnail-response', data),
+  onRemoteSelectTab: (callback) => onIPC('remote-select-tab', (event, data) => callback(data)),
+  onRemoteSelectSlot: (callback) => onIPC('remote-select-slot', (event, data) => callback(data)),
+  onRemoteSetParam: (callback) => onIPC('remote-set-param', (event, data) => callback(data)),
+  onRemoteRecallPreset: (callback) => onIPC('remote-recall-preset', (event, data) => callback(data)),
+  onRemoteMixerAssign: (callback) => onIPC('remote-mixer-assign', (event, data) => callback(data)),
+  onRemoteMixerClear: (callback) => onIPC('remote-mixer-clear', (event, data) => callback(data)),
+  onRemoteMixerAlpha: (callback) => onIPC('remote-mixer-alpha', (event, data) => callback(data)),
+  onRemoteMixerSelect: (callback) => onIPC('remote-mixer-select', (event, data) => callback(data)),
+  onRemoteMixerBlend: (callback) => onIPC('remote-mixer-blend', (event, data) => callback(data)),
+  onRemoteMixerReset: (callback) => onIPC('remote-mixer-reset', (event, data) => callback(data)),
+  onRemoteMixerToggle: (callback) => onIPC('remote-mixer-toggle', (event, data) => callback(data)),
+  onRemoteRecallMixPreset: (callback) => onIPC('remote-recall-mix-preset', (event, data) => callback(data)),
+  onRemoteTogglePlayback: (callback) => onIPC('remote-toggle-playback', (event, data) => callback(data)),
+  onRemoteResetTime: (callback) => onIPC('remote-reset-time', (event, data) => callback(data)),
+  onRemoteBlackout: (callback) => onIPC('remote-blackout', (event, data) => callback(data)),
+
+  // File textures (persistent textures from data/textures/)
+  loadFileTexture: (name) => ipcRenderer.invoke('load-file-texture', name),
+  listFileTextures: () => ipcRenderer.invoke('list-file-textures'),
+
   // Claude AI
   sendClaudePrompt: (data) => ipcRenderer.send('claude-prompt', data),
   onClaudeStreamChunk: (callback) => onIPC('claude-stream-chunk', (event, data) => callback(data)),
@@ -201,5 +227,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveClaudeKey: (key, model) => ipcRenderer.invoke('save-claude-key', key, model),
   hasClaudeKey: () => ipcRenderer.invoke('has-claude-key'),
   getClaudeSettings: () => ipcRenderer.invoke('get-claude-settings'),
-  testClaudeKey: (key) => ipcRenderer.invoke('test-claude-key', key)
+  testClaudeKey: (key) => ipcRenderer.invoke('test-claude-key', key),
+  getClaudeModels: () => ipcRenderer.invoke('get-claude-models')
 });

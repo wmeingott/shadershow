@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>ShaderShow Remote</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Connection status bar -->
+  <div id="status-bar">
+    <span id="connection-status">Connecting...</span>
+    <span id="playback-bar">
+      <button id="btn-play" class="icon-btn" title="Play/Pause">&#9654;</button>
+      <button id="btn-reset" class="icon-btn" title="Reset Time">&#8634;</button>
+      <button id="btn-blackout" class="icon-btn" title="Blackout">&#9679;</button>
+    </span>
+  </div>
+
+  <!-- Main content area -->
+  <div id="content">
+    <!-- Grid View -->
+    <div id="view-grid" class="view active">
+      <div id="tab-bar"></div>
+      <div id="slot-grid"></div>
+    </div>
+
+    <!-- Mixer View -->
+    <div id="view-mixer" class="view">
+      <div id="mixer-channels"></div>
+      <div id="mixer-controls">
+        <div class="mixer-row">
+          <label>Blend:</label>
+          <select id="remote-blend-mode">
+            <option value="lighter">Lighter (Add)</option>
+            <option value="screen">Screen</option>
+            <option value="multiply">Multiply</option>
+            <option value="overlay">Overlay</option>
+            <option value="source-over">Normal</option>
+          </select>
+        </div>
+        <div class="mixer-row">
+          <button id="btn-mixer-toggle" class="action-btn">Mixer ON/OFF</button>
+          <button id="btn-mixer-reset" class="action-btn danger">Reset</button>
+        </div>
+      </div>
+      <div id="mix-presets"></div>
+    </div>
+
+    <!-- Params View -->
+    <div id="view-params" class="view">
+      <div id="param-controls">
+        <div class="param-group">
+          <label>Speed</label>
+          <input type="range" id="remote-speed" min="0" max="5" step="0.01" value="1">
+          <span id="remote-speed-value">1.00</span>
+        </div>
+        <div id="custom-params"></div>
+      </div>
+      <div id="preset-buttons">
+        <h3>Presets</h3>
+        <div id="preset-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom navigation -->
+  <nav id="bottom-nav">
+    <button class="nav-btn active" data-view="grid">
+      <span class="nav-icon">&#9638;</span>
+      <span class="nav-label">Grid</span>
+    </button>
+    <button class="nav-btn" data-view="mixer">
+      <span class="nav-icon">&#9776;</span>
+      <span class="nav-label">Mixer</span>
+    </button>
+    <button class="nav-btn" data-view="params">
+      <span class="nav-icon">&#9881;</span>
+      <span class="nav-label">Params</span>
+    </button>
+  </nav>
+
+  <script src="app.js"></script>
+</body>
+</html>

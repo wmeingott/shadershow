@@ -20,6 +20,55 @@ function debouncedSaveGridState() {
 // Track whether we have custom params
 let usingCustomParams = false;
 
+// Make a param-value span click-to-edit. On click, replaces the span with a
+// text input. Enter/blur commits, Escape reverts. Calls onCommit(newValue).
+function makeValueEditable(span, slider, { isInt = false, onCommit }) {
+  span.style.cursor = 'pointer';
+  span.title = 'Click to edit';
+
+  span.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (span.querySelector('input')) return; // already editing
+
+    const currentText = span.textContent;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'param-value-input';
+    input.value = currentText;
+
+    span.textContent = '';
+    span.appendChild(input);
+    input.focus();
+    input.select();
+
+    function commit() {
+      const raw = input.value.trim();
+      const parsed = isInt ? parseInt(raw, 10) : parseFloat(raw);
+      if (isNaN(parsed)) {
+        revert();
+        return;
+      }
+      // Clamp to slider range
+      const min = parseFloat(slider.min);
+      const max = parseFloat(slider.max);
+      const clamped = Math.min(max, Math.max(min, parsed));
+      slider.value = clamped;
+      span.textContent = isInt ? Math.round(clamped).toString() : clamped.toFixed(2);
+      onCommit(clamped);
+    }
+
+    function revert() {
+      span.textContent = currentText;
+    }
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      else if (e.key === 'Escape') { e.preventDefault(); revert(); }
+    });
+    input.addEventListener('blur', commit);
+  });
+}
+
 export function initParams() {
   // Speed slider only
   const speedSlider = document.getElementById('param-speed');
@@ -41,6 +90,20 @@ export function initParams() {
 
       // Also update selected tile's renderer if in tiled mode
       updateSelectedTileParam('speed', value);
+    });
+
+    // Click value display to type exact value
+    makeValueEditable(speedValue, speedSlider, {
+      onCommit(value) {
+        state.renderer.setParam('speed', value);
+        window.electronAPI.sendParamUpdate({ name: 'speed', value });
+        if (state.mixerSelectedChannel !== null) {
+          updateMixerChannelParam('speed', value);
+        } else {
+          syncSpeedToActiveSlot(value);
+        }
+        updateSelectedTileParam('speed', value);
+      }
     });
 
     // Double-click to reset speed to 1
@@ -286,6 +349,15 @@ function createSliderControl(row, param, value, paramName, arrayIndex) {
     slider.value = defaultVal;
     valueDisplay.textContent = isInt ? Math.round(defaultVal).toString() : defaultVal.toFixed(2);
     updateCustomParamValue(paramName, defaultVal, arrayIndex);
+  });
+
+  // Click value display to type exact value
+  makeValueEditable(valueDisplay, slider, {
+    isInt,
+    onCommit(newValue) {
+      valueDisplay.textContent = isInt ? newValue.toString() : newValue.toFixed(2);
+      updateCustomParamValue(paramName, newValue, arrayIndex);
+    }
   });
 
   row.appendChild(slider);

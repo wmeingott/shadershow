@@ -20,6 +20,50 @@ function debouncedSaveGridState() {
 // Track whether we have custom params
 let usingCustomParams = false;
 
+// Drag-and-drop state for color pickers
+let draggedColor = null;
+
+// Right-click drag state for color swap
+let rightDragState = null; // { rgb, paramName, arrayIndex, sourcePicker }
+let rightDragTarget = null;
+
+function initRightDragListeners() {
+  document.addEventListener('mousemove', (e) => {
+    if (!rightDragState) return;
+    // Find color picker under cursor
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const picker = el?.closest?.('.color-picker-input');
+    if (picker !== rightDragTarget) {
+      rightDragTarget?.classList.remove('color-swap-target');
+      rightDragTarget = (picker && picker !== rightDragState.sourcePicker) ? picker : null;
+      rightDragTarget?.classList.add('color-swap-target');
+    }
+  });
+
+  document.addEventListener('mouseup', (e) => {
+    if (!rightDragState || e.button !== 2) return;
+    const source = rightDragState;
+    source.sourcePicker.classList.remove('color-dragging');
+
+    if (rightDragTarget) {
+      rightDragTarget.classList.remove('color-swap-target');
+      // Read target's current color, apply source color to target, target color to source
+      const targetRgb = hexToRgb(rightDragTarget.value);
+      const sourceRgb = [...source.rgb];
+
+      // Apply source → target (via target's own update callback)
+      rightDragTarget._colorSwapApply(sourceRgb);
+      // Apply target → source
+      source.sourcePicker._colorSwapApply(targetRgb);
+    }
+
+    rightDragState = null;
+    rightDragTarget = null;
+  });
+}
+
+let rightDragListenersInit = false;
+
 // Make a param-value span click-to-edit. On click, replaces the span with a
 // text input. Enter/blur commits, Escape reverts. Calls onCommit(newValue).
 function makeValueEditable(span, slider, { isInt = false, onCommit }) {
@@ -75,6 +119,25 @@ export function initParams() {
   const speedValue = document.getElementById('param-speed-value');
 
   if (speedSlider) {
+    // Double-click label to reset speed to default (1)
+    const speedLabel = speedSlider.closest('.param-row')?.querySelector('label');
+    if (speedLabel) {
+      speedLabel.style.cursor = 'pointer';
+      speedLabel.title = 'Double-click to reset';
+      speedLabel.addEventListener('dblclick', () => {
+        speedSlider.value = 1;
+        state.renderer.setParam('speed', 1);
+        speedValue.textContent = '1.00';
+        window.electronAPI.sendParamUpdate({ name: 'speed', value: 1 });
+        if (state.mixerSelectedChannel !== null) {
+          updateMixerChannelParam('speed', 1);
+        } else {
+          syncSpeedToActiveSlot(1);
+        }
+        updateSelectedTileParam('speed', 1);
+      });
+    }
+
     speedSlider.addEventListener('input', () => {
       const value = parseFloat(speedSlider.value);
       state.renderer.setParam('speed', value);
@@ -290,6 +353,12 @@ function createParamControl(param, index = null, arrayName = null) {
   if (param.description && index === null) {
     label.title = param.description;
   }
+  label.style.cursor = 'pointer';
+  label.addEventListener('dblclick', () => {
+    const defaultVal = index !== null ? param.default[index] : param.default;
+    updateCustomParamValue(paramName, defaultVal, index);
+    generateCustomParamUI();
+  });
   row.appendChild(label);
 
   // Get current value
@@ -500,6 +569,61 @@ function createColorControl(row, param, value, paramName, arrayIndex) {
     sliders.forEach((slider, i) => {
       slider.value = rgb[i];
     });
+    updateCustomParamValue(paramName, rgb, arrayIndex);
+  });
+
+  // Swap apply callback (used by right-click drag swap)
+  colorPicker._colorSwapApply = (rgb) => {
+    colorPicker.value = rgbToHex(rgb[0], rgb[1], rgb[2]);
+    sliders.forEach((slider, i) => { slider.value = rgb[i]; });
+    updateCustomParamValue(paramName, rgb, arrayIndex);
+  };
+
+  // Right-click drag to swap colors
+  if (!rightDragListenersInit) {
+    initRightDragListeners();
+    rightDragListenersInit = true;
+  }
+  colorPicker.addEventListener('contextmenu', (e) => e.preventDefault());
+  colorPicker.addEventListener('mousedown', (e) => {
+    if (e.button !== 2) return;
+    e.preventDefault();
+    const values = state.renderer.getCustomParamValues();
+    const rgb = arrayIndex !== null ? [...values[paramName][arrayIndex]] : [...values[paramName]];
+    rightDragState = { rgb, paramName, arrayIndex, sourcePicker: colorPicker };
+    colorPicker.classList.add('color-dragging');
+  });
+
+  // Left-click drag-and-drop: copy color from one picker to another
+  colorPicker.draggable = true;
+  colorPicker.addEventListener('dragstart', (e) => {
+    const values = state.renderer.getCustomParamValues();
+    const rgb = arrayIndex !== null ? [...values[paramName][arrayIndex]] : [...values[paramName]];
+    draggedColor = rgb;
+    e.dataTransfer.effectAllowed = 'copy';
+    colorPicker.classList.add('color-dragging');
+  });
+  colorPicker.addEventListener('dragend', () => {
+    draggedColor = null;
+    colorPicker.classList.remove('color-dragging');
+  });
+  colorPicker.addEventListener('dragover', (e) => {
+    if (draggedColor) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      colorPicker.classList.add('color-drop-target');
+    }
+  });
+  colorPicker.addEventListener('dragleave', () => {
+    colorPicker.classList.remove('color-drop-target');
+  });
+  colorPicker.addEventListener('drop', (e) => {
+    e.preventDefault();
+    colorPicker.classList.remove('color-drop-target');
+    if (!draggedColor) return;
+    const rgb = [...draggedColor];
+    colorPicker.value = rgbToHex(rgb[0], rgb[1], rgb[2]);
+    sliders.forEach((slider, i) => { slider.value = rgb[i]; });
     updateCustomParamValue(paramName, rgb, arrayIndex);
   });
 

@@ -445,6 +445,24 @@
   border-color: var(--accent-color);
 }
 
+.color-picker-input.color-dragging {
+  opacity: 0.5;
+}
+
+.color-picker-input.color-drop-target {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 6px var(--accent-color);
+  transform: scale(1.15);
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.color-picker-input.color-swap-target {
+  border-color: #f0a030;
+  box-shadow: 0 0 6px #f0a030;
+  transform: scale(1.15);
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
 .color-sliders {
   display: flex;
   gap: 4px;

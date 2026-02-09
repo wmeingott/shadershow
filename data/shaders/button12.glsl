@@ -1,9 +1,11 @@
-// @param cColor color [1.0, 0.3, 0.1] "Fire color"
+
+// @param cColor color[10] [[1.0, 0.0, 0.0],[0.0, 1.0, 0.0],[0.0, 0.0, 1.0],[1.0, 1.0, 0.1],[0.0, 0.5, 1.0],[1.0, 0.5, 0.0],[0.0, 1.0, 0.5],[1.0, 0.0, 1.0],[1.0, 1.0, 1.0],[0.0, 0.0, 0.0]] "Fire color"
+// @param colors vec2 [3.0,3.0] [1,10]
 // @param rradius float 0.5 [0.0, 1.0] "radius halo"
 // @param mradius float 0.1 [0.0, 1.0] "Radius voll"
 // @param gridsize int 10 [0,100] "Anzahl"
-// @param speedx float 0.0 [-2.0,2.0] "Geschwindigkeit X"
-// @param speedy float 0.0 [-2.0,2.0] "Geschwindigkeit Y"
+// @param speed vec2 [0.0,0.0] [-2.0,2.0] "Geschwindigkeit"
+// @param cspeed vec2 [0.0,0.0] [-2.0,2.0] "Geschwindigkeit"
 
 
 
@@ -11,9 +13,10 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     // Normalize coordinates to 0-1 range
     vec2 uv = fragCoord.xy / iResolution.xy;
     
-    uv.x = uv.x + (mod(iTime, iResolution.x) * speedx);
-    uv.y = uv.y + (mod(iTime, iResolution.y) * speedy);
+    vec2 t = vec2(mod(iTime, iResolution.x), mod(iTime, iResolution.y));
     
+    uv = uv + (t * speed);
+
     // Grid parameters
     float gridSize = float(gridsize);
     float radius = rradius * (1.0 / gridSize);
@@ -36,7 +39,9 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     float circle = smoothstep(mradius, cellRadius, dist);
     
     // Output color
-    vec3 color = cColor - vec3(circle);
+    vec2 c = cellIndex + t * cspeed;
+    int ci = int(mod(mod(c.x,colors.x) + mod(c.y,colors.y), 10.0));
+    vec3 color = cColor[ci] - vec3(circle);
     
     fragColor = vec4(color, 1.0);
 }

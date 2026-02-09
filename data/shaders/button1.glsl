@@ -1,74 +1,49 @@
-// Fire shader - Parametric flame effect
 
-// @param iterations float 0.5 [0.0, 1.0] "Iteration depth"
-// @param amplitude float 0.5 [0.0, 1.0] "Wave amplitude"
-// @param zoom float 0.5 [0.1, 1.0] "Zoom level"
-// @param fireColor color [1.0, 0.3, 0.1] "Fire color"
-
-/*
-    @SnoopethDuckDuck -6 chars
-    @Xor              -1 chars
-
-    Thanks! :D
-
-*/
+// @param cColor color[10] [[1.0, 0.0, 0.0],[0.0, 1.0, 0.0],[0.0, 0.0, 1.0],[1.0, 1.0, 0.1],[1.0, 0.3, 0.1],[1.0, 0.0, 0.0],[0.0, 1.0, 0.0],[0.0, 0.0, 1.0],[1.0, 1.0, 0.1],[1.0, 0.3, 0.1]] "Fire color"
+// @param colors int 3 [1,10]
+// @param rradius float 0.5 [0.0, 1.0] "radius halo"
+// @param mradius float 0.1 [0.0, 1.0] "Radius voll"
+// @param gridsize int 10 [0,100] "Anzahl"
+// @param speedx float 0.0 [-2.0,2.0] "Geschwindigkeit X"
+// @param speedy float 0.0 [-2.0,2.0] "Geschwindigkeit Y"
+// @param colorx float 0.0 [-2.0,2.0] "Geschwindigkeit X"
+// @param colory float 0.0 [-2.0,2.0] "Geschwindigkeit Y"
 
 
-void mainImage(out vec4 o, vec2 u) {
-    float f, i, r, e,
-          t = iTime;
-    vec3 p, z = iResolution;
-    for(o*=i;
-        i++<1e2;
-        f += r = .01 + abs(--r)*.1,
-        o += 1. / r)
-        for(p = vec3((u-z.xy/(2. * 2.0 * zoom))/z.y * f, f+t),
-            p += cos(t+p.yzx+p.zzx)*(.6 + 5.0 * amplitude),
-            r =  cos(p.z),
-            e = 1.6 + iterations;
-            e < 32.;
-            e += e )
-            r += abs(dot(sin(t + p*e ), z/z)) / e;
-    o = tanh(vec4(fireColor,1) * o * o / f / 7e6);
+
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+    // Normalize coordinates to 0-1 range
+    vec2 uv = fragCoord.xy / iResolution.xy;
+    
+    float tx = mod(iTime, iResolution.x);
+    float ty = mod(iTime, iResolution.y);
+    
+    uv.x = uv.x + (tx * speedx);
+    uv.y = uv.y + (ty * speedy);
+    
+    // Grid parameters
+    float gridSize = float(gridsize);
+    float radius = rradius * (1.0 / gridSize);
+    
+    // Scale UV to grid space (0 to 10)
+    vec2 gridUV = uv * gridSize;
+    
+    // Get the cell index (0-9) and position within cell (0-1)
+    vec2 cellIndex = floor(gridUV);
+    vec2 cellUV = fract(gridUV);
+    
+    // Center of each cell is at (0.5, 0.5) in cell space
+    // Convert radius to cell space (cell is 1/10 of screen, so radius * 10)
+    float cellRadius = radius * gridSize;
+    
+    // Distance from center of cell
+    float dist = distance(cellUV, vec2(0.5));
+    
+    // Draw circle: white inside, black outside
+    float circle = smoothstep(mradius, cellRadius, dist);
+    
+    // Output color
+    vec3 color = cColor[int(mod(cellIndex.x + tx * colorx + cellIndex.y + ty * colory,float(colors)))] - vec3(circle);
+    
+    fragColor = vec4(color, 1.0);
 }
-
-
-
-/* you can put it out with this :D
-
-void mainImage( out vec4 o, vec2 u ) {
-    float s=.002,i,n;
-    vec3 r = iResolution,p;
-    for(o *= i; i++ < 40. && s > .001;) {
-        s = 1. + (p += vec3((u-r.xy/2.)/r.y,1) * s).y;
-        for (n =.5; n < 20.;n+=n)
-            s += abs(dot(sin(p.z+iTime+p * n), vec3(.1))) / n;
-        o += s *.03+.03;
-    }
-    o = tanh(o);
-}
-
-*/
-
-
-/* original fire shader
-
-void mainImage(out vec4 o, vec2 u) {
-    float f, i, r, e,
-          t = iTime;
-    vec3 p, z = iResolution;
-    for(o*=i;
-        i++<1e2;
-        f += r = .01 + abs(r)*.1,
-        o += 1. / r)
-        for(p = vec3(((u-z.xy/2.)/z.y) * f, f+t),
-            p += cos(t+p.yzx+p.zzx)*.6,
-            r =  cos(p.z)-1.,
-            e = 1.6;
-            e < 32.;
-            e += e )
-            r += abs(dot(sin(t + p*e ), vec3(1))) / e;
-    o = tanh(vec4(6,2,1,1) * o * o / f / 7e6);
-}
-
-*/

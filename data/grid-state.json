@@ -7,7 +7,7 @@
       "type": "shaders",
       "slots": [
         {
-          "shaderCode": "// Fire shader - Parametric flame effect\n\n// @param iterations float 0.5 [0.0, 1.0] \"Iteration depth\"\n// @param amplitude float 0.5 [0.0, 1.0] \"Wave amplitude\"\n// @param zoom float 0.5 [0.1, 1.0] \"Zoom level\"\n// @param fireColor color [1.0, 0.3, 0.1] \"Fire color\"\n\n/*\n    @SnoopethDuckDuck -6 chars\n    @Xor              -1 chars\n\n    Thanks! :D\n\n*/\n\n\nvoid mainImage(out vec4 o, vec2 u) {\n    float f, i, r, e,\n          t = iTime;\n    vec3 p, z = iResolution;\n    for(o*=i;\n        i++<1e2;\n        f += r = .01 + abs(--r)*.1,\n        o += 1. / r)\n        for(p = vec3((u-z.xy/(2. * 2.0 * zoom))/z.y * f, f+t),\n            p += cos(t+p.yzx+p.zzx)*(.6 + 5.0 * amplitude),\n            r =  cos(p.z),\n            e = 1.6 + iterations;\n            e < 32.;\n            e += e )\n            r += abs(dot(sin(t + p*e ), z/z)) / e;\n    o = tanh(vec4(fireColor,1) * o * o / f / 7e6);\n}\n\n\n\n/* you can put it out with this :D\n\nvoid mainImage( out vec4 o, vec2 u ) {\n    float s=.002,i,n;\n    vec3 r = iResolution,p;\n    for(o *= i; i++ < 40. && s > .001;) {\n        s = 1. + (p += vec3((u-r.xy/2.)/r.y,1) * s).y;\n        for (n =.5; n < 20.;n+=n)\n            s += abs(dot(sin(p.z+iTime+p * n), vec3(.1))) / n;\n        o += s *.03+.03;\n    }\n    o = tanh(o);\n}\n\n*/\n\n\n/* original fire shader\n\nvoid mainImage(out vec4 o, vec2 u) {\n    float f, i, r, e,\n          t = iTime;\n    vec3 p, z = iResolution;\n    for(o*=i;\n        i++<1e2;\n        f += r = .01 + abs(r)*.1,\n        o += 1. / r)\n        for(p = vec3(((u-z.xy/2.)/z.y) * f, f+t),\n            p += cos(t+p.yzx+p.zzx)*.6,\n            r =  cos(p.z)-1.,\n            e = 1.6;\n            e < 32.;\n            e += e )\n            r += abs(dot(sin(t + p*e ), vec3(1))) / e;\n    o = tanh(vec4(6,2,1,1) * o * o / f / 7e6);\n}\n\n*/",
+          "shaderCode": "\n// @param cColor color[10] [[1.0, 0.0, 0.0],[0.0, 1.0, 0.0],[0.0, 0.0, 1.0],[1.0, 1.0, 0.1],[1.0, 0.3, 0.1],[1.0, 0.0, 0.0],[0.0, 1.0, 0.0],[0.0, 0.0, 1.0],[1.0, 1.0, 0.1],[1.0, 0.3, 0.1]] \"Fire color\"\n// @param colors int 3 [1,10]\n// @param rradius float 0.5 [0.0, 1.0] \"radius halo\"\n// @param mradius float 0.1 [0.0, 1.0] \"Radius voll\"\n// @param gridsize int 10 [0,100] \"Anzahl\"\n// @param speedx float 0.0 [-2.0,2.0] \"Geschwindigkeit X\"\n// @param speedy float 0.0 [-2.0,2.0] \"Geschwindigkeit Y\"\n// @param colorx float 0.0 [-2.0,2.0] \"Geschwindigkeit X\"\n// @param colory float 0.0 [-2.0,2.0] \"Geschwindigkeit Y\"\n\n\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    // Normalize coordinates to 0-1 range\n    vec2 uv = fragCoord.xy / iResolution.xy;\n    \n    float tx = mod(iTime, iResolution.x);\n    float ty = mod(iTime, iResolution.y);\n    \n    uv.x = uv.x + (tx * speedx);\n    uv.y = uv.y + (ty * speedy);\n    \n    // Grid parameters\n    float gridSize = float(gridsize);\n    float radius = rradius * (1.0 / gridSize);\n    \n    // Scale UV to grid space (0 to 10)\n    vec2 gridUV = uv * gridSize;\n    \n    // Get the cell index (0-9) and position within cell (0-1)\n    vec2 cellIndex = floor(gridUV);\n    vec2 cellUV = fract(gridUV);\n    \n    // Center of each cell is at (0.5, 0.5) in cell space\n    // Convert radius to cell space (cell is 1/10 of screen, so radius * 10)\n    float cellRadius = radius * gridSize;\n    \n    // Distance from center of cell\n    float dist = distance(cellUV, vec2(0.5));\n    \n    // Draw circle: white inside, black outside\n    float circle = smoothstep(mradius, cellRadius, dist);\n    \n    // Output color\n    vec3 color = cColor[int(mod(cellIndex.x + tx * colorx + cellIndex.y + ty * colory,float(colors)))] - vec3(circle);\n    \n    fragColor = vec4(color, 1.0);\n}\n",
           "filePath": null,
           "params": {
             "speed": 1,
@@ -21,6 +21,66 @@
             ]
           },
           "customParams": {
+            "cColor": [
+              [
+                1,
+                0,
+                0
+              ],
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                0,
+                1
+              ],
+              [
+                1,
+                1,
+                0.1
+              ],
+              [
+                1,
+                0.3,
+                0.1
+              ],
+              [
+                1,
+                0,
+                0
+              ],
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                0,
+                1
+              ],
+              [
+                1,
+                1,
+                0.1
+              ],
+              [
+                1,
+                0.3,
+                0.1
+              ]
+            ],
+            "colors": 3,
+            "rradius": 0.5,
+            "mradius": 0.1,
+            "gridsize": 10,
+            "speedx": 0,
+            "speedy": 0,
+            "colorx": 0,
+            "colory": 0,
             "iterations": 0.5,
             "amplitude": 0.5,
             "zoom": 0.5,
@@ -826,22 +886,81 @@
           "type": "shader"
         },
         {
-          "shaderCode": "// @param cColor color [1.0, 0.3, 0.1] \"Fire color\"\n// @param rradius float 0.5 [0.0, 1.0] \"radius halo\"\n// @param mradius float 0.1 [0.0, 1.0] \"Radius voll\"\n// @param gridsize int 10 [0,100] \"Anzahl\"\n// @param speedx float 0.0 [-2.0,2.0] \"Geschwindigkeit X\"\n// @param speedy float 0.0 [-2.0,2.0] \"Geschwindigkeit Y\"\n\n\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    // Normalize coordinates to 0-1 range\n    vec2 uv = fragCoord.xy / iResolution.xy;\n    \n    uv.x = uv.x + (mod(iTime, iResolution.x) * speedx);\n    uv.y = uv.y + (mod(iTime, iResolution.y) * speedy);\n    \n    // Grid parameters\n    float gridSize = float(gridsize);\n    float radius = rradius * (1.0 / gridSize);\n    \n    // Scale UV to grid space (0 to 10)\n    vec2 gridUV = uv * gridSize;\n    \n    // Get the cell index (0-9) and position within cell (0-1)\n    vec2 cellIndex = floor(gridUV);\n    vec2 cellUV = fract(gridUV);\n    \n    // Center of each cell is at (0.5, 0.5) in cell space\n    // Convert radius to cell space (cell is 1/10 of screen, so radius * 10)\n    float cellRadius = radius * gridSize;\n    \n    // Distance from center of cell\n    float dist = distance(cellUV, vec2(0.5));\n    \n    // Draw circle: white inside, black outside\n    float circle = smoothstep(mradius, cellRadius, dist);\n    \n    // Output color\n    vec3 color = cColor - vec3(circle);\n    \n    fragColor = vec4(color, 1.0);\n}\n",
+          "shaderCode": "\n// @param cColor color[10] [[1.0, 0.0, 0.0],[0.0, 1.0, 0.0],[0.0, 0.0, 1.0],[1.0, 1.0, 0.1],[0.0, 0.5, 1.0],[1.0, 0.5, 0.0],[0.0, 1.0, 0.5],[1.0, 0.0, 1.0],[1.0, 1.0, 1.0],[0.0, 0.0, 0.0]] \"Fire color\"\n// @param colors vec2 [3.0,3.0] [1,10]\n// @param rradius float 0.5 [0.0, 1.0] \"radius halo\"\n// @param mradius float 0.1 [0.0, 1.0] \"Radius voll\"\n// @param gridsize int 10 [0,100] \"Anzahl\"\n// @param speed vec2 [0.0,0.0] [-2.0,2.0] \"Geschwindigkeit\"\n// @param cspeed vec2 [0.0,0.0] [-2.0,2.0] \"Geschwindigkeit\"\n\n\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    // Normalize coordinates to 0-1 range\n    vec2 uv = fragCoord.xy / iResolution.xy;\n    \n    vec2 t = vec2(mod(iTime, iResolution.x), mod(iTime, iResolution.y));\n    \n    uv = uv + (t * speed);\n\n    // Grid parameters\n    float gridSize = float(gridsize);\n    float radius = rradius * (1.0 / gridSize);\n    \n    // Scale UV to grid space (0 to 10)\n    vec2 gridUV = uv * gridSize;\n    \n    // Get the cell index (0-9) and position within cell (0-1)\n    vec2 cellIndex = floor(gridUV);\n    vec2 cellUV = fract(gridUV);\n    \n    // Center of each cell is at (0.5, 0.5) in cell space\n    // Convert radius to cell space (cell is 1/10 of screen, so radius * 10)\n    float cellRadius = radius * gridSize;\n    \n    // Distance from center of cell\n    float dist = distance(cellUV, vec2(0.5));\n    \n    // Draw circle: white inside, black outside\n    float circle = smoothstep(mradius, cellRadius, dist);\n    \n    // Output color\n    vec2 c = cellIndex + t * cspeed;\n    int ci = int(mod(mod(c.x,colors.x) + mod(c.y,colors.y), 10.0));\n    vec3 color = cColor[ci] - vec3(circle);\n    \n    fragColor = vec4(color, 1.0);\n}\n",
           "filePath": null,
           "params": {
             "speed": 1
           },
           "customParams": {
             "cColor": [
-              1,
-              0.3,
-              0.1
+              [
+                1,
+                0,
+                0
+              ],
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                0,
+                1
+              ],
+              [
+                1,
+                1,
+                0.1
+              ],
+              [
+                0,
+                0.5,
+                1
+              ],
+              [
+                1,
+                0.5,
+                0
+              ],
+              [
+                0,
+                1,
+                0.5
+              ],
+              [
+                1,
+                0,
+                1
+              ],
+              [
+                1,
+                1,
+                1
+              ],
+              [
+                0,
+                0,
+                0
+              ]
             ],
-            "rradius": 0.5,
-            "mradius": 0.1,
-            "gridsize": 5,
-            "speedx": 0.84,
-            "speedy": 0.12
+            "colors": [
+              0,
+              1
+            ],
+            "rradius": 0.61,
+            "mradius": 0,
+            "gridsize": 10,
+            "speed": [
+              0,
+              0
+            ],
+            "cspeed": [
+              0,
+              0
+            ],
+            "colorx": 1,
+            "colory": 1
           },
           "presets": [],
           "type": "shader"

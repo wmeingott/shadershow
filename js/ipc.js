@@ -7,7 +7,7 @@ import { runBenchmark } from './benchmark.js';
 import { loadGridPresetsFromData, saveGridState, selectGridSlot, switchShaderTab } from './shader-grid.js';
 import { recallLocalPreset } from './presets.js';
 import { loadParamsToSliders } from './params.js';
-import { updatePreviewFrameLimit, setRenderMode, detectRenderMode } from './renderer.js';
+import { updatePreviewFrameLimit, setRenderMode, detectRenderMode, restartRender } from './renderer.js';
 import { createTab, openInTab, activeTabHasChanges, markTabSaved, getActiveTab } from './tabs.js';
 import { tileState } from './tile-state.js';
 import { isMixerActive, assignShaderToMixer, clearMixerChannel, resetMixer, recallMixState } from './mixer.js';
@@ -136,6 +136,7 @@ export async function initIPC() {
   window.electronAPI.onTogglePlayback(togglePlayback);
   window.electronAPI.onResetTime(resetTime);
   window.electronAPI.onRunBenchmark(runBenchmark);
+  window.electronAPI.onRestartRender(restartRender);
 
   // Fullscreen state request
   window.electronAPI.onRequestFullscreenState(() => {

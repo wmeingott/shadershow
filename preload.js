@@ -50,6 +50,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onTogglePlayback: (callback) => onIPC('toggle-playback', () => callback()),
   onResetTime: (callback) => onIPC('reset-time', () => callback()),
   onRunBenchmark: (callback) => onIPC('run-benchmark', () => callback()),
+  onRestartRender: (callback) => onIPC('restart-render', () => callback()),
 
   // Fullscreen operations (main window)
   onRequestFullscreenState: (callback) => onIPC('request-fullscreen-state', () => callback()),

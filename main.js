@@ -392,6 +392,10 @@ function createMenu() {
           accelerator: 'CmdOrCtrl+R',
           click: () => mainWindow.webContents.send('reset-time')
         },
+        {
+          label: 'Restart Render',
+          click: () => mainWindow.webContents.send('restart-render')
+        },
         { type: 'separator' },
         {
           label: 'Fullscreen Preview',

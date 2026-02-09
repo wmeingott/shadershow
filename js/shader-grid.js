@@ -2713,7 +2713,14 @@ export class MiniShaderRenderer {
     this.customParams = customParams;
     this.customUniformLocations = {};
     for (const param of customParams) {
-      this.customUniformLocations[param.name] = gl.getUniformLocation(program, param.name);
+      if (param.isArray) {
+        this.customUniformLocations[param.name] = [];
+        for (let i = 0; i < param.arraySize; i++) {
+          this.customUniformLocations[param.name][i] = gl.getUniformLocation(program, `${param.name}[${i}]`);
+        }
+      } else {
+        this.customUniformLocations[param.name] = gl.getUniformLocation(program, param.name);
+      }
     }
 
     gl.deleteShader(vertexShader);
@@ -2833,29 +2840,54 @@ export class MiniShaderRenderer {
     // Set custom param uniforms (use stored value or default)
     for (const param of this.customParams || []) {
       const loc = this.customUniformLocations[param.name];
-      if (loc === null) continue;
+      if (loc === null || loc === undefined) continue;
 
       // Use stored value if available, otherwise use default
       const value = this.customParamValues[param.name] !== undefined
         ? this.customParamValues[param.name]
         : param.default;
 
-      switch (param.glslBaseType) {
-        case 'float':
-          gl.uniform1f(loc, value);
-          break;
-        case 'int':
-          gl.uniform1i(loc, value);
-          break;
-        case 'vec2':
-          gl.uniform2fv(loc, Array.isArray(value) ? value : [value, value]);
-          break;
-        case 'vec3':
-          gl.uniform3fv(loc, Array.isArray(value) ? value : [value, value, value]);
-          break;
-        case 'vec4':
-          gl.uniform4fv(loc, Array.isArray(value) ? value : [value, value, value, value]);
-          break;
+      if (param.isArray) {
+        for (let i = 0; i < param.arraySize; i++) {
+          const elemLoc = loc[i];
+          if (elemLoc === null) continue;
+          const elemValue = value[i];
+          switch (param.glslBaseType) {
+            case 'float':
+              gl.uniform1f(elemLoc, elemValue);
+              break;
+            case 'int':
+              gl.uniform1i(elemLoc, elemValue);
+              break;
+            case 'vec2':
+              gl.uniform2fv(elemLoc, Array.isArray(elemValue) ? elemValue : [elemValue, elemValue]);
+              break;
+            case 'vec3':
+              gl.uniform3fv(elemLoc, Array.isArray(elemValue) ? elemValue : [elemValue, elemValue, elemValue]);
+              break;
+            case 'vec4':
+              gl.uniform4fv(elemLoc, Array.isArray(elemValue) ? elemValue : [elemValue, elemValue, elemValue, elemValue]);
+              break;
+          }
+        }
+      } else {
+        switch (param.glslBaseType) {
+          case 'float':
+            gl.uniform1f(loc, value);
+            break;
+          case 'int':
+            gl.uniform1i(loc, value);
+            break;
+          case 'vec2':
+            gl.uniform2fv(loc, Array.isArray(value) ? value : [value, value]);
+            break;
+          case 'vec3':
+            gl.uniform3fv(loc, Array.isArray(value) ? value : [value, value, value]);
+            break;
+          case 'vec4':
+            gl.uniform4fv(loc, Array.isArray(value) ? value : [value, value, value, value]);
+            break;
+        }
       }
     }
 

@@ -85,6 +85,26 @@ function initRenderer() {
   state.shaderRenderer.setResolution(width, height);
 }
 
+export function restartRender() {
+  // Cancel current render loop
+  if (state.animationId) {
+    cancelAnimationFrame(state.animationId);
+    state.animationId = null;
+  }
+
+  // Reinitialize the shader renderer (resets GL state, geometry, textures)
+  state.shaderRenderer.reinitialize();
+
+  // Recompile current shader from editor
+  compileShader();
+
+  // Restart render loop
+  cacheRenderLoopElements();
+  renderLoop();
+
+  setStatus('Render restarted', 'success');
+}
+
 // Lazy initialization of ThreeSceneRenderer (called when loading a scene file)
 // Triggers lazy-load of Three.js and Babel if not yet loaded
 export async function ensureSceneRenderer() {

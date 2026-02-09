@@ -383,14 +383,36 @@ function createVec2Control(row, param, value, paramName, arrayIndex) {
     slider.value = value[i];
     slider.style.width = '60px';
 
+    const valueDisplay = document.createElement('span');
+    valueDisplay.className = 'param-value';
+    valueDisplay.textContent = value[i].toFixed(2);
+
     slider.addEventListener('input', () => {
       const newValue = parseFloat(slider.value);
-      const fullValue = [...value];
+      valueDisplay.textContent = newValue.toFixed(2);
+      const values = state.renderer.getCustomParamValues();
+      const fullValue = arrayIndex !== null
+        ? [...values[paramName][arrayIndex]]
+        : [...values[paramName]];
       fullValue[i] = newValue;
       updateCustomParamValue(paramName, fullValue, arrayIndex);
     });
 
+    makeValueEditable(valueDisplay, slider, {
+      isInt: false,
+      onCommit(newValue) {
+        valueDisplay.textContent = newValue.toFixed(2);
+        const values = state.renderer.getCustomParamValues();
+        const fullValue = arrayIndex !== null
+          ? [...values[paramName][arrayIndex]]
+          : [...values[paramName]];
+        fullValue[i] = newValue;
+        updateCustomParamValue(paramName, fullValue, arrayIndex);
+      }
+    });
+
     row.appendChild(slider);
+    row.appendChild(valueDisplay);
   });
 }
 

@@ -1,11 +1,12 @@
 
-// @param cColor color[10] [[1.0, 0.0, 0.0],[0.0, 1.0, 0.0],[0.0, 0.0, 1.0],[1.0, 1.0, 0.1],[0.0, 0.5, 1.0],[1.0, 0.5, 0.0],[0.0, 1.0, 0.5],[1.0, 0.0, 1.0],[1.0, 1.0, 1.0],[0.0, 0.0, 0.0]] "Fire color"
+// @param cColor color[10] [[1.0, 0.0, 0.0],[0.0, 1.0, 0.0],[0.0, 0.0, 1.0],[1.0, 1.0, 0.1],[0.0, 0.5, 1.0],[1.0, 0.5, 0.0],[0.0, 1.0, 0.5],[1.0, 0.0, 1.0],[1.0, 1.0, 1.0],[0.5, 0.0, 1.0]] "Fire color"
 // @param colors vec2 [3.0,3.0] [1,10]
 // @param rradius float 0.5 [0.0, 1.0] "radius halo"
 // @param mradius float 0.1 [0.0, 1.0] "Radius voll"
 // @param gridsize int 10 [0,100] "Anzahl"
-// @param speed vec2 [0.0,0.0] [-2.0,2.0] "Geschwindigkeit"
+// @param xspeed vec2 [0.0,0.0] [-2.0,2.0] "Geschwindigkeit"
 // @param cspeed vec2 [0.0,0.0] [-2.0,2.0] "Geschwindigkeit"
+// @param pos vec2 [0.0,0.0] [-2.0,2.0] "Geschwindigkeit"
 
 
 
@@ -15,7 +16,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     
     vec2 t = vec2(mod(iTime, iResolution.x), mod(iTime, iResolution.y));
     
-    uv = uv + (t * speed);
+    uv = uv + (t * xspeed) + pos;
 
     // Grid parameters
     float gridSize = float(gridsize);

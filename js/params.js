@@ -203,6 +203,38 @@ export function initParams() {
       updateSelectedTileParam('speed', 1);
     });
   }
+
+  // Keyboard shortcuts for color multi-select
+  document.addEventListener('keydown', (e) => {
+    if (!e.ctrlKey || !e.altKey) return;
+    const code = e.code;
+    if (code !== 'KeyA' && code !== 'KeyE' && code !== 'KeyO') return;
+    const key = code.charAt(3).toLowerCase();
+
+    e.preventDefault();
+    const container = document.getElementById('custom-params-container');
+    if (!container) return;
+
+    const pickers = [...container.querySelectorAll('.color-picker-input')];
+    if (pickers.length === 0) return;
+
+    // Clear current selection
+    for (const picker of selectedColorPickers) {
+      picker.classList.remove('color-selected');
+    }
+    selectedColorPickers.clear();
+
+    // Select based on shortcut
+    pickers.forEach((picker, i) => {
+      const select = key === 'a'
+        || (key === 'e' && i % 2 === 1)
+        || (key === 'o' && i % 2 === 0);
+      if (select) {
+        selectedColorPickers.add(picker);
+        picker.classList.add('color-selected');
+      }
+    });
+  });
 }
 
 // Sync speed to the active grid slot's MiniShaderRenderer (for mixer compositing)

@@ -238,11 +238,16 @@ export function openInTab(options) {
   }
 
   if (existingTab) {
-    // Update content if needed and activate
+    // Update content if needed
     if (options.content !== undefined) {
       existingTab.session.setValue(options.content);
       existingTab.savedContent = options.content;
-      existingTab.type = options.type || existingTab.type;
+    }
+    // Update type and session mode if changed
+    const newType = options.type || existingTab.type;
+    if (newType !== existingTab.type) {
+      existingTab.type = newType;
+      existingTab.session.setMode(newType === 'scene' ? 'ace/mode/javascript' : 'ace/mode/glsl');
     }
     activateTab(existingTab.id);
     return existingTab;

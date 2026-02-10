@@ -218,7 +218,6 @@ export function initResizer() {
       if (relativeY >= minPreviewHeight && relativeY <= totalHeight - minBottomHeight) {
         previewPanel.style.flex = 'none';
         previewPanel.style.height = `${relativeY}px`;
-        bottomRow.style.height = `${totalHeight - relativeY - 4}px`; // 4px for resizer
       }
     } else if (activeResizer === 'bottom') {
       const bottomRowRect = bottomRow.getBoundingClientRect();
@@ -227,8 +226,8 @@ export function initResizer() {
       const minParamsWidth = 200;
 
       if (relativeX >= minGridWidth && relativeX <= bottomRowRect.width - minParamsWidth) {
+        gridPanel.style.flex = 'none';
         gridPanel.style.width = `${relativeX}px`;
-        paramsPanel.style.flex = '1';
       }
     }
   });
@@ -395,11 +394,13 @@ export function updatePanelVisibility() {
     resizer.classList.add('hidden');
     editorPanel.style.width = '';
   } else if (rightVisible && leftVisible) {
-    // Both visible
+    // Both visible - restore editor width or use default
     rightPanel.classList.remove('hidden');
     rightPanel.style.width = '';
     resizer.classList.remove('hidden');
-    editorPanel.style.width = '';
+    if (!editorPanel.style.width || editorPanel.style.width === '100%') {
+      editorPanel.style.width = '50%';
+    }
   } else {
     // Neither visible - show editor by default
     state.editorEnabled = true;

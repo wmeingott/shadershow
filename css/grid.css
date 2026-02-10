@@ -1,6 +1,7 @@
 /* Shader Grid Panel */
 #grid-panel {
-  flex: 1 1 auto;
+  flex: none;
+  width: 50%;
   min-width: 200px;
   display: flex;
   flex-direction: column;

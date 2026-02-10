@@ -3,7 +3,9 @@
   "previewEnabled": true,
   "gridEnabled": true,
   "paramsEnabled": true,
-  "editorWidth": "50%",
+  "editorWidth": "34.375%",
+  "previewHeight": "",
+  "gridWidth": "",
   "resolution": "1536x864",
   "customWidth": "1280",
   "customHeight": "720"

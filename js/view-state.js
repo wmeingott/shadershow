@@ -8,12 +8,17 @@ export function saveViewState() {
   const customWidth = document.getElementById('custom-width');
   const customHeight = document.getElementById('custom-height');
 
+  const previewPanel = document.getElementById('preview-panel');
+  const gridPanel = document.getElementById('grid-panel');
+
   const viewState = {
     editorEnabled: state.editorEnabled,
     previewEnabled: state.previewEnabled,
     gridEnabled: state.gridEnabled,
     paramsEnabled: state.paramsEnabled,
     editorWidth: editorPanel.style.width || '50%',
+    previewHeight: previewPanel.style.height || '',
+    gridWidth: gridPanel.style.width || '',
     resolution: resolutionSelect.value,
     customWidth: customWidth.value,
     customHeight: customHeight.value
@@ -76,6 +81,18 @@ export async function restoreViewState() {
     if (pct >= 10 && pct <= 90) {
       editorPanel.style.width = viewState.editorWidth;
     }
+  }
+
+  // Restore preview height (percentage or pixel value)
+  if (viewState.previewHeight) {
+    previewPanel.style.flex = 'none';
+    previewPanel.style.height = viewState.previewHeight;
+  }
+
+  // Restore grid panel width
+  if (viewState.gridWidth) {
+    gridPanel.style.flex = 'none';
+    gridPanel.style.width = viewState.gridWidth;
   }
 
   // Restore resolution

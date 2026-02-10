@@ -154,6 +154,9 @@ export async function setRenderMode(mode) {
       state.renderMode = 'shader';
       return;
     }
+    // Reinitialize after ShaderRenderer has used the shared WebGL context —
+    // ShaderRenderer overwrites GL state that Three.js tracks internally
+    sceneRenderer.reinitialize();
     state.renderer = sceneRenderer;
     state.editor.session.setMode('ace/mode/javascript');
   } else {
@@ -170,11 +173,15 @@ export async function setRenderMode(mode) {
 
 // Detect render mode from file extension or content
 export function detectRenderMode(filename, content) {
-  if (!filename) {
+  // Content-based detection takes priority (handles scene code in .glsl files)
+  if (content) {
     if (content.includes('function setup') && content.includes('THREE')) {
       return 'scene';
     }
-    if (content.includes('void mainImage') || content.includes('void main()')) {
+  }
+
+  if (!filename) {
+    if (content && (content.includes('void mainImage') || content.includes('void main()'))) {
       return 'shader';
     }
     return 'shader';
@@ -183,9 +190,6 @@ export function detectRenderMode(filename, content) {
   const ext = filename.toLowerCase().split('.').pop();
   if (ext === 'jsx' || (ext === 'js' && filename.includes('.scene.'))) {
     return 'scene';
-  }
-  if (ext === 'glsl' || ext === 'frag' || ext === 'vert') {
-    return 'shader';
   }
 
   if (content && content.includes('function setup')) {

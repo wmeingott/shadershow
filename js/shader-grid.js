@@ -1313,6 +1313,7 @@ async function swapGridSlots(fromIndex, toIndex) {
       try {
         const sceneRenderer = await ensureSceneRenderer();
         if (sceneRenderer) {
+          sceneRenderer.reinitialize();
           sceneRenderer.compile(data.shaderCode);
           sceneRenderer.resetTime();
           sceneRenderer.render();
@@ -1345,6 +1346,7 @@ async function swapGridSlots(fromIndex, toIndex) {
       try {
         const sceneRenderer = await ensureSceneRenderer();
         if (sceneRenderer) {
+          sceneRenderer.reinitialize();
           sceneRenderer.compile(data.shaderCode);
           sceneRenderer.resetTime();
           sceneRenderer.render();
@@ -1567,6 +1569,7 @@ async function assignSceneToSlot(slotIndex, sceneCode, filePath, skipSave = fals
     const sceneRenderer = await ensureSceneRenderer();
     if (sceneRenderer) {
       try {
+        sceneRenderer.reinitialize();
         sceneRenderer.compile(sceneCode);
         sceneRenderer.resetTime();
         sceneRenderer.render();
@@ -1751,6 +1754,7 @@ export async function saveActiveSlotShader() {
       // For scenes, re-render the snapshot
       const sceneRenderer = await ensureSceneRenderer();
       if (sceneRenderer) {
+        sceneRenderer.reinitialize();
         sceneRenderer.compile(code);
         sceneRenderer.resetTime();
         sceneRenderer.render();

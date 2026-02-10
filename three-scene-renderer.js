@@ -792,6 +792,24 @@ class ThreeSceneRenderer {
     }
   }
 
+  // Reset GL state after ShaderRenderer has used the shared WebGL context.
+  // Three.js tracks GL state internally and skips redundant calls; if another
+  // renderer changed the actual GL state behind its back, the tracking becomes
+  // stale and rendering silently fails (black screen). Disposing and recreating
+  // the WebGLRenderer forces Three.js to re-query and re-initialize all state.
+  reinitialize() {
+    if (this.renderer) {
+      this.renderer.dispose();
+    }
+    this.initThreeRenderer();
+    // Re-apply resolution
+    this.renderer.setSize(this.canvas.width, this.canvas.height, false);
+    if (this.camera) {
+      this.camera.aspect = this.canvas.width / this.canvas.height;
+      this.camera.updateProjectionMatrix();
+    }
+  }
+
   // Dispose of all resources
   dispose() {
     this.cleanup();

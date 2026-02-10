@@ -64,6 +64,9 @@ function initRightDragListeners() {
 
 let rightDragListenersInit = false;
 
+// Multi-select state for color pickers
+const selectedColorPickers = new Set();
+
 // Make a param-value span click-to-edit. On click, replaces the span with a
 // text input. Enter/blur commits, Escape reverts. Calls onCommit(newValue).
 function makeValueEditable(span, slider, { isInt = false, onCommit }) {
@@ -168,6 +171,19 @@ export function initParams() {
         updateSelectedTileParam('speed', value);
       }
     });
+
+    // Click on free area in params panel clears color multi-select
+    const paramsPanel = document.getElementById('params-panel');
+    if (paramsPanel) {
+      paramsPanel.addEventListener('click', (e) => {
+        if (selectedColorPickers.size === 0) return;
+        if (e.target.closest('.color-picker-input')) return;
+        for (const picker of selectedColorPickers) {
+          picker.classList.remove('color-selected');
+        }
+        selectedColorPickers.clear();
+      });
+    }
 
     // Double-click to reset speed to 1
     speedSlider.addEventListener('dblclick', () => {
@@ -294,6 +310,7 @@ export function generateCustomParamUI() {
   const params = state.renderer.getCustomParamDefs();
 
   // Clear existing custom UI
+  selectedColorPickers.clear();
   container.innerHTML = '';
 
   if (params.length === 0) {
@@ -562,17 +579,40 @@ function createColorControl(row, param, value, paramName, arrayIndex) {
     slidersDiv.appendChild(sliderWrapper);
   });
 
-  // Color picker change handler
+  // Ctrl+click to toggle multi-select, normal click on selected opens picker for all
+  colorPicker.addEventListener('click', (e) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (selectedColorPickers.has(colorPicker)) {
+        selectedColorPickers.delete(colorPicker);
+        colorPicker.classList.remove('color-selected');
+      } else {
+        selectedColorPickers.add(colorPicker);
+        colorPicker.classList.add('color-selected');
+      }
+    }
+  });
+
+  // Color picker change handler — propagate to all selected pickers
   colorPicker.addEventListener('input', () => {
     const rgb = hexToRgb(colorPicker.value);
-    // Update sliders
+    // Update own sliders
     sliders.forEach((slider, i) => {
       slider.value = rgb[i];
     });
     updateCustomParamValue(paramName, rgb, arrayIndex);
+
+    // Apply to all other selected pickers
+    if (selectedColorPickers.has(colorPicker)) {
+      for (const picker of selectedColorPickers) {
+        if (picker === colorPicker) continue;
+        picker._colorSwapApply(rgb);
+      }
+    }
   });
 
-  // Swap apply callback (used by right-click drag swap)
+  // Swap apply callback (used by right-click drag swap and multi-select)
   colorPicker._colorSwapApply = (rgb) => {
     colorPicker.value = rgbToHex(rgb[0], rgb[1], rgb[2]);
     sliders.forEach((slider, i) => { slider.value = rgb[i]; });

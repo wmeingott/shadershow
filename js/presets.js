@@ -6,6 +6,11 @@ import { loadParamsToSliders, generateCustomParamUI } from './params.js';
 import { updateMixerChannelParam } from './mixer.js';
 import { tileState } from './tile-state.js';
 
+// Deep clone params to avoid shared array/object references between presets and renderer
+function cloneParams(params) {
+  return JSON.parse(JSON.stringify(params));
+}
+
 export async function initPresets() {
   // Local preset add button
   const addLocalBtn = document.getElementById('btn-add-local-preset');
@@ -125,13 +130,13 @@ function addLocalPreset() {
     return;
   }
 
-  const params = state.renderer.getParams();
+  const params = cloneParams(state.renderer.getParams());
   if (!state.gridSlots[state.activeGridSlot].presets) {
     state.gridSlots[state.activeGridSlot].presets = [];
   }
 
   const presetIndex = state.gridSlots[state.activeGridSlot].presets.length;
-  state.gridSlots[state.activeGridSlot].presets.push({ params: { ...params }, name: null });
+  state.gridSlots[state.activeGridSlot].presets.push({ params, name: null });
 
   createLocalPresetButton(presetIndex);
   saveGridState();
@@ -305,7 +310,7 @@ export function recallLocalPreset(index, fromSync = false) {
   if (index >= presets.length) return;
 
   const preset = presets[index];
-  const params = preset.params || preset;
+  const params = cloneParams(preset.params || preset);
   // loadParamsToSliders routes to mixer channel automatically when one is selected
   loadParamsToSliders(params);
 
@@ -394,8 +399,8 @@ function updateLocalPreset(index) {
   const presets = state.gridSlots[state.activeGridSlot].presets;
   if (!presets || index >= presets.length) return;
 
-  const params = state.renderer.getParams();
-  presets[index].params = { ...params };
+  const params = cloneParams(state.renderer.getParams());
+  presets[index].params = params;
   saveGridState();
 
   const name = presets[index].name || `Preset ${index + 1}`;

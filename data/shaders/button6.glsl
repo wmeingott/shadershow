@@ -9,6 +9,7 @@
 // @param light6 color[2] [[0.2, 0.6, 0.0],[0.6,0.8,0.9]] "Flamme 6"
 // @param light7 color[2] [[0.9, 0.4, 0.7],[0.1,0.8,0.5]] "Flamme 7"
 // @param light8 color[2] [[0.2, 0.3, 0.3],[0.9,0.6,0.9]] "Flamme 8"
+// @param fspeed vec2 [0.03, 0.1] [0.0,1.0] "Flamme 8"
 
 #define R iResolution.xy
 #define S smoothstep
@@ -16,7 +17,7 @@
 
 vec3 flame (vec2 u, float s, vec3 c1, vec3 c2) {
     float y = S(-.6,.6,u.y);
-    u += T(iChannel0, u*.02 + vec2(s - iTime*.03, s - iTime*.1)).r * y * vec2(0.7, 0.2);
+    u += T(iChannel0, u*.02 + vec2(s - iTime*fspeed[0], s - iTime*fspeed[1])).r * y * vec2(0.7, 0.2);
     float f = S(.1, 0., length(u) - .4);
     f *= S(0., 1., length(u + vec2(0., .35)));
     return f*mix(c1,c2,y);

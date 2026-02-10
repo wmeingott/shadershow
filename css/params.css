@@ -463,6 +463,11 @@
   transition: transform 0.1s, box-shadow 0.1s;
 }
 
+.color-picker-input.color-selected {
+  border-color: #fff;
+  box-shadow: 0 0 4px #fff;
+}
+
 .color-sliders {
   display: flex;
   gap: 4px;

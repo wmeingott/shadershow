@@ -1,51 +1,139 @@
-// Shader Mixer - 4-channel compositor with per-channel parameters
+// Shader Mixer - dynamic channel compositor with per-channel parameters
 import { state, notifyRemoteStateChanged } from './state.js';
 import { MiniShaderRenderer } from './shader-grid.js';
 import { loadParamsToSliders, generateCustomParamUI } from './params.js';
 import { updateLocalPresetsUI } from './presets.js';
 import { setStatus } from './utils.js';
 
+const MAX_MIXER_CHANNELS = 8;
+
 let mixerOverlayCanvas = null;
 let mixerOverlayCtx = null;
+
+// Create a mixer channel DOM element and attach event handlers
+function createChannelElement(index) {
+  const channelEl = document.createElement('div');
+  channelEl.className = 'mixer-channel';
+  channelEl.dataset.channel = String(index);
+
+  const btn = document.createElement('button');
+  btn.className = 'mixer-btn';
+  btn.title = 'Click to arm, then click a grid shader to assign. Right-click to clear.';
+  btn.textContent = '\u2014';
+
+  const slider = document.createElement('input');
+  slider.type = 'range';
+  slider.className = 'mixer-slider';
+  slider.min = '0';
+  slider.max = '1';
+  slider.step = '0.01';
+  slider.value = '1';
+
+  channelEl.appendChild(btn);
+  channelEl.appendChild(slider);
+
+  // Left click: if assigned, select for param editing; if not, arm/disarm
+  btn.addEventListener('click', () => {
+    const ch = state.mixerChannels[index];
+    if (state.mixerArmedChannel === index) {
+      state.mixerArmedChannel = null;
+      btn.classList.remove('armed');
+      setStatus('Mixer channel disarmed', 'success');
+    } else if ((ch.slotIndex !== null && ch.tabIndex !== null) || ch.renderer) {
+      disarmAll();
+      selectMixerChannel(index);
+    } else {
+      disarmAll();
+      state.mixerArmedChannel = index;
+      btn.classList.add('armed');
+      setStatus(`Mixer channel ${index + 1} armed \u2014 click a grid shader to assign`, 'success');
+    }
+  });
+
+  btn.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    clearMixerChannel(index);
+  });
+
+  slider.addEventListener('input', () => {
+    const alpha = parseFloat(slider.value);
+    state.mixerChannels[index].alpha = alpha;
+    window.electronAPI.sendMixerAlphaUpdate({ channelIndex: index, alpha });
+  });
+
+  return channelEl;
+}
+
+function updateAddButtonVisibility() {
+  const addBtn = document.getElementById('mixer-add-btn');
+  if (addBtn) {
+    addBtn.classList.toggle('hidden', state.mixerChannels.length >= MAX_MIXER_CHANNELS);
+  }
+}
+
+export function addMixerChannel() {
+  if (state.mixerChannels.length >= MAX_MIXER_CHANNELS) return null;
+
+  const newIndex = state.mixerChannels.length;
+  state.mixerChannels.push({
+    slotIndex: null, alpha: 1.0, params: {}, customParams: {}, renderer: null, shaderCode: null
+  });
+
+  const container = document.getElementById('mixer-channels');
+  if (container) {
+    container.appendChild(createChannelElement(newIndex));
+  }
+
+  updateAddButtonVisibility();
+  notifyRemoteStateChanged();
+  return newIndex;
+}
+
+function removeMixerChannelDOM(index) {
+  const container = document.getElementById('mixer-channels');
+  if (!container) return;
+  const channels = container.querySelectorAll('.mixer-channel');
+  if (channels[index]) {
+    channels[index].remove();
+  }
+  // Re-index remaining channel elements and rebind events
+  rebuildChannelElements();
+}
+
+// Rebuild all channel DOM elements from state (used after splice)
+function rebuildChannelElements() {
+  const container = document.getElementById('mixer-channels');
+  if (!container) return;
+  container.innerHTML = '';
+  for (let i = 0; i < state.mixerChannels.length; i++) {
+    const ch = state.mixerChannels[i];
+    const el = createChannelElement(i);
+    const btn = el.querySelector('.mixer-btn');
+    const slider = el.querySelector('.mixer-slider');
+
+    if ((ch.slotIndex !== null && ch.tabIndex !== null) || ch.renderer) {
+      btn.textContent = ch.renderer ? 'M' : String(ch.slotIndex + 1);
+      btn.classList.add('assigned');
+    }
+    if (state.mixerSelectedChannel === i) {
+      btn.classList.add('selected');
+    }
+    if (state.mixerArmedChannel === i) {
+      btn.classList.add('armed');
+    }
+    slider.value = String(ch.alpha);
+
+    container.appendChild(el);
+  }
+  updateAddButtonVisibility();
+}
 
 export function initMixer() {
   const panel = document.getElementById('mixer-panel');
   if (!panel) return;
 
-  const channels = panel.querySelectorAll('.mixer-channel');
-  channels.forEach((channelEl, i) => {
-    const btn = channelEl.querySelector('.mixer-btn');
-    const slider = channelEl.querySelector('.mixer-slider');
-
-    // Left click: if assigned, select for param editing; if not, arm/disarm
-    btn.addEventListener('click', () => {
-      const ch = state.mixerChannels[i];
-      if (state.mixerArmedChannel === i) {
-        state.mixerArmedChannel = null;
-        btn.classList.remove('armed');
-        setStatus('Mixer channel disarmed', 'success');
-      } else if ((ch.slotIndex !== null && ch.tabIndex !== null) || ch.renderer) {
-        disarmAll();
-        selectMixerChannel(i);
-      } else {
-        disarmAll();
-        state.mixerArmedChannel = i;
-        btn.classList.add('armed');
-        setStatus(`Mixer channel ${i + 1} armed — click a grid shader to assign`, 'success');
-      }
-    });
-
-    btn.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      clearMixerChannel(i);
-    });
-
-    slider.addEventListener('input', () => {
-      const alpha = parseFloat(slider.value);
-      state.mixerChannels[i].alpha = alpha;
-      window.electronAPI.sendMixerAlphaUpdate({ channelIndex: i, alpha });
-    });
-  });
+  // Generate initial channel elements from state
+  rebuildChannelElements();
 
   const blendSelect = document.getElementById('mixer-blend-mode');
   if (blendSelect) {
@@ -70,8 +158,25 @@ export function initMixer() {
       state.mixerEnabled = !state.mixerEnabled;
       toggleBtn.classList.toggle('active', state.mixerEnabled);
       if (!state.mixerEnabled) hideMixerOverlay();
+      generateCustomParamUI();
       setStatus(state.mixerEnabled ? 'Mixer enabled' : 'Mixer disabled', 'success');
     });
+  }
+
+  const addBtn = document.getElementById('mixer-add-btn');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => {
+      const newIndex = addMixerChannel();
+      if (newIndex !== null) {
+        // Auto-arm the new channel
+        disarmAll();
+        state.mixerArmedChannel = newIndex;
+        const btns = document.querySelectorAll('#mixer-channels .mixer-btn');
+        btns[newIndex]?.classList.add('armed');
+        setStatus(`Mixer channel ${newIndex + 1} added and armed`, 'success');
+      }
+    });
+    updateAddButtonVisibility();
   }
 }
 
@@ -82,7 +187,7 @@ function syncToggleButton() {
 
 function disarmAll() {
   state.mixerArmedChannel = null;
-  const btns = document.querySelectorAll('#mixer-panel .mixer-btn');
+  const btns = document.querySelectorAll('#mixer-channels .mixer-btn');
   btns.forEach(b => b.classList.remove('armed'));
 }
 
@@ -91,7 +196,7 @@ function selectMixerChannel(channelIndex) {
   const ch = state.mixerChannels[channelIndex];
   if (ch.slotIndex === null && ch.tabIndex === null && !ch.renderer) return;
 
-  const btns = document.querySelectorAll('#mixer-panel .mixer-btn');
+  const btns = document.querySelectorAll('#mixer-channels .mixer-btn');
   btns.forEach(b => b.classList.remove('selected'));
   btns[channelIndex]?.classList.add('selected');
 
@@ -169,7 +274,7 @@ export function assignShaderToMixer(channelIndex, slotIndex) {
     }
   }
 
-  const btn = document.querySelectorAll('#mixer-panel .mixer-btn')[channelIndex];
+  const btn = document.querySelectorAll('#mixer-channels .mixer-btn')[channelIndex];
   if (btn) {
     btn.textContent = String(slotIndex + 1);
     btn.classList.add('assigned');
@@ -189,7 +294,7 @@ export function assignShaderToMixer(channelIndex, slotIndex) {
   });
 
   const name = slotData?.filePath?.split('/').pop() || `Slot ${slotIndex + 1}`;
-  setStatus(`Mixer ${channelIndex + 1} ← ${name}`, 'success');
+  setStatus(`Mixer ${channelIndex + 1} \u2190 ${name}`, 'success');
   notifyRemoteStateChanged();
 }
 
@@ -200,45 +305,76 @@ export function clearMixerChannel(channelIndex) {
   if (ch.renderer && ch._ownsRenderer && ch.renderer.dispose) {
     ch.renderer.dispose();
   }
+
+  // If more than 1 channel, remove it entirely; otherwise just reset
+  if (state.mixerChannels.length > 1) {
+    state.mixerChannels.splice(channelIndex, 1);
+
+    // Fix up armed/selected indices
+    if (state.mixerArmedChannel === channelIndex) {
+      state.mixerArmedChannel = null;
+    } else if (state.mixerArmedChannel !== null && state.mixerArmedChannel > channelIndex) {
+      state.mixerArmedChannel--;
+    }
+
+    if (state.mixerSelectedChannel === channelIndex) {
+      state.mixerSelectedChannel = null;
+      // Auto-select next active channel
+      for (let i = 0; i < state.mixerChannels.length; i++) {
+        const other = state.mixerChannels[i];
+        if ((other.slotIndex !== null && other.tabIndex !== null) || other.renderer) {
+          state.mixerSelectedChannel = i;
+          break;
+        }
+      }
+    } else if (state.mixerSelectedChannel !== null && state.mixerSelectedChannel > channelIndex) {
+      state.mixerSelectedChannel--;
+    }
+
+    rebuildChannelElements();
+
+    // Sync clear to fullscreen
+    window.electronAPI.sendMixerChannelUpdate({ channelIndex, clear: true });
+
+    if (!isMixerActive()) hideMixerOverlay();
+
+    // Refresh multi-channel param UI
+    generateCustomParamUI();
+
+    setStatus(`Mixer channel ${channelIndex + 1} removed`, 'success');
+    notifyRemoteStateChanged();
+    return;
+  }
+
+  // Single channel — just reset it
   ch.renderer = null;
   ch.shaderCode = null;
   ch._ownsRenderer = false;
-
   ch.slotIndex = null;
   ch.tabIndex = null;
   ch.alpha = 1.0;
   ch.params = {};
   ch.customParams = {};
 
-  const btn = document.querySelectorAll('#mixer-panel .mixer-btn')[channelIndex];
+  const btn = document.querySelectorAll('#mixer-channels .mixer-btn')[channelIndex];
   if (btn) {
-    btn.textContent = '—';
+    btn.textContent = '\u2014';
     btn.classList.remove('assigned', 'armed', 'selected');
   }
 
-  const slider = document.querySelectorAll('#mixer-panel .mixer-slider')[channelIndex];
+  const slider = document.querySelectorAll('#mixer-channels .mixer-slider')[channelIndex];
   if (slider) slider.value = '1';
 
   if (state.mixerArmedChannel === channelIndex) state.mixerArmedChannel = null;
-  if (state.mixerSelectedChannel === channelIndex) {
-    // Auto-select the next active mixer channel
-    state.mixerSelectedChannel = null;
-    const btns = document.querySelectorAll('#mixer-panel .mixer-btn');
-    for (let i = 0; i < 4; i++) {
-      if (i === channelIndex) continue;
-      const other = state.mixerChannels[i];
-      if ((other.slotIndex !== null && other.tabIndex !== null) || other.renderer) {
-        state.mixerSelectedChannel = i;
-        btns[i]?.classList.add('selected');
-        break;
-      }
-    }
-  }
+  if (state.mixerSelectedChannel === channelIndex) state.mixerSelectedChannel = null;
 
   if (!isMixerActive()) hideMixerOverlay();
 
   // Sync to fullscreen
   window.electronAPI.sendMixerChannelUpdate({ channelIndex, clear: true });
+
+  // Refresh multi-channel param UI
+  generateCustomParamUI();
 
   setStatus(`Mixer channel ${channelIndex + 1} cleared`, 'success');
   notifyRemoteStateChanged();
@@ -258,12 +394,30 @@ export function isMixerActive() {
 }
 
 export function resetMixer() {
-  for (let i = 0; i < 4; i++) {
-    clearMixerChannel(i);
+  // Dispose all channel renderers
+  for (const ch of state.mixerChannels) {
+    if (ch.renderer && ch._ownsRenderer && ch.renderer.dispose) {
+      ch.renderer.dispose();
+    }
   }
+
+  // Sync clear all to fullscreen
+  for (let i = 0; i < state.mixerChannels.length; i++) {
+    window.electronAPI.sendMixerChannelUpdate({ channelIndex: i, clear: true });
+  }
+
+  // Reset to 1 empty channel
+  state.mixerChannels.length = 0;
+  state.mixerChannels.push({
+    slotIndex: null, alpha: 1.0, params: {}, customParams: {}, renderer: null, shaderCode: null
+  });
+  state.mixerArmedChannel = null;
+  state.mixerSelectedChannel = null;
   state.mixerEnabled = false;
   syncToggleButton();
+  rebuildChannelElements();
   hideMixerOverlay();
+  generateCustomParamUI();
   setStatus('Mixer reset', 'success');
   notifyRemoteStateChanged();
 }
@@ -383,32 +537,28 @@ export function captureMixerThumbnail() {
 
 // Recall a complete mixer state from a mix preset
 export function recallMixState(preset) {
-  const btns = document.querySelectorAll('#mixer-panel .mixer-btn');
-  const sliders = document.querySelectorAll('#mixer-panel .mixer-slider');
-
-  // Clear all 4 channels
-  for (let i = 0; i < 4; i++) {
-    const ch = state.mixerChannels[i];
+  // Dispose all existing channels
+  for (const ch of state.mixerChannels) {
     if (ch.renderer && ch._ownsRenderer && ch.renderer.dispose) {
       ch.renderer.dispose();
     }
-    ch.renderer = null;
-    ch.shaderCode = null;
-    ch._ownsRenderer = false;
-    ch.slotIndex = null;
-    ch.tabIndex = null;
-    ch.alpha = 1.0;
-    ch.params = {};
-    ch.customParams = {};
+  }
 
-    if (btns[i]) {
-      btns[i].textContent = '—';
-      btns[i].classList.remove('assigned', 'armed', 'selected');
-    }
-    if (sliders[i]) sliders[i].value = '1';
-
-    // Sync clear to fullscreen
+  // Sync clear all existing channels to fullscreen
+  for (let i = 0; i < state.mixerChannels.length; i++) {
     window.electronAPI.sendMixerChannelUpdate({ channelIndex: i, clear: true });
+  }
+
+  // Determine how many channels the preset needs
+  const presetChannelCount = (preset.channels || []).length;
+  const targetCount = Math.max(1, Math.min(presetChannelCount, MAX_MIXER_CHANNELS));
+
+  // Resize state array to match preset
+  state.mixerChannels.length = 0;
+  for (let i = 0; i < targetCount; i++) {
+    state.mixerChannels.push({
+      slotIndex: null, alpha: 1.0, params: {}, customParams: {}, renderer: null, shaderCode: null
+    });
   }
 
   state.mixerArmedChannel = null;
@@ -421,7 +571,7 @@ export function recallMixState(preset) {
   window.electronAPI.sendMixerBlendMode({ blendMode: state.mixerBlendMode });
 
   // Restore each channel from the preset
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < targetCount; i++) {
     const presetCh = preset.channels[i];
     if (!presetCh || !presetCh.shaderCode) continue;
 
@@ -433,7 +583,6 @@ export function recallMixState(preset) {
     ch.slotIndex = null;  // Not tied to a grid slot
 
     // Create a MiniShaderRenderer for this channel
-    // Use a small offscreen canvas (the shared GL context handles actual rendering)
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = 160;
     tempCanvas.height = 90;
@@ -441,25 +590,17 @@ export function recallMixState(preset) {
       const renderer = new MiniShaderRenderer(tempCanvas);
       renderer.compile(presetCh.shaderCode);
 
-      // Apply custom params
       if (presetCh.customParams) {
         renderer.customParamValues = { ...(presetCh.customParams) };
       }
       renderer.setSpeed(presetCh.params?.speed ?? 1);
 
       ch.renderer = renderer;
-      ch._ownsRenderer = true;  // We created it — dispose on clear
+      ch._ownsRenderer = true;
     } catch (err) {
       console.warn(`Failed to compile mix preset channel ${i + 1}:`, err.message);
       continue;
     }
-
-    // Update mixer UI button
-    if (btns[i]) {
-      btns[i].textContent = 'M';
-      btns[i].classList.add('assigned');
-    }
-    if (sliders[i]) sliders[i].value = String(ch.alpha);
 
     // Sync to fullscreen
     window.electronAPI.sendMixerChannelUpdate({
@@ -470,6 +611,9 @@ export function recallMixState(preset) {
     window.electronAPI.sendMixerAlphaUpdate({ channelIndex: i, alpha: ch.alpha });
   }
 
+  // Rebuild DOM to match new channel count
+  rebuildChannelElements();
+
   // Enable mixer and show overlay
   state.mixerEnabled = true;
   syncToggleButton();
@@ -478,7 +622,7 @@ export function recallMixState(preset) {
   }
 
   // Auto-select the first active channel so param changes route to mixer
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < state.mixerChannels.length; i++) {
     const ch = state.mixerChannels[i];
     if (ch.renderer || ch.shaderCode) {
       selectMixerChannel(i);

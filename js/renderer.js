@@ -210,11 +210,15 @@ let lastPreviewFrameTime = 0;
 let cachedFpsDisplay = null;
 let cachedTimeDisplay = null;
 let cachedFrameDisplay = null;
+let cachedChannelSlots = [null, null, null, null];
 
 function cacheRenderLoopElements() {
   cachedFpsDisplay = document.getElementById('fps-display');
   cachedTimeDisplay = document.getElementById('time-display');
   cachedFrameDisplay = document.getElementById('frame-display');
+  for (let i = 0; i < 4; i++) {
+    cachedChannelSlots[i] = document.getElementById(`channel-${i}`);
+  }
 }
 
 function renderLoop(currentTime) {
@@ -259,6 +263,18 @@ function renderLoop(currentTime) {
     if (cachedFpsDisplay) cachedFpsDisplay.textContent = `FPS: ${stats.fps}`;
     if (cachedTimeDisplay) cachedTimeDisplay.textContent = `Time: ${stats.time.toFixed(2)}s`;
     if (cachedFrameDisplay) cachedFrameDisplay.textContent = `Frame: ${stats.frame}`;
+
+    // Update BPM display on audio channel slots
+    const bd = state.renderer.beatDetector;
+    if (bd) {
+      const bpmText = Math.round(bd.getBPM());
+      for (let i = 0; i < 4; i++) {
+        const slot = cachedChannelSlots[i];
+        if (slot && slot.classList.contains('has-audio')) {
+          slot.textContent = bpmText;
+        }
+      }
+    }
   }
 
   // Send frame to NDI output if enabled (skip frames to reduce load)

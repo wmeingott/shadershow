@@ -122,6 +122,14 @@ export async function compileShader() {
       }
     }
 
+    // Load AudioFFT channels from @texture directives
+    if (state.renderer.audioDirectives) {
+      for (const { channel } of state.renderer.audioDirectives) {
+        state.channelState[channel] = { type: 'audio' };
+        updateChannelSlot(channel, 'audio', 'Audio FFT', 512, 2);
+      }
+    }
+
     // Load file textures from @texture directives (async)
     if (state.renderer.fileTextureDirectives) {
       for (const { channel, textureName } of state.renderer.fileTextureDirectives) {

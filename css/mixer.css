@@ -26,6 +26,39 @@
   flex-shrink: 0;
 }
 
+#mixer-channels {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+}
+
+.mixer-add {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px dashed var(--border-color);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.15s;
+  padding: 0;
+}
+
+.mixer-add:hover {
+  border-color: var(--accent-hover);
+  color: var(--text-primary);
+}
+
+.mixer-add.hidden {
+  display: none;
+}
+
 .mixer-toggle:hover {
   border-color: var(--accent-hover);
   color: var(--text-primary);

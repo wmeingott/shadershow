@@ -4,6 +4,7 @@ import { setStatus } from './utils.js';
 import { saveGridState } from './shader-grid.js';
 import { tileState } from './tile-state.js';
 import { updateMixerChannelParam } from './mixer.js';
+import { parseShaderParams } from './param-parser.js';
 
 // Debounced grid state save
 let saveGridStateTimeout = null;
@@ -337,6 +338,14 @@ export function generateCustomParamUI() {
   const container = document.getElementById('custom-params-container');
 
   if (!container || !state.renderer) return;
+
+  // If mixer is active with assigned channels, show multi-channel view
+  if (state.mixerEnabled && state.mixerChannels.some(ch =>
+    ch.renderer || (ch.slotIndex !== null && ch.tabIndex !== null)
+  )) {
+    generateMixerParamsUI(container);
+    return;
+  }
 
   // Get custom param definitions from the shader
   const params = state.renderer.getCustomParamDefs();
@@ -855,4 +864,486 @@ export function loadCustomParamsToUI() {
 // Check if currently using custom params
 export function isUsingCustomParams() {
   return usingCustomParams;
+}
+
+// =============================================================================
+// Mixer Multi-Channel Parameter UI
+// =============================================================================
+
+// Channel accent colors for visual distinction
+const MIXER_CHANNEL_COLORS = [
+  '#4a9eff', '#ff6b6b', '#51cf66', '#ffd43b',
+  '#cc5de8', '#ff922b', '#22b8cf', '#ff8787'
+];
+
+// Generate multi-channel param UI for all active mixer channels
+function generateMixerParamsUI(container) {
+  selectedColorPickers.clear();
+  container.innerHTML = '';
+  usingCustomParams = true;
+
+  for (let i = 0; i < state.mixerChannels.length; i++) {
+    const ch = state.mixerChannels[i];
+
+    // Skip unassigned channels
+    const hasShader = ch.renderer || (ch.slotIndex !== null && ch.tabIndex !== null);
+    if (!hasShader) continue;
+
+    // Get shader code and parse @param definitions
+    let shaderCode = ch.shaderCode;
+    if (!shaderCode && ch.slotIndex !== null && ch.tabIndex !== null) {
+      const tab = state.shaderTabs[ch.tabIndex];
+      shaderCode = tab?.slots?.[ch.slotIndex]?.shaderCode || null;
+    }
+    if (!shaderCode) continue;
+
+    const params = parseShaderParams(shaderCode);
+    if (params.length === 0) continue;
+
+    // Determine channel label
+    let filename = null;
+    if (ch.slotIndex !== null && ch.tabIndex !== null) {
+      const tab = state.shaderTabs[ch.tabIndex];
+      filename = tab?.slots?.[ch.slotIndex]?.filePath?.split('/').pop();
+    }
+    const label = `Ch ${i + 1}: ${filename || 'Mix Preset'}`;
+    const accentColor = MIXER_CHANNEL_COLORS[i % MIXER_CHANNEL_COLORS.length];
+
+    // Create channel section
+    const section = document.createElement('div');
+    section.className = 'params-section mixer-channel-section';
+    section.style.borderLeftColor = accentColor;
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'params-section-title mixer-channel-title';
+    titleEl.textContent = label;
+    titleEl.style.color = accentColor;
+
+    // Highlight if this is the selected channel
+    if (state.mixerSelectedChannel === i) {
+      section.classList.add('mixer-channel-selected');
+    }
+
+    // Click title to select this channel
+    titleEl.style.cursor = 'pointer';
+    titleEl.addEventListener('click', () => {
+      // Import dynamically to avoid circular dep issues at module load
+      const btns = document.querySelectorAll('#mixer-channels .mixer-btn');
+      btns.forEach(b => b.classList.remove('selected'));
+      btns[i]?.classList.add('selected');
+      state.mixerSelectedChannel = i;
+
+      // Update selected styling
+      container.querySelectorAll('.mixer-channel-section').forEach(s =>
+        s.classList.remove('mixer-channel-selected')
+      );
+      section.classList.add('mixer-channel-selected');
+    });
+
+    section.appendChild(titleEl);
+
+    // Group parameters: scalars first, then arrays
+    const scalarParams = params.filter(p => !p.isArray);
+    const arrayParams = params.filter(p => p.isArray);
+
+    scalarParams.forEach(param => {
+      const control = createMixerParamControl(param, i, ch, null, null);
+      if (control) section.appendChild(control);
+    });
+
+    arrayParams.forEach(param => {
+      const arrayTitle = document.createElement('div');
+      arrayTitle.className = 'params-section-title';
+      arrayTitle.textContent = param.description || param.name;
+      arrayTitle.style.marginTop = '8px';
+      section.appendChild(arrayTitle);
+      for (let ai = 0; ai < param.arraySize; ai++) {
+        const control = createMixerParamControl(param, i, ch, ai, param.name);
+        if (control) section.appendChild(control);
+      }
+    });
+
+    container.appendChild(section);
+  }
+}
+
+// Create a single parameter control wired to a specific mixer channel
+function createMixerParamControl(param, channelIndex, ch, arrayIndex, arrayName) {
+  const row = document.createElement('div');
+  row.className = 'param-row';
+
+  const paramName = arrayName || param.name;
+
+  // Label
+  const label = document.createElement('label');
+  label.textContent = arrayIndex !== null ? `${arrayIndex}` : param.name;
+  if (param.description && arrayIndex === null) {
+    label.title = param.description;
+  }
+  label.style.cursor = 'pointer';
+  label.addEventListener('dblclick', () => {
+    const defaultVal = arrayIndex !== null ? param.default[arrayIndex] : param.default;
+    updateMixerChannelParamDirect(channelIndex, paramName, defaultVal, arrayIndex);
+    generateCustomParamUI();
+  });
+  row.appendChild(label);
+
+  // Get current value from channel's customParams
+  let currentValue;
+  if (arrayIndex !== null) {
+    const arr = ch.customParams[paramName];
+    currentValue = arr ? arr[arrayIndex] : param.default[arrayIndex];
+  } else {
+    currentValue = ch.customParams[paramName] !== undefined
+      ? ch.customParams[paramName]
+      : param.default;
+  }
+
+  // Create appropriate control based on type
+  switch (param.type) {
+    case 'int':
+    case 'float':
+      createMixerSliderControl(row, param, currentValue, paramName, arrayIndex, channelIndex, ch);
+      break;
+    case 'vec2':
+      createMixerVec2Control(row, param, currentValue, paramName, arrayIndex, channelIndex, ch);
+      break;
+    case 'color':
+      createMixerColorControl(row, param, currentValue, paramName, arrayIndex, channelIndex, ch);
+      break;
+    case 'vec3':
+      createMixerVec3Control(row, param, currentValue, paramName, arrayIndex, channelIndex, ch);
+      break;
+    case 'vec4':
+      createMixerVec4Control(row, param, currentValue, paramName, arrayIndex, channelIndex, ch);
+      break;
+  }
+
+  return row;
+}
+
+// Mixer-specific slider control
+function createMixerSliderControl(row, param, value, paramName, arrayIndex, channelIndex, ch) {
+  const isInt = param.type === 'int';
+  const min = param.min !== null ? param.min : (isInt ? 0 : 0);
+  const max = param.max !== null ? param.max : (isInt ? 10 : 1);
+  const step = isInt ? 1 : 0.01;
+
+  const slider = document.createElement('input');
+  slider.type = 'range';
+  slider.min = min;
+  slider.max = max;
+  slider.step = step;
+  slider.value = value;
+
+  const valueDisplay = document.createElement('span');
+  valueDisplay.className = 'param-value';
+  valueDisplay.textContent = isInt ? Math.round(value).toString() : value.toFixed(2);
+
+  slider.addEventListener('input', () => {
+    const newValue = isInt ? parseInt(slider.value, 10) : parseFloat(slider.value);
+    valueDisplay.textContent = isInt ? newValue.toString() : newValue.toFixed(2);
+    updateMixerChannelParamDirect(channelIndex, paramName, newValue, arrayIndex);
+  });
+
+  slider.addEventListener('dblclick', () => {
+    const defaultVal = arrayIndex !== null ? param.default[arrayIndex] : param.default;
+    slider.value = defaultVal;
+    valueDisplay.textContent = isInt ? Math.round(defaultVal).toString() : defaultVal.toFixed(2);
+    updateMixerChannelParamDirect(channelIndex, paramName, defaultVal, arrayIndex);
+  });
+
+  makeValueEditable(valueDisplay, slider, {
+    isInt,
+    onCommit(newValue) {
+      valueDisplay.textContent = isInt ? newValue.toString() : newValue.toFixed(2);
+      updateMixerChannelParamDirect(channelIndex, paramName, newValue, arrayIndex);
+    }
+  });
+
+  row.appendChild(slider);
+  row.appendChild(valueDisplay);
+}
+
+// Mixer-specific vec2 control
+function createMixerVec2Control(row, param, value, paramName, arrayIndex, channelIndex, ch) {
+  const min = param.min !== null ? param.min : 0;
+  const max = param.max !== null ? param.max : 1;
+
+  ['X', 'Y'].forEach((axis, i) => {
+    const subLabel = document.createElement('label');
+    subLabel.textContent = axis;
+    subLabel.style.minWidth = '12px';
+    row.appendChild(subLabel);
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = min;
+    slider.max = max;
+    slider.step = 0.01;
+    slider.value = value[i];
+    slider.style.width = '60px';
+
+    const valueDisplay = document.createElement('span');
+    valueDisplay.className = 'param-value';
+    valueDisplay.textContent = value[i].toFixed(2);
+
+    slider.addEventListener('input', () => {
+      const newValue = parseFloat(slider.value);
+      valueDisplay.textContent = newValue.toFixed(2);
+      const fullValue = getMixerParamValue(ch, paramName, arrayIndex);
+      fullValue[i] = newValue;
+      updateMixerChannelParamDirect(channelIndex, paramName, fullValue, arrayIndex);
+    });
+
+    makeValueEditable(valueDisplay, slider, {
+      isInt: false,
+      onCommit(newValue) {
+        valueDisplay.textContent = newValue.toFixed(2);
+        const fullValue = getMixerParamValue(ch, paramName, arrayIndex);
+        fullValue[i] = newValue;
+        updateMixerChannelParamDirect(channelIndex, paramName, fullValue, arrayIndex);
+      }
+    });
+
+    row.appendChild(slider);
+    row.appendChild(valueDisplay);
+  });
+}
+
+// Mixer-specific color control
+function createMixerColorControl(row, param, value, paramName, arrayIndex, channelIndex, ch) {
+  row.className = 'color-row color-picker-row';
+
+  const colorPicker = document.createElement('input');
+  colorPicker.type = 'color';
+  colorPicker.className = 'color-picker-input';
+  colorPicker.value = rgbToHex(value[0], value[1], value[2]);
+  colorPicker.title = 'Click to pick color';
+
+  const slidersDiv = document.createElement('div');
+  slidersDiv.className = 'color-sliders';
+
+  const channels = ['R', 'G', 'B'];
+  const classes = ['color-red', 'color-green', 'color-blue'];
+  const sliders = [];
+
+  channels.forEach((channel, i) => {
+    const sliderWrapper = document.createElement('div');
+    sliderWrapper.className = 'color-slider-wrapper';
+
+    const subLabel = document.createElement('label');
+    subLabel.textContent = channel;
+    subLabel.className = classes[i];
+    sliderWrapper.appendChild(subLabel);
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = 0;
+    slider.max = 1;
+    slider.step = 0.01;
+    slider.value = value[i];
+    sliders.push(slider);
+
+    slider.addEventListener('input', () => {
+      const fullValue = getMixerParamValue(ch, paramName, arrayIndex);
+      fullValue[i] = parseFloat(slider.value);
+      colorPicker.value = rgbToHex(fullValue[0], fullValue[1], fullValue[2]);
+      updateMixerChannelParamDirect(channelIndex, paramName, fullValue, arrayIndex);
+    });
+
+    sliderWrapper.appendChild(slider);
+    slidersDiv.appendChild(sliderWrapper);
+  });
+
+  colorPicker.addEventListener('input', () => {
+    const rgb = hexToRgb(colorPicker.value);
+    sliders.forEach((slider, i) => { slider.value = rgb[i]; });
+    updateMixerChannelParamDirect(channelIndex, paramName, rgb, arrayIndex);
+  });
+
+  // Swap apply callback for drag-and-drop / multi-select
+  colorPicker._colorSwapApply = (rgb) => {
+    colorPicker.value = rgbToHex(rgb[0], rgb[1], rgb[2]);
+    sliders.forEach((slider, i) => { slider.value = rgb[i]; });
+    updateMixerChannelParamDirect(channelIndex, paramName, rgb, arrayIndex);
+  };
+
+  // Ctrl+click to toggle multi-select
+  colorPicker.addEventListener('click', (e) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (selectedColorPickers.has(colorPicker)) {
+        selectedColorPickers.delete(colorPicker);
+        colorPicker.classList.remove('color-selected');
+      } else {
+        selectedColorPickers.add(colorPicker);
+        colorPicker.classList.add('color-selected');
+      }
+    }
+  });
+
+  // Right-click drag swap
+  if (!rightDragListenersInit) {
+    initRightDragListeners();
+    rightDragListenersInit = true;
+  }
+  colorPicker.addEventListener('contextmenu', (e) => e.preventDefault());
+  colorPicker.addEventListener('mousedown', (e) => {
+    if (e.button !== 2) return;
+    e.preventDefault();
+    const rgb = getMixerParamValue(ch, paramName, arrayIndex);
+    rightDragState = { rgb: [...rgb], paramName, arrayIndex, sourcePicker: colorPicker };
+    colorPicker.classList.add('color-dragging');
+  });
+
+  // Left-click drag-and-drop
+  colorPicker.draggable = true;
+  colorPicker.addEventListener('dragstart', (e) => {
+    const rgb = getMixerParamValue(ch, paramName, arrayIndex);
+    draggedColor = [...rgb];
+    e.dataTransfer.effectAllowed = 'copy';
+    colorPicker.classList.add('color-dragging');
+  });
+  colorPicker.addEventListener('dragend', () => {
+    draggedColor = null;
+    colorPicker.classList.remove('color-dragging');
+  });
+  colorPicker.addEventListener('dragover', (e) => {
+    if (draggedColor) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      colorPicker.classList.add('color-drop-target');
+    }
+  });
+  colorPicker.addEventListener('dragleave', () => {
+    colorPicker.classList.remove('color-drop-target');
+  });
+  colorPicker.addEventListener('drop', (e) => {
+    e.preventDefault();
+    colorPicker.classList.remove('color-drop-target');
+    if (!draggedColor) return;
+    const rgb = [...draggedColor];
+    colorPicker.value = rgbToHex(rgb[0], rgb[1], rgb[2]);
+    sliders.forEach((slider, i) => { slider.value = rgb[i]; });
+    updateMixerChannelParamDirect(channelIndex, paramName, rgb, arrayIndex);
+  });
+
+  row.appendChild(colorPicker);
+  row.appendChild(slidersDiv);
+}
+
+// Mixer-specific vec3 control
+function createMixerVec3Control(row, param, value, paramName, arrayIndex, channelIndex, ch) {
+  row.className = 'color-row';
+
+  const min = param.min !== null ? param.min : 0;
+  const max = param.max !== null ? param.max : 1;
+
+  const channels = ['R', 'G', 'B'];
+  const classes = ['color-red', 'color-green', 'color-blue'];
+
+  channels.forEach((channel, i) => {
+    const subLabel = document.createElement('label');
+    subLabel.textContent = channel;
+    subLabel.className = classes[i];
+    row.appendChild(subLabel);
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = min;
+    slider.max = max;
+    slider.step = 0.01;
+    slider.value = value[i];
+
+    slider.addEventListener('input', () => {
+      const fullValue = getMixerParamValue(ch, paramName, arrayIndex);
+      fullValue[i] = parseFloat(slider.value);
+      updateMixerChannelParamDirect(channelIndex, paramName, fullValue, arrayIndex);
+    });
+
+    row.appendChild(slider);
+  });
+}
+
+// Mixer-specific vec4 control
+function createMixerVec4Control(row, param, value, paramName, arrayIndex, channelIndex, ch) {
+  row.className = 'color-row';
+
+  const min = param.min !== null ? param.min : 0;
+  const max = param.max !== null ? param.max : 1;
+
+  const channels = ['R', 'G', 'B', 'A'];
+  const classes = ['color-red', 'color-green', 'color-blue', ''];
+
+  channels.forEach((channel, i) => {
+    const subLabel = document.createElement('label');
+    subLabel.textContent = channel;
+    if (classes[i]) subLabel.className = classes[i];
+    row.appendChild(subLabel);
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = min;
+    slider.max = max;
+    slider.step = 0.01;
+    slider.value = value[i];
+    slider.style.width = '50px';
+
+    slider.addEventListener('input', () => {
+      const fullValue = getMixerParamValue(ch, paramName, arrayIndex);
+      fullValue[i] = parseFloat(slider.value);
+      updateMixerChannelParamDirect(channelIndex, paramName, fullValue, arrayIndex);
+    });
+
+    row.appendChild(slider);
+  });
+}
+
+// Helper: get a copy of the current param value from a mixer channel's customParams
+function getMixerParamValue(ch, paramName, arrayIndex) {
+  const val = ch.customParams[paramName];
+  if (arrayIndex !== null && Array.isArray(val)) {
+    return Array.isArray(val[arrayIndex]) ? [...val[arrayIndex]] : val[arrayIndex];
+  }
+  return Array.isArray(val) ? [...val] : val;
+}
+
+// Update a specific mixer channel's parameter value directly
+function updateMixerChannelParamDirect(channelIndex, paramName, value, arrayIndex) {
+  const ch = state.mixerChannels[channelIndex];
+  if (!ch) return;
+
+  // Write to channel's customParams
+  if (arrayIndex !== null) {
+    if (!ch.customParams[paramName]) ch.customParams[paramName] = [];
+    ch.customParams[paramName][arrayIndex] = value;
+  } else {
+    ch.customParams[paramName] = value;
+  }
+
+  // Get the full param value for IPC (entire array for array params)
+  const fullValue = ch.customParams[paramName];
+
+  // Sync to fullscreen via IPC
+  window.electronAPI.sendMixerParamUpdate({ channelIndex, paramName, value: fullValue });
+
+  // Update mini renderer in grid slot (for local compositing)
+  if (ch.slotIndex !== null && ch.tabIndex !== null) {
+    const tab = state.shaderTabs[ch.tabIndex];
+    const slotData = tab?.slots?.[ch.slotIndex];
+    if (slotData?.renderer?.setParam) {
+      slotData.renderer.setParam(paramName, fullValue);
+    }
+  }
+
+  // If this channel is the selected one and its shader is compiled in the main renderer,
+  // also update the main renderer so the preview reflects the change
+  if (state.mixerSelectedChannel === channelIndex && state.renderer) {
+    state.renderer.setParam(paramName, fullValue);
+    window.electronAPI.sendParamUpdate({ name: paramName, value: fullValue });
+  }
+
+  debouncedSaveGridState();
 }

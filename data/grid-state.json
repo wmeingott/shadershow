@@ -1,54 +1,28 @@
 {
   "version": 2,
-  "activeTab": 2,
+  "activeTab": 0,
   "tabs": [
     {
       "name": "My Shaders",
       "type": "shaders",
       "slots": [
         {
-          "shaderCode": "// Fire shader - Parametric flame effect\n\n// @param amplification float 1.0 [0.0,5.0] \"Verstaerkung\"\n// @param iterations float 0.5 [0.0, 1.0] \"Iteration depth\"\n// @param amplitude float 0.5 [0.0, 1.0] \"Wave amplitude\"\n// @param zoom float 0.5 [0.1, 1.0] \"Zoom level\"\n// @param fireColor color [1.0, 0.3, 0.1] \"Fire color\"\n\n/*\n    @SnoopethDuckDuck -6 chars\n    @Xor              -1 chars\n\n    Thanks! :D\n\n*/\n\n\nvoid mainImage(out vec4 o, vec2 u) {\n    float f, i, r, e,\n          t = iTime;\n    vec3 p, z = iResolution;\n    for(o*=i;\n        i++<1e2;\n        f += r = .01 + abs(--r)*.1,\n        o += 1. / r)\n        for(p = vec3((u-z.xy/(2. * 2.0 * zoom))/z.y * f, f+t),\n            p += cos(t+p.yzx+p.zzx)*(.6 + 5.0 * amplitude),\n            r =  cos(p.z),\n            e = 1.6 + iterations;\n            e < 32.;\n            e += e )\n            r += abs(dot(sin(t + p*e ), z/z)) / e;\n    o = amplification * tanh(vec4(fireColor,1) * o * o / f / 7e6);\n}\n\n\n\n/* you can put it out with this :D\n\nvoid mainImage( out vec4 o, vec2 u ) {\n    float s=.002,i,n;\n    vec3 r = iResolution,p;\n    for(o *= i; i++ < 40. && s > .001;) {\n        s = 1. + (p += vec3((u-r.xy/2.)/r.y,1) * s).y;\n        for (n =.5; n < 20.;n+=n)\n            s += abs(dot(sin(p.z+iTime+p * n), vec3(.1))) / n;\n        o += s *.03+.03;\n    }\n    o = tanh(o);\n}\n\n*/\n\n\n/* original fire shader\n\nvoid mainImage(out vec4 o, vec2 u) {\n    float f, i, r, e,\n          t = iTime;\n    vec3 p, z = iResolution;\n    for(o*=i;\n        i++<1e2;\n        f += r = .01 + abs(r)*.1,\n        o += 1. / r)\n        for(p = vec3(((u-z.xy/2.)/z.y) * f, f+t),\n            p += cos(t+p.yzx+p.zzx)*.6,\n            r =  cos(p.z)-1.,\n            e = 1.6;\n            e < 32.;\n            e += e )\n            r += abs(dot(sin(t + p*e ), vec3(1))) / e;\n    o = tanh(vec4(6,2,1,1) * o * o / f / 7e6);\n}\n\n*/",
+          "shaderCode": "// Audio Visualizer Example\n// Load audio input to iChannel0: File > Use Audio Input (FFT) for Channel 0\n//\n// iChannel0 texture layout (512x2):\n//   Row 0 (y=0.0): FFT frequency spectrum (0-255, bass on left, treble on right)\n//   Row 1 (y=1.0): Waveform / time domain data (centered at 128)\n//  @texture iChannel3 AudioFFT\n//  @param gain float 1.0 [0.0,10.0] \"Gain\"\n//  @param spread float 1.0 [0.0,5.0] \"Gain\"\n//  @param wavepos float 0.5 [0.0,5.0] \"Gain\"\n//  @param wavecol color [0.2,0.8,1.0]\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = fragCoord / iResolution.xy;\n    vec3 col = vec3(0.0);\n\n    // Get audio data\n    float fft = texture(iChannel3, vec2(uv.x * spread, 0.0)).r;      // Frequency spectrum\n    float wave = texture(iChannel3, vec2(uv.x, 1.0)).r;     // Waveform\n\n    // Frequency bars visualization (bottom half)\n    if (uv.y < 0.5) {\n        float barHeight = fft * 0.5;\n        if (uv.y < barHeight) {\n            // Color based on frequency (bass=red, mid=green, treble=blue)\n            vec3 barColor = vec3(1.0 - uv.x, abs(uv.x - 0.5) * 2.0, uv.x);\n            col = barColor * (1.0 - uv.y / barHeight * 0.5);\n        }\n    }\n\n    // Waveform visualization (top half)\n    if (uv.y >= wavepos) {\n        float waveY = 0.75 + (wave - 0.5) * gain; // Center wave in top half\n        float dist = abs(uv.y - waveY);\n        float glow = 0.008 / (dist + 0.008);\n        col += wavecol * glow;\n    }\n\n    // Add some bass-reactive background glow\n    float bass = texture(iChannel3, vec2(0.05, 0.0)).r;\n    col += vec3(0.1, 0.02, 0.15) * bass * 2.0;\n\n    // Circular spectrum visualizer in center\n    vec2 center = uv - 0.5;\n    float angle = atan(center.y, center.x);\n    float radius = length(center);\n    float freqIndex = (angle + 3.14159) / 6.28318; // 0 to 1\n    float freqValue = texture(iChannel3, vec2(freqIndex, 0.0)).r;\n\n    float innerRadius = 0.1;\n    float outerRadius = innerRadius + freqValue * 0.15;\n\n    if (radius > innerRadius && radius < outerRadius) {\n        float intensity = 1.0 - (radius - innerRadius) / (outerRadius - innerRadius);\n        vec3 circleColor = 0.5 + 0.5 * cos(angle + iTime + vec3(0, 2, 4));\n        col += circleColor * intensity * 0.5;\n    }\n\n    fragColor = vec4(col, 1.0);\n}\n",
           "filePath": null,
           "params": {
-            "speed": 1,
-            "amplification": 3.04,
-            "iterations": 0.5,
-            "amplitude": 0.5,
-            "zoom": 0.5,
-            "fireColor": [
-              1,
-              0.3,
-              0.1
-            ]
+            "speed": 1
           },
           "customParams": {
-            "amplification": 3.04,
-            "iterations": 0.5,
-            "amplitude": 0.5,
-            "zoom": 0.5,
-            "fireColor": [
-              1,
-              0.3,
-              0.1
+            "gain": 1,
+            "spread": 1,
+            "wavepos": 0.5,
+            "wavecol": [
+              0.2,
+              0.8,
+              1
             ]
           },
-          "presets": [
-            {
-              "params": {
-                "speed": 1,
-                "amplification": 3.04,
-                "iterations": 0.5,
-                "amplitude": 0.5,
-                "zoom": 0.5,
-                "fireColor": [
-                  1,
-                  0.3,
-                  0.1
-                ]
-              },
-              "name": null
-            }
-          ],
+          "presets": [],
           "type": "shader"
         },
         {
@@ -1337,6 +1311,26 @@
             }
           ],
           "type": "shader"
+        },
+        {
+          "shaderCode": "// Fire shader - Parametric flame effect\n\n// @param amplification float 1.0 [0.0,5.0] \"Verstaerkung\"\n// @param iterations float 0.5 [0.0, 1.0] \"Iteration depth\"\n// @param amplitude float 0.5 [0.0, 1.0] \"Wave amplitude\"\n// @param zoom float 0.5 [0.1, 1.0] \"Zoom level\"\n// @param fireColor color [1.0, 0.3, 0.1] \"Fire color\"\n\n/*\n    @SnoopethDuckDuck -6 chars\n    @Xor              -1 chars\n\n    Thanks! :D\n\n*/\n\n\nvoid mainImage(out vec4 o, vec2 u) {\n    float f, i, r, e,\n          t = iTime;\n    vec3 p, z = iResolution;\n    for(o*=i;\n        i++<1e2;\n        f += r = .01 + abs(--r)*.1,\n        o += 1. / r)\n        for(p = vec3((u-z.xy/(2. * 2.0 * zoom))/z.y * f, f+t),\n            p += cos(t+p.yzx+p.zzx)*(.6 + 5.0 * amplitude),\n            r =  cos(p.z),\n            e = 1.6 + iterations;\n            e < 32.;\n            e += e )\n            r += abs(dot(sin(t + p*e ), z/z)) / e;\n    o = amplification * tanh(vec4(fireColor,1) * o * o / f / 7e6);\n}\n\n\n\n/* you can put it out with this :D\n\nvoid mainImage( out vec4 o, vec2 u ) {\n    float s=.002,i,n;\n    vec3 r = iResolution,p;\n    for(o *= i; i++ < 40. && s > .001;) {\n        s = 1. + (p += vec3((u-r.xy/2.)/r.y,1) * s).y;\n        for (n =.5; n < 20.;n+=n)\n            s += abs(dot(sin(p.z+iTime+p * n), vec3(.1))) / n;\n        o += s *.03+.03;\n    }\n    o = tanh(o);\n}\n\n*/\n\n\n/* original fire shader\n\nvoid mainImage(out vec4 o, vec2 u) {\n    float f, i, r, e,\n          t = iTime;\n    vec3 p, z = iResolution;\n    for(o*=i;\n        i++<1e2;\n        f += r = .01 + abs(r)*.1,\n        o += 1. / r)\n        for(p = vec3(((u-z.xy/2.)/z.y) * f, f+t),\n            p += cos(t+p.yzx+p.zzx)*.6,\n            r =  cos(p.z)-1.,\n            e = 1.6;\n            e < 32.;\n            e += e )\n            r += abs(dot(sin(t + p*e ), vec3(1))) / e;\n    o = tanh(vec4(6,2,1,1) * o * o / f / 7e6);\n}\n\n*/",
+          "filePath": null,
+          "params": {
+            "speed": 1
+          },
+          "customParams": {
+            "amplification": 1,
+            "iterations": 0.5,
+            "amplitude": 0.5,
+            "zoom": 0.5,
+            "fireColor": [
+              1,
+              0.3,
+              0.1
+            ]
+          },
+          "presets": [],
+          "type": "shader"
         }
       ]
     },
@@ -1344,51 +1338,6 @@
       "name": "Special",
       "type": "shaders",
       "slots": [
-        {
-          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n * Types: int, float, vec2, vec3, vec4, color\n */\n\n// CC0: A Dead Planet of Silicon Dreams\n//  Had a dream of a planet of AI factories\n\n// License: WTFPL, author: sam hocevar, found: https://stackoverflow.com/a/17897228/418488\nconst vec4 hsv2rgb_K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);\n\n// License: WTFPL, author: sam hocevar, found: https://stackoverflow.com/a/17897228/418488\n//  Macro version of above to enable compile-time constants\n#define HSV2RGB(c)  (c.z * mix(hsv2rgb_K.xxx, clamp(abs(fract(c.xxx + hsv2rgb_K.xyz) * 6.0 - hsv2rgb_K.www) - hsv2rgb_K.xxx, 0.0, 1.0), c.y))\n\n// License: WTFPL, author: sam hocevar, found: https://stackoverflow.com/a/17897228/418488\nvec3 hsv2rgb(vec3 c) {\n  vec3 p = abs(fract(c.xxx + hsv2rgb_K.xyz) * 6.0 - hsv2rgb_K.www);\n  return c.z * mix(hsv2rgb_K.xxx, clamp(p - hsv2rgb_K.xxx, 0.0, 1.0), c.y);\n}\n\nconst float\n  PI=3.141592654\n, TAU=2.*PI\n, OFF=.7           // Change this for some different color themes\n, PR =.66          // How many pyramids should there be?\n, ZZ =11.          // How spread out are the pyramids?\n;\n\nconst vec2\n  // Path parameters\n  PA=vec2(6,1.41)\n, PB=vec2(.056,.035)\n, PO=vec2(25,3.3)\n;\n\nconst vec3\n  BY=HSV2RGB(vec3(.05+OFF,.7,.8))\n, BG=HSV2RGB(vec3(.95+OFF,.6,.3))\n, BW=HSV2RGB(vec3(.55+OFF,.3,2.))\n, BF=HSV2RGB(vec3(.82+OFF,.6,2.))\n, FC=.04*vec3(1,2,0)              // \"Color burn\"\n, LD=normalize(vec3(1,-0.5,3))    // Light dir\n, RN=normalize(vec3(-.1,1,.1))    // Ring normal\n;\n\nconst vec4\n  GG=vec4(vec3(-700,300,1000),400.)  // Gas giant dimensions\n  ;\n\nconst mat2 \n  R=mat2(1.2,1.6,-1.6,1.2)\n;\n\n\n// License: Unknown, author: Unknown, found: don't remember\nfloat hash(vec2 co) {\n  return fract(sin(dot(co.xy ,vec2(12.9898,58.233))) * 13758.5453);\n}\n\n// License: Unknown, author: Claude Brezinski, found: https://mathr.co.uk/blog/2017-09-06_approximating_hyperbolic_tangent.html\nvec3 tanh_approx(vec3 x) {\n  vec3 \n    x2 = x*x\n  ;\n  return clamp(x*(27.0 + x2)/(27.0+9.0*x2), -1.0, 1.0);\n}\n\n// License: MIT, author: Inigo Quilez, found: https://www.iquilezles.org/www/articles/spherefunctions/spherefunctions.htm\nfloat ray_sphere(vec3 ro, vec3 rd, vec4 sph) {\n  vec3 \n    oc=ro - sph.xyz\n    ;\n  float \n    b=dot(oc, rd)\n  , c=dot(oc, oc)- sph.w*sph.w\n  , h=b*b-c\n  ;\n  if(h<0.) return -1.;\n  return -b-sqrt(h);\n}\n\n// License: MIT, author: Inigo Quilez, found: https://iquilezles.org/articles/intersectors/\nfloat ray_plane(vec3 ro, vec3 rd, vec4 p) {\n  return -(dot(ro,p.xyz)+p.w)/dot(rd,p.xyz);\n}\n\n// License: MIT, author: Inigo Quilez, found: https://iquilezles.org/articles/distfunctions/\nfloat doctahedron(vec3 p, float s) {\n  p = abs(p);\n  return (p.x+p.y+p.z-s)*0.57735027;\n}\n\nvec3 path(float z) {\n  return vec3(PO+PA*cos(PB*z),z);\n}\n\nvec3 dpath(float z) {\n  return vec3(-PA*PB*sin(PB*z),1);\n}\n\nvec3 ddpath(float z) {\n  return vec3(-PA*PB*PB*cos(PB*z),0);\n}\n\nfloat dfbm(vec3 p) {\n  float\n    d=p.y+.6\n  , a=1.\n  ;\n\n  vec2\n    D=vec2(0)\n  , P=.23*p.xz\n  ;\n\n  vec4\n    o\n  ;\n\n  for(int j=0;j<7;++j) {\n    o=cos(P.xxyy+vec4(11,0,11,0));\n    p=o.yxx*o.zwz;\n    D+=p.xy;\n    // This technique \"borrowed\" from IQ\n    d-=a*(1.+p.z)/(1.+3.*dot(D,D));\n    P*=R;\n    a*=.55;\n  }\n  \n  return d;\n}\n\nfloat dpyramid(vec3 p, out vec3 oo) {\n  vec2\n    n=floor(p.xz/ZZ+.5)\n  ;\n  p.xz-=n*ZZ;\n\n  float\n    h0=hash(n)\n  , h1=fract(9677.*h0)\n  , h =.3*ZZ*h0*h0+0.1\n  , d =doctahedron(p,h)\n  ;\n\n  oo=vec3(1e3,0,0);\n  if(h1<PR) return 1e3;\n  oo=vec3(d,h0,h);\n  return d;\n}\n\nfloat df(vec3 p, out vec3 oo) {\n  p.y=abs(p.y);\n\n  float\n    d0=dfbm(p)\n  , d1=dpyramid(p,oo)\n  , d\n  ;\n  d=d0;\n  d=min(d,d1);\n  return d;\n}\n\nfloat fbm(float x) {\n  float \n    a=1.\n  , h=0.\n  ;\n  \n  for(int i=0;i<5;++i) {\n    h+=a*sin(x);\n    x*=2.03;\n    x+=123.4;\n    a*=.55;\n  }\n  \n  return abs(h);\n}\n\nvec4 render(vec2 p2, vec2 q2) {\n  float\n      d=1.\n    , z=0.\n    , T=iTime*3.\n    ;\n    \n  vec3\n      oo\n    , O=vec3(0)\n    , p\n    , P=path(T)\n    , ZZ=normalize(dpath(T)+vec3(0,-0.1,0))\n    , XX=normalize(cross(ZZ,vec3(0,1,0)+ddpath(T)))\n    , YY=cross(XX,ZZ)\n    , R=normalize(-p2.x*XX+p2.y*YY+2.*ZZ)\n    , Y=(1.+R.x)*BY\n    , S=(1.+R.y)*BW*Y\n    ;\n    \n  vec4\n      M\n    ;\n\n  for(int i=0;i<50&&d>1e-5&&z<2e2;++i) {\n    p=z*R+P;\n    d=df(p,oo);\n    if(p.y>0.) {\n      O+=BG+min(d,9.)*Y;\n    } else {\n      O+=S;\n      oo.x*=9.;\n    }\n\n    O+=\n        mix(.02,1.,.5+.5*sin(iTime+TAU*oo.y))\n      * smoothstep(oo.z*.78,oo.z*.8,abs(p.y))\n      / max(oo.x+oo.x*oo.x*oo.x*oo.x*9.,1e-2)\n      * BF\n      ;\n\n    z+=d*.7;\n  }\n\n  O*=9E-3;\n  \n  if(R.y>0.0) {\n    M=GG;\n    S=M.xyz+P;\n    M.xyz=S;\n    z=d=ray_sphere(P,R,M);\n    \n    Y=vec3(.0);\n    if(z>0.) {\n      p=P+R*z;\n      ZZ=normalize(p-M.xyz);\n      Y+=\n          max(dot(LD,ZZ),0.)\n        * smoothstep(1.0,.89,1.+dot(R,ZZ))\n        * fbm(2e-2*dot(p,RN))\n        ;\n    }\n    M=vec4(RN,-dot(RN,S));\n    z=ray_plane(P,R,M);\n    if(z>0.&&(d>0.&&z<d||d==-1.)) {\n      p=P+R*z;\n      d=distance(S,p);\n      Y+=\n          abs(dot(LD,RN))\n        * step(GG.w*1.41,d)\n        * step(d,GG.w*2.)\n        * fbm(.035*d)\n        ;\n    }\n    Y*=smoothstep(0.0,0.2,R.y);\n    Y+=clamp((hsv2rgb(vec3(OFF-.4*R.y,.5+1.*R.y,3./(1.+800.*R.y*R.y*R.y)))),0.,1.);\n\n    O*=Y;\n  }\n\n  O-=(length(q2)+.2)*FC;\n  O=tanh_approx(O);\n  O=max(O,0.);\n  O=sqrt(O);\n\n  return vec4(O,1);\n}\n\nvoid mainImage(out vec4 O, vec2 C) {\n  vec2\n    r=iResolution.xy\n  , p2=(C+C-r)/r.y\n  , q2=C/r\n  ;\n  O=render(p2,q2);\n}",
-          "filePath": null,
-          "params": {
-            "speed": 1,
-            "p0": 0.5,
-            "p1": 0.5,
-            "p2": 0.5,
-            "p3": 0.5,
-            "p4": 0.5,
-            "r0": 1,
-            "g0": 1,
-            "b0": 1,
-            "r1": 1,
-            "g1": 1,
-            "b1": 1,
-            "r2": 1,
-            "g2": 1,
-            "b2": 1,
-            "r3": 1,
-            "g3": 1,
-            "b3": 1,
-            "r4": 1,
-            "g4": 1,
-            "b4": 1,
-            "r5": 1,
-            "g5": 1,
-            "b5": 1,
-            "r6": 1,
-            "g6": 1,
-            "b6": 1,
-            "r7": 1,
-            "g7": 1,
-            "b7": 1,
-            "r8": 1,
-            "g8": 1,
-            "b8": 1,
-            "r9": 1,
-            "g9": 1,
-            "b9": 1
-          },
-          "customParams": {},
-          "presets": [],
-          "type": "shader"
-        },
         {
           "shaderCode": "// Stage Lights Array Simulation - OPTIMIZED\n// Creates an array of animated stage lights with volumetric fog\n\n// @param showGround float 0.5 [0.0, 1.0] \"Show ground (>0.5)\"\n// @param lightHeight float 0.5 [0.0, 1.0] \"Light height\"\n// @param lightDepth float 0.5 [0.0, 1.0] \"Light depth\"\n// @param light1 color [1.0, 0.0, 0.0] \"Light 1\"\n// @param light2 color [0.0, 1.0, 0.0] \"Light 2\"\n// @param light3 color [0.0, 0.0, 1.0] \"Light 3\"\n// @param light4 color [1.0, 1.0, 0.0] \"Light 4\"\n// @param light5 color [1.0, 0.0, 1.0] \"Light 5\"\n// @param light6 color [0.0, 1.0, 1.0] \"Light 6\"\n// @param light7 color [1.0, 0.5, 0.0] \"Light 7\"\n// @param light8 color [0.5, 0.0, 1.0] \"Light 8\"\n\n#define NUM_LIGHTS 8\n#define PI 3.14159265359\n#define MAX_STEPS 88  // Reduziert von ~100\n\n// Vereinfachte Noise-Funktion\nfloat hash(float n) {\n    return fract(sin(n) * 43758.5453123);\n}\n\n// Schnellerer Noise - weniger Operationen\nfloat noise2(vec3 x) {\n    vec3 p = floor(x);\n    vec3 f = fract(x);\n    f = f * f * (3.0 - 2.0 * f);\n    \n    float n = p.x + p.y * 57.0 + 113.0 * p.z;\n    float a = hash(n);\n    float b = hash(n + 1.0);\n    float c = hash(n + 57.0);\n    float d = hash(n + 58.0);\n    float e = hash(n + 113.0);\n    float f1 = hash(n + 114.0);\n    float g = hash(n + 170.0);\n    float h = hash(n + 171.0);\n    \n    return mix(mix(mix(a, b, f.x), mix(c, d, f.x), f.y),\n               mix(mix(e, f1, f.x), mix(g, h, f.x), f.y), f.z);\n}\n\nfloat noise(vec3 x){\n  return 1.0;\n}\n// Vorberechnete Lichtdaten\nstruct Light {\n    vec3 pos;\n    vec3 dir;\n    vec3 color;\n    float angle;\n    float intensity;\n};\n\n// Lichtparameter einmal pro Frame berechnen\nvoid setupLights(out Light lights[NUM_LIGHTS]) {\n    // Build color array from named parameters\n    vec3 lightColors[NUM_LIGHTS];\n    lightColors[0] = light1;\n    lightColors[1] = light2;\n    lightColors[2] = light3;\n    lightColors[3] = light4;\n    lightColors[4] = light5;\n    lightColors[5] = light6;\n    lightColors[6] = light7;\n    lightColors[7] = light8;\n\n    for (int j = 0; j < NUM_LIGHTS; j++) {\n        float lightIndex = float(j);\n        float phase = lightIndex * PI * 2.0 / float(NUM_LIGHTS);\n        float swing = sin(iTime * 0.5 + phase) * 0.3;\n        float tilt = cos(iTime * 0.7 + phase * 1.5) * 0.2;\n\n        lights[j].pos = vec3(-35.0 + lightIndex * 1.0, 3.0 * lightHeight + 3.0, 10.0 * lightDepth - 10.0);\n        lights[j].dir = normalize(vec3(swing, -0.8 + tilt, 1.0));\n        lights[j].angle = 0.3 + 0.1 * sin(iTime + phase);\n\n        // Flicker\n        float flicker = 0.9 + 0.1 * sin(iTime * 20.0 + lightIndex * 7.0);\n        lights[j].intensity = 2.0 * flicker;\n        lights[j].color = lightColors[j];\n    }\n}\n\n// Optimierte Spotlight-Berechnung\nvec3 spotlightFast(vec3 pos, Light light, float fog) {\n    vec3 toLight = light.pos - pos;\n    float dist2 = dot(toLight, toLight);  // Quadrat statt length()\n    vec3 lightVec = toLight * inversesqrt(dist2);\n    \n    float spotEffect = dot(lightVec, -light.dir);\n    float spotCutoff = cos(light.angle);\n    \n    if (spotEffect < spotCutoff) return vec3(0.0);\n    \n    float edge = smoothstep(spotCutoff, 1.0, spotEffect);\n    float dist = sqrt(dist2);\n    float attenuation = 1.0 / (1.0 + 0.1 * dist + 0.01 * dist2);\n    \n    return light.color * (edge * attenuation * fog * light.intensity);\n}\n\n// Optimiertes Ray Marching\nvec3 volumetricLighting(vec3 ro, vec3 rd, float maxDist, Light lights[NUM_LIGHTS]) {\n    vec3 color = vec3(0.0);\n    \n    // Adaptive Schrittweite\n    float stepSize = maxDist / float(MAX_STEPS);\n    stepSize = max(stepSize, 0.15);  // Minimum 0.15\n    \n    float t = stepSize * 0.5;  // Start mit halber Schrittweite (besseres Sampling)\n    \n    for (int i = 0; i < MAX_STEPS; i++) {\n        if (t >= maxDist) break;\n        \n        vec3 pos = ro + rd * t;\n        \n        // Fog nur einmal pro Schritt berechnen\n        float fog = 0.1 + noise(pos * 0.5 + vec3(0.0, -iTime * 0.1, 0.0)) * 0.05;\n        \n        // Alle Lichter akkumulieren\n        vec3 lightContrib = vec3(0.0);\n        for (int j = 0; j < NUM_LIGHTS; j++) {\n            lightContrib += spotlightFast(pos, lights[j], fog);\n        }\n        \n        color += lightContrib;\n        t += stepSize;\n    }\n    \n    return color * stepSize;\n}\n\nfloat groundPlane(vec3 ro, vec3 rd) {\n    return rd.y < 0.0 ? -ro.y / rd.y : -1.0;\n}\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;\n    \n    // Lichter einmal pro Pixel vorberechnen\n    Light lights[NUM_LIGHTS];\n    setupLights(lights);\n    \n    // Camera\n    vec3 ro = vec3(0.0, 1.5, 5.0);\n    vec3 forward = normalize(vec3(0.0, 1.0, 0.0) - ro);\n    vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), forward));\n    vec3 up = cross(forward, right);\n    vec3 rd = normalize(forward + uv.x * right + uv.y * up);\n    \n    // Background\n    vec3 color = vec3(0.02, 0.02, 0.05) * (1.0 - uv.y * 0.5);\n    \n    // Ground\n    float groundT = 0.0;\n    if(showGround >= 0.5){\n    groundT = groundPlane(ro, rd);\n    if (groundT > 0.0) {\n        vec3 groundPos = ro + rd * groundT;\n        vec2 checker = floor(groundPos.xz * 2.0);\n        float pattern = mod(checker.x + checker.y, 2.0);\n        color = mix(color, mix(vec3(0.05), vec3(0.1), pattern), exp(-groundT * 0.1));\n    }\n    }\n    // Volumetric lighting\n    color += volumetricLighting(ro, rd, groundT > 0.0 ? groundT : 10.0, lights);\n    \n    // Tonemapping + Gamma + Vignette kombiniert\n    color = pow(color / (1.0 + color), vec3(0.4545)) * (1.0 - dot(uv, uv) * 0.3);\n    \n    fragColor = vec4(color, 1.0);\n} ",
           "filePath": null,
@@ -1482,7 +1431,42 @@
           "shaderCode": "// Stage Lighting Simulator\n// A Three.js scene demonstrating concert/stage lighting effects\n//\n// @param cameraSpeed float 0.002 [0, 0.01] \"Camera rotation speed\"\n// @param movingHeadSpeed float 0.5 [0.1, 2.0] \"Moving head animation speed\"\n// @param ledBarSpeed float 0.3 [0.1, 1.0] \"LED bar color cycle speed\"\n// @param hazeOpacity float 0.4 [0, 1] \"Haze particle opacity\"\n// @param blinderFlashRate float 2.0 [0.5, 5.0] \"Blinder flash rate\"\n// @param spotIntensity float 50 [10, 100] \"Spot light intensity\"\n// @param movingHeadIntensity float 80 [20, 150] \"Moving head intensity\"\n// @param autoRotate int 1 [0, 1] \"Camera auto-rotation\"\n\nfunction setup(THREE, canvas, params, channels, mouse) {\n  // Scene setup\n  const scene = new THREE.Scene();\n  scene.background = new THREE.Color(0x050508);\n  scene.fog = new THREE.FogExp2(0x050508, 0.015);\n\n  const camera = new THREE.PerspectiveCamera(60, canvas.width / canvas.height, 0.1, 1000);\n  camera.position.set(0, 8, 25);\n  camera.lookAt(0, 3, 0);\n\n  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });\n  renderer.setSize(canvas.width, canvas.height, false);\n  renderer.shadowMap.enabled = true;\n  renderer.shadowMap.type = THREE.PCFSoftShadowMap;\n\n  // Ambient light (very dim)\n  const ambient = new THREE.AmbientLight(0x111122, 0.3);\n  scene.add(ambient);\n\n  // Stage floor\n  const stageGeo = new THREE.BoxGeometry(30, 0.5, 20);\n  const stageMat = new THREE.MeshStandardMaterial({\n    color: 0x1a1a1a,\n    roughness: 0.8,\n    metalness: 0.2\n  });\n  const stage = new THREE.Mesh(stageGeo, stageMat);\n  stage.position.y = -0.25;\n  stage.receiveShadow = true;\n  scene.add(stage);\n\n  // Back wall\n  const wallGeo = new THREE.BoxGeometry(30, 15, 0.5);\n  const wallMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.9 });\n  const backWall = new THREE.Mesh(wallGeo, wallMat);\n  backWall.position.set(0, 7, -10);\n  backWall.receiveShadow = true;\n  scene.add(backWall);\n\n  // Truss system\n  const trussMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.8, roughness: 0.3 });\n\n  function createTruss(length) {\n    const group = new THREE.Group();\n    const radius = 0.08;\n\n    const positions = [[-0.3, 0.3], [0.3, 0.3], [-0.3, -0.3], [0.3, -0.3]];\n\n    positions.forEach(([y, z]) => {\n      const geo = new THREE.CylinderGeometry(radius, radius, length, 8);\n      geo.rotateZ(Math.PI / 2);\n      const mesh = new THREE.Mesh(geo, trussMat);\n      mesh.position.set(0, y, z);\n      group.add(mesh);\n    });\n\n    const braceCount = Math.floor(length / 2);\n    for (let i = 0; i <= braceCount; i++) {\n      const x = -length/2 + i * (length / braceCount);\n      const ringGeo = new THREE.TorusGeometry(0.35, 0.04, 8, 4);\n      ringGeo.rotateY(Math.PI / 2);\n      const ring = new THREE.Mesh(ringGeo, trussMat);\n      ring.position.x = x;\n      group.add(ring);\n    }\n\n    return group;\n  }\n\n  // Trusses\n  const frontTruss = createTruss(28);\n  frontTruss.position.set(0, 10, 5);\n  scene.add(frontTruss);\n\n  const backTruss = createTruss(28);\n  backTruss.position.set(0, 12, -5);\n  scene.add(backTruss);\n\n  const leftTruss = createTruss(12);\n  leftTruss.rotation.y = Math.PI / 2;\n  leftTruss.position.set(-14, 10, 0);\n  scene.add(leftTruss);\n\n  const rightTruss = createTruss(12);\n  rightTruss.rotation.y = Math.PI / 2;\n  rightTruss.position.set(14, 10, 0);\n  scene.add(rightTruss);\n\n  // Arrays to store animated lights\n  const movingHeads = [];\n  const spotLights = [];\n  const barLights = [];\n\n  // Helper to create volumetric cone\n  function createLightCone(color, angle = 0.4, length = 12) {\n    const coneGeo = new THREE.ConeGeometry(Math.tan(angle) * length, length, 32, 1, true);\n    const coneMat = new THREE.MeshBasicMaterial({\n      color: color,\n      transparent: true,\n      opacity: 0.08,\n      side: THREE.DoubleSide,\n      blending: THREE.AdditiveBlending,\n      depthWrite: false\n    });\n    const cone = new THREE.Mesh(coneGeo, coneMat);\n    cone.rotation.x = Math.PI;\n    cone.position.y = -length / 2;\n    return cone;\n  }\n\n  // Create fixture housing\n  function createFixtureHousing(type = 'spot') {\n    const group = new THREE.Group();\n    const housingMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.7, roughness: 0.3 });\n\n    if (type === 'moving') {\n      const yokeGeo = new THREE.BoxGeometry(0.6, 0.8, 0.15);\n      const yoke = new THREE.Mesh(yokeGeo, housingMat);\n      group.add(yoke);\n\n      const headGroup = new THREE.Group();\n      const headGeo = new THREE.CylinderGeometry(0.35, 0.4, 0.7, 16);\n      headGeo.rotateX(Math.PI / 2);\n      const head = new THREE.Mesh(headGeo, housingMat);\n      headGroup.add(head);\n\n      const lensGeo = new THREE.CircleGeometry(0.3, 16);\n      const lensMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 });\n      const lens = new THREE.Mesh(lensGeo, lensMat);\n      lens.position.z = 0.36;\n      headGroup.add(lens);\n\n      headGroup.position.y = -0.4;\n      group.add(headGroup);\n      group.headGroup = headGroup;\n      group.lens = lens;\n    } else if (type === 'spot') {\n      const bodyGeo = new THREE.CylinderGeometry(0.25, 0.35, 0.8, 12);\n      const body = new THREE.Mesh(bodyGeo, housingMat);\n      body.rotation.x = Math.PI;\n      group.add(body);\n\n      const lensGeo = new THREE.CircleGeometry(0.33, 16);\n      const lensMat = new THREE.MeshBasicMaterial({ color: 0xffffcc });\n      const lens = new THREE.Mesh(lensGeo, lensMat);\n      lens.rotation.x = Math.PI / 2;\n      lens.position.y = -0.41;\n      group.add(lens);\n    } else if (type === 'par') {\n      const bodyGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.4, 12);\n      const body = new THREE.Mesh(bodyGeo, housingMat);\n      body.rotation.x = Math.PI / 2;\n      group.add(body);\n    }\n\n    return group;\n  }\n\n  // SPOT LIGHTS - Front truss\n  const spotColors = [0xff4444, 0x44ff44, 0x4444ff, 0xffff44, 0xff44ff, 0x44ffff];\n  for (let i = 0; i < 6; i++) {\n    const x = -12 + i * 4.8;\n    const color = spotColors[i];\n\n    const fixture = createFixtureHousing('spot');\n    fixture.position.set(x, 9.5, 5);\n    fixture.rotation.x = 0.3;\n    scene.add(fixture);\n\n    const spot = new THREE.SpotLight(color, params.spotIntensity, 25, 0.4, 0.5, 1);\n    spot.position.set(x, 9.2, 5);\n    spot.target.position.set(x * 0.3, 0, -2);\n    scene.add(spot);\n    scene.add(spot.target);\n\n    const cone = createLightCone(color, 0.4, 10);\n    cone.position.set(x, 9.2, 5);\n    cone.rotation.x = 0.3;\n    scene.add(cone);\n\n    spotLights.push({ light: spot, cone, fixture, baseX: x, color });\n  }\n\n  // MOVING HEADS - Back truss\n  const movingColors = [0xff0066, 0x00ffff, 0xff6600, 0x00ff66, 0x6600ff, 0xffff00];\n  for (let i = 0; i < 6; i++) {\n    const x = -10 + i * 4;\n    const color = movingColors[i];\n\n    const fixture = createFixtureHousing('moving');\n    fixture.position.set(x, 11.5, -5);\n    scene.add(fixture);\n\n    const spot = new THREE.SpotLight(color, params.movingHeadIntensity, 30, 0.25, 0.3, 1);\n    spot.position.set(x, 10.8, -5);\n    spot.castShadow = true;\n    spot.shadow.mapSize.width = 512;\n    spot.shadow.mapSize.height = 512;\n    scene.add(spot);\n    scene.add(spot.target);\n\n    const cone = createLightCone(color, 0.25, 14);\n    scene.add(cone);\n\n    movingHeads.push({\n      light: spot,\n      cone,\n      fixture,\n      baseX: x,\n      phase: i * Math.PI / 3,\n      color\n    });\n  }\n\n  // LED BARS\n  function createLEDBar(width, segments) {\n    const group = new THREE.Group();\n    const housingGeo = new THREE.BoxGeometry(width, 0.15, 0.2);\n    const housingMat = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.8 });\n    const housing = new THREE.Mesh(housingGeo, housingMat);\n    group.add(housing);\n\n    const segmentWidth = width / segments;\n    const lights = [];\n\n    for (let i = 0; i < segments; i++) {\n      const x = -width/2 + segmentWidth/2 + i * segmentWidth;\n      const ledGeo = new THREE.PlaneGeometry(segmentWidth * 0.8, 0.1);\n      const ledMat = new THREE.MeshBasicMaterial({ color: 0xffffff });\n      const led = new THREE.Mesh(ledGeo, ledMat);\n      led.position.set(x, 0.08, 0);\n      led.rotation.x = -Math.PI / 2;\n      group.add(led);\n\n      const pointLight = new THREE.PointLight(0xffffff, 2, 4);\n      pointLight.position.set(x, 0.2, 0);\n      group.add(pointLight);\n\n      lights.push({ mesh: led, light: pointLight, index: i });\n    }\n\n    group.lights = lights;\n    return group;\n  }\n\n  const frontBar1 = createLEDBar(8, 12);\n  frontBar1.position.set(-8, 0.1, 8);\n  frontBar1.rotation.x = -0.2;\n  scene.add(frontBar1);\n  barLights.push({ bar: frontBar1, phase: 0 });\n\n  const frontBar2 = createLEDBar(8, 12);\n  frontBar2.position.set(8, 0.1, 8);\n  frontBar2.rotation.x = -0.2;\n  scene.add(frontBar2);\n  barLights.push({ bar: frontBar2, phase: Math.PI });\n\n  const backBar = createLEDBar(20, 24);\n  backBar.position.set(0, 0.1, -8);\n  backBar.rotation.x = 0.8;\n  scene.add(backBar);\n  barLights.push({ bar: backBar, phase: 0, isBack: true });\n\n  // WASH LIGHTS\n  const washColors = [0xff3366, 0x3366ff, 0xff3366, 0x3366ff];\n  const washPositions = [[-14, 10, 4], [-14, 10, -4], [14, 10, 4], [14, 10, -4]];\n\n  washPositions.forEach((pos, i) => {\n    const color = washColors[i];\n    const wash = new THREE.SpotLight(color, 40, 25, 0.8, 0.8, 1);\n    wash.position.set(...pos);\n    wash.target.position.set(0, 0, pos[2] * 0.5);\n    scene.add(wash);\n    scene.add(wash.target);\n\n    const cone = createLightCone(color, 0.8, 12);\n    cone.position.set(...pos);\n    cone.rotation.z = i < 2 ? 0.5 : -0.5;\n    scene.add(cone);\n  });\n\n  // BLINDERS\n  function createBlinder() {\n    const group = new THREE.Group();\n    const housingGeo = new THREE.BoxGeometry(2, 0.8, 0.4);\n    const housingMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.7 });\n    const housing = new THREE.Mesh(housingGeo, housingMat);\n    group.add(housing);\n\n    const cells = [];\n    for (let i = 0; i < 4; i++) {\n      const x = -0.75 + i * 0.5;\n      const cellGeo = new THREE.CircleGeometry(0.18, 16);\n      const cellMat = new THREE.MeshBasicMaterial({ color: 0xffffcc });\n      const cell = new THREE.Mesh(cellGeo, cellMat);\n      cell.position.set(x, 0, 0.21);\n      group.add(cell);\n\n      const light = new THREE.SpotLight(0xffffcc, 0, 15, 0.6, 0.5, 1);\n      light.position.set(x, 0, 0.3);\n      light.target.position.set(x, -5, 10);\n      group.add(light);\n      group.add(light.target);\n\n      cells.push({ mesh: cell, light });\n    }\n\n    group.cells = cells;\n    return group;\n  }\n\n  const blinder = createBlinder();\n  blinder.position.set(0, 9.5, 5.3);\n  blinder.rotation.x = 0.4;\n  scene.add(blinder);\n\n  // Haze particles\n  const hazeGeo = new THREE.BufferGeometry();\n  const hazeCount = 2000;\n  const hazePositions = new Float32Array(hazeCount * 3);\n\n  for (let i = 0; i < hazeCount; i++) {\n    hazePositions[i * 3] = (Math.random() - 0.5) * 30;\n    hazePositions[i * 3 + 1] = Math.random() * 15;\n    hazePositions[i * 3 + 2] = (Math.random() - 0.5) * 25;\n  }\n\n  hazeGeo.setAttribute('position', new THREE.BufferAttribute(hazePositions, 3));\n  const hazeMat = new THREE.PointsMaterial({\n    color: 0x666688,\n    size: 0.08,\n    transparent: true,\n    opacity: params.hazeOpacity,\n    blending: THREE.AdditiveBlending\n  });\n  const haze = new THREE.Points(hazeGeo, hazeMat);\n  scene.add(haze);\n\n  return {\n    scene,\n    camera,\n    renderer,\n    objects: {\n      movingHeads,\n      spotLights,\n      barLights,\n      blinder,\n      haze,\n      hazeMat,\n      hazeCount,\n      cameraAngle: 0\n    }\n  };\n}\n\nfunction animate(time, delta, params, objects, mouse, channels) {\n  const { movingHeads, spotLights, barLights, blinder, haze, hazeMat, hazeCount } = objects;\n  const THREE = window.THREE;\n\n  // Update haze opacity from params\n  hazeMat.opacity = params.hazeOpacity;\n\n  // Animate moving heads\n  movingHeads.forEach((mh, i) => {\n    const speed = params.movingHeadSpeed;\n    const pan = Math.sin(time * speed + mh.phase) * 0.8;\n    const tilt = Math.sin(time * speed * 1.4 + mh.phase * 1.5) * 0.3 + 0.5;\n\n    if (mh.fixture.headGroup) {\n      mh.fixture.headGroup.rotation.x = tilt;\n      mh.fixture.rotation.y = pan;\n    }\n\n    const targetX = mh.baseX + Math.sin(time * speed + mh.phase) * 8;\n    const targetZ = Math.sin(time * speed * 1.4 + mh.phase * 1.5) * 5;\n    mh.light.target.position.set(targetX, 0, targetZ);\n\n    mh.cone.position.copy(mh.light.position);\n    const dir = new THREE.Vector3().subVectors(mh.light.target.position, mh.light.position).normalize();\n    mh.cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), dir);\n\n    // Color cycling\n    const hue = (time * 0.1 + i * 0.1) % 1;\n    const color = new THREE.Color().setHSL(hue, 1, 0.5);\n    mh.light.color = color;\n    mh.light.intensity = params.movingHeadIntensity;\n    mh.cone.material.color = color;\n    if (mh.fixture.lens) mh.fixture.lens.material.color = color;\n  });\n\n  // Animate LED bars\n  const ledSpeed = params.ledBarSpeed;\n  barLights.forEach((bl) => {\n    bl.bar.lights.forEach((led, i) => {\n      const hue = (time * ledSpeed + i * 0.05 + bl.phase) % 1;\n      const brightness = (Math.sin(time * 3 + i * 0.3 + bl.phase) + 1) / 2;\n      const color = new THREE.Color().setHSL(hue, 1, 0.5 * brightness + 0.2);\n      led.mesh.material.color = color;\n      led.light.color = color;\n      led.light.intensity = brightness * 3;\n    });\n  });\n\n  // Blinder flash effect\n  const blinderOn = Math.sin(time * params.blinderFlashRate) > 0.9;\n  blinder.cells.forEach((cell) => {\n    cell.light.intensity = blinderOn ? 100 : 0;\n    cell.mesh.material.color.setHex(blinderOn ? 0xffffff : 0x333322);\n  });\n\n  // Animate spot light intensity\n  spotLights.forEach((sl, i) => {\n    const pulse = (Math.sin(time * 2 + i * 0.5) + 1) / 2;\n    sl.light.intensity = params.spotIntensity * (0.6 + pulse * 0.4);\n    sl.cone.material.opacity = 0.05 + pulse * 0.05;\n  });\n\n  // Haze drift\n  const positions = haze.geometry.attributes.position.array;\n  for (let i = 0; i < hazeCount; i++) {\n    positions[i * 3 + 1] += 0.005;\n    if (positions[i * 3 + 1] > 15) positions[i * 3 + 1] = 0;\n  }\n  haze.geometry.attributes.position.needsUpdate = true;\n\n  // Camera auto-rotation\n  if (params.autoRotate === 1) {\n    objects.cameraAngle += params.cameraSpeed;\n  }\n}\n\nfunction cleanup(objects) {\n  if (objects.haze) {\n    objects.haze.geometry.dispose();\n    objects.hazeMat.dispose();\n  }\n}\n",
           "filePath": null,
           "params": {
-            "speed": 1
+            "speed": 1,
+            "p0": 0.5,
+            "p1": 0.5,
+            "p2": 0.5,
+            "p3": 0.5,
+            "p4": 0.5,
+            "r0": 1,
+            "g0": 1,
+            "b0": 1,
+            "r1": 1,
+            "g1": 1,
+            "b1": 1,
+            "r2": 1,
+            "g2": 1,
+            "b2": 1,
+            "r3": 1,
+            "g3": 1,
+            "b3": 1,
+            "r4": 1,
+            "g4": 1,
+            "b4": 1,
+            "r5": 1,
+            "g5": 1,
+            "b5": 1,
+            "r6": 1,
+            "g6": 1,
+            "b6": 1,
+            "r7": 1,
+            "g7": 1,
+            "b7": 1,
+            "r8": 1,
+            "g8": 1,
+            "b8": 1,
+            "r9": 1,
+            "g9": 1,
+            "b9": 1
           },
           "customParams": {},
           "presets": [],

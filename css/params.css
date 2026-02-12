@@ -506,3 +506,28 @@
   border-radius: 50%;
   cursor: pointer;
 }
+
+/* Mixer Multi-Channel Param Sections */
+.mixer-channel-section {
+  border-left: 3px solid var(--accent-color);
+  padding-left: 10px;
+  margin-bottom: 2px;
+}
+
+.mixer-channel-section:last-child {
+  margin-bottom: 0;
+}
+
+.mixer-channel-title {
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.mixer-channel-title:hover {
+  opacity: 0.8;
+}
+
+.mixer-channel-section.mixer-channel-selected {
+  background: rgba(255, 255, 255, 0.03);
+}

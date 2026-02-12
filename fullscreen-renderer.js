@@ -27,7 +27,7 @@ let sharedGL = null;        // Shared WebGL context for tiled mode
 let mixerMode = false;
 let mixerRenderers = [];       // TileRenderer per channel (full-screen bounds)
 let mixerBlendMode = 'lighter';
-let mixerChannelAlphas = [1, 1, 1, 1];
+let mixerChannelAlphas = [];
 let mixerSelectedChannel = -1; // Track which channel receives param-update fallback
 let mixerOverlayCanvas = null;
 let mixerOverlayCtx = null;
@@ -749,15 +749,16 @@ function initMixerMode(config) {
 
   // Dispose existing mixer renderers
   mixerRenderers.forEach(r => { if (r) r.dispose(); });
-  mixerRenderers = [null, null, null, null];
-  mixerChannelAlphas = [1, 1, 1, 1];
+  const channelCount = (config.channels || []).length;
+  mixerRenderers = new Array(channelCount).fill(null);
+  mixerChannelAlphas = new Array(channelCount).fill(1);
 
   // Create 2D overlay canvas for compositing
   initMixerModeIfNeeded(canvas);
 
   const gl = sharedGL;
 
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < channelCount; i++) {
     const channelConfig = config.channels?.[i];
     if (!channelConfig || !channelConfig.shaderCode) continue;
 
@@ -901,7 +902,9 @@ window.electronAPI.onMixerParamUpdate?.((data) => {
 
 window.electronAPI.onMixerAlphaUpdate?.((data) => {
   const { channelIndex, alpha } = data;
-  if (channelIndex >= 0 && channelIndex < 4) {
+  if (channelIndex >= 0) {
+    // Grow array if needed
+    while (mixerChannelAlphas.length <= channelIndex) mixerChannelAlphas.push(1);
     mixerChannelAlphas[channelIndex] = alpha;
   }
 });
@@ -915,17 +918,19 @@ window.electronAPI.onMixerBlendMode?.((data) => {
 
 window.electronAPI.onMixerChannelUpdate?.((data) => {
   const { channelIndex, shaderCode, params, clear } = data;
-  if (channelIndex < 0 || channelIndex > 3) return;
+  if (channelIndex < 0) return;
 
   const canvas = document.getElementById('shader-canvas');
 
   if (clear) {
     // Clear this channel
-    if (mixerRenderers[channelIndex]) {
+    if (channelIndex < mixerRenderers.length && mixerRenderers[channelIndex]) {
       mixerRenderers[channelIndex].dispose();
       mixerRenderers[channelIndex] = null;
     }
-    mixerChannelAlphas[channelIndex] = 1;
+    if (channelIndex < mixerChannelAlphas.length) {
+      mixerChannelAlphas[channelIndex] = 1;
+    }
 
     // Auto-select next active channel if cleared channel was selected
     if (mixerSelectedChannel === channelIndex) {
@@ -952,8 +957,9 @@ window.electronAPI.onMixerChannelUpdate?.((data) => {
     sharedGL = shaderRenderer.gl;
   }
 
-  // Ensure array is padded to 4 elements
-  while (mixerRenderers.length < 4) mixerRenderers.push(null);
+  // Grow arrays as needed
+  while (mixerRenderers.length <= channelIndex) mixerRenderers.push(null);
+  while (mixerChannelAlphas.length <= channelIndex) mixerChannelAlphas.push(1);
 
   // Create or replace TileRenderer for this channel
   if (mixerRenderers[channelIndex]) {

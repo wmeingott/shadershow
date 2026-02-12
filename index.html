@@ -166,22 +166,8 @@
         <!-- Shader Mixer Panel -->
         <div id="mixer-panel">
           <button id="mixer-toggle-btn" class="mixer-toggle" title="Enable/disable mixer compositing">MIX</button>
-          <div class="mixer-channel" data-channel="0">
-            <button class="mixer-btn" title="Click to arm, then click a grid shader to assign. Right-click to clear.">—</button>
-            <input type="range" class="mixer-slider" min="0" max="1" step="0.01" value="1">
-          </div>
-          <div class="mixer-channel" data-channel="1">
-            <button class="mixer-btn" title="Click to arm, then click a grid shader to assign. Right-click to clear.">—</button>
-            <input type="range" class="mixer-slider" min="0" max="1" step="0.01" value="1">
-          </div>
-          <div class="mixer-channel" data-channel="2">
-            <button class="mixer-btn" title="Click to arm, then click a grid shader to assign. Right-click to clear.">—</button>
-            <input type="range" class="mixer-slider" min="0" max="1" step="0.01" value="1">
-          </div>
-          <div class="mixer-channel" data-channel="3">
-            <button class="mixer-btn" title="Click to arm, then click a grid shader to assign. Right-click to clear.">—</button>
-            <input type="range" class="mixer-slider" min="0" max="1" step="0.01" value="1">
-          </div>
+          <div id="mixer-channels"></div>
+          <button id="mixer-add-btn" class="mixer-add" title="Add mixer channel">+</button>
           <select id="mixer-blend-mode" title="Blend mode for compositing">
             <option value="lighter" selected>Add</option>
             <option value="screen">Screen</option>
@@ -377,6 +363,7 @@
   </script>
 
   <!-- Renderers -->
+  <script src="beat-detector.js"></script>
   <script src="shader-renderer.js"></script>
   <script src="three-scene-renderer.js"></script>
   <script type="module" src="js/renderer.js"></script>

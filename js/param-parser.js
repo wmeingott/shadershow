@@ -264,9 +264,11 @@ export function parseTextureDirectives(shaderSource) {
           directives.push({ channel, textureName: fileName, type: 'file' });
         }
       } else {
-        // Built-in texture name
+        // Built-in texture name or AudioFFT
         const textureName = match[4];
-        if (VALID_TEXTURE_NAMES.has(textureName)) {
+        if (textureName === 'AudioFFT') {
+          directives.push({ channel, textureName, type: 'audio' });
+        } else if (VALID_TEXTURE_NAMES.has(textureName)) {
           directives.push({ channel, textureName, type: 'builtin' });
         }
       }

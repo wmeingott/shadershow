@@ -242,9 +242,11 @@ const ShaderParamParser = {
             directives.push({ channel, textureName: fileName, type: 'file' });
           }
         } else {
-          // Built-in texture name
+          // Built-in texture name or AudioFFT
           const textureName = match[4];
-          if (BUILTIN_TEXTURES[textureName]) {
+          if (textureName === 'AudioFFT') {
+            directives.push({ channel, textureName, type: 'audio' });
+          } else if (BUILTIN_TEXTURES[textureName]) {
             directives.push({ channel, textureName, type: 'builtin' });
           }
         }
@@ -328,6 +330,9 @@ class ShaderRenderer {
     this.customParams = [];      // Parsed param definitions from shader
     this.customParamValues = {}; // Current values { paramName: value }
     this.customParamUniforms = {}; // Uniform locations { paramName: location }
+
+    // Beat detector for BPM estimation from audio
+    this.beatDetector = new BeatDetector();
 
     // Legacy fixed params for Shadertoy compatibility (always available)
     this.params = { speed: 1.0 };
@@ -1007,6 +1012,7 @@ class ShaderRenderer {
       uniform sampler2D iChannel2;
       uniform sampler2D iChannel3;
       uniform vec3 iChannelResolution[4];
+      uniform float iBPM;
 
       // Custom shader parameters (parsed from @param comments)
       ${customUniformDecls}
@@ -1086,7 +1092,8 @@ class ShaderRenderer {
       iChannel1: gl.getUniformLocation(program, 'iChannel1'),
       iChannel2: gl.getUniformLocation(program, 'iChannel2'),
       iChannel3: gl.getUniformLocation(program, 'iChannel3'),
-      iChannelResolution: gl.getUniformLocation(program, 'iChannelResolution')
+      iChannelResolution: gl.getUniformLocation(program, 'iChannelResolution'),
+      iBPM: gl.getUniformLocation(program, 'iBPM')
     };
 
     // Cache uniform locations for custom parameters
@@ -1107,11 +1114,17 @@ class ShaderRenderer {
     gl.deleteShader(vertexShader);
     gl.deleteShader(fragmentShader);
 
-    // Parse @texture directives and separate builtin vs file
+    // Parse @texture directives and separate builtin vs file vs audio
     const allDirectives = ShaderParamParser.parseTextureDirectives(fragmentSource);
     this.textureDirectives = allDirectives.filter(d => d.type === 'builtin');
     this.fileTextureDirectives = allDirectives.filter(d => d.type === 'file');
+    this.audioDirectives = allDirectives.filter(d => d.type === 'audio');
     this.applyTextureDirectives(this.textureDirectives);
+
+    // Apply audio directives (async, non-blocking)
+    for (const { channel } of this.audioDirectives) {
+      this.loadAudio(channel).catch(err => console.warn('AudioFFT directive failed:', err.message));
+    }
 
     return { success: true };
   }
@@ -1122,7 +1135,7 @@ class ShaderRenderer {
     if (match) {
       // Subtract wrapper lines (header before user code)
       // Count: #version + precision*2 + standard uniforms (13) + custom uniforms comment + out + empty lines
-      const baseWrapperLines = 17; // Lines before ${customUniformDecls}
+      const baseWrapperLines = 18; // Lines before ${customUniformDecls} (includes iBPM uniform)
       const customUniformLines = this.customParams ? this.customParams.length : 0;
       const wrapperLines = baseWrapperLines + customUniformLines + 3; // +3 for out, empty line, fragment source marker
       const line = Math.max(1, parseInt(match[1]) - wrapperLines);
@@ -1139,6 +1152,16 @@ class ShaderRenderer {
 
     // Update video/camera textures each frame
     this.updateVideoTextures();
+
+    // Update beat detector from first active audio channel
+    let bpmValue = 1.0;
+    for (let i = 0; i < 4; i++) {
+      if (this.channelAudioSources[i]) {
+        this.beatDetector.update(this.channelAudioSources[i].frequencyData);
+        bpmValue = this.beatDetector.getBPM() / 100;
+        break;
+      }
+    }
 
     // Calculate time (with speed multiplier applied)
     let currentTime;
@@ -1182,6 +1205,7 @@ class ShaderRenderer {
     const mouseZ = this.mouse.isDown ? this.mouse.clickX : -this.mouse.clickX;
     const mouseW = this.mouse.isDown ? this.mouse.clickY : -this.mouse.clickY;
     gl.uniform4f(this.uniforms.iMouse, this.mouse.x, this.mouse.y, mouseZ, mouseW);
+    gl.uniform1f(this.uniforms.iBPM, bpmValue);
 
     // Set custom parameter uniforms
     this.setCustomUniforms();
@@ -1212,7 +1236,8 @@ class ShaderRenderer {
     return {
       time: currentTime,
       fps: this.fps,
-      frame: this.frameCount
+      frame: this.frameCount,
+      bpm: bpmValue
     };
   }
 

@@ -182,6 +182,9 @@ class ThreeSceneRenderer {
     this.customParams = [];
     this.customParamValues = {};
 
+    // Beat detector for BPM estimation from audio
+    this.beatDetector = new BeatDetector();
+
     // Legacy params for compatibility
     this.params = { speed: 1.0 };
 
@@ -473,6 +476,19 @@ class ThreeSceneRenderer {
     // Update video/audio textures
     this.updateChannelTextures();
 
+    // Update beat detector from first active audio channel
+    let bpmValue = 1.0;
+    for (let i = 0; i < 4; i++) {
+      const audio = this.channelAudioSources[i];
+      if (audio) {
+        audio.analyser.getByteFrequencyData(audio.frequencyData);
+        this.beatDetector.update(audio.frequencyData);
+        bpmValue = this.beatDetector.getBPM() / 100;
+        break;
+      }
+    }
+    this.customParamValues.bpm = bpmValue;
+
     // Call scene's animate function
     if (this.sceneModule?.animate) {
       try {
@@ -519,7 +535,8 @@ class ThreeSceneRenderer {
     return {
       time: currentTime,
       fps: this.fps,
-      frame: this.frameCount
+      frame: this.frameCount,
+      bpm: bpmValue
     };
   }
 

@@ -9,7 +9,7 @@ import { parseShaderParams, generateUniformDeclarations, parseTextureDirectives 
 import { openInTab } from './tabs.js';
 import { tileState, assignTile } from './tile-state.js';
 import { updateTileRenderer, refreshTileRenderers } from './controls.js';
-import { assignShaderToMixer, recallMixState, resetMixer, isMixerActive, captureMixerThumbnail } from './mixer.js';
+import { assignShaderToMixer, addMixerChannel, recallMixState, resetMixer, isMixerActive, captureMixerThumbnail } from './mixer.js';
 
 // Cache for file texture data URLs (avoids re-reading from disk for each grid slot)
 const fileTextureCache = new Map();
@@ -1370,6 +1370,21 @@ function showGridContextMenu(x, y, slotIndex) {
       mixContent.appendChild(mixItem);
     }
 
+    // Add "New Channel" option if under the max
+    if (state.mixerChannels.length < 8) {
+      const newChItem = document.createElement('div');
+      newChItem.className = 'context-menu-item';
+      newChItem.textContent = '+ New Channel';
+      newChItem.addEventListener('click', () => {
+        hideContextMenu();
+        const newIndex = addMixerChannel();
+        if (newIndex !== null) {
+          assignShaderToMixer(newIndex, slotIndex);
+        }
+      });
+      mixContent.appendChild(newChItem);
+    }
+
     mixSubmenu.appendChild(mixContent);
     menu.appendChild(mixSubmenu);
   }
@@ -2341,7 +2356,7 @@ export async function selectGridSlot(slotIndex) {
   if (!slotData) return;
 
   // If this slot is assigned to a mixer channel, select that channel instead of clearing
-  const mixerBtns = document.querySelectorAll('#mixer-panel .mixer-btn');
+  const mixerBtns = document.querySelectorAll('#mixer-channels .mixer-btn');
   let foundMixerCh = false;
   for (let i = 0; i < state.mixerChannels.length; i++) {
     const ch = state.mixerChannels[i];

@@ -133,7 +133,14 @@ export async function initIPC() {
 
   // Shader controls from menu
   window.electronAPI.onCompileShader(compileShader);
-  window.electronAPI.onTogglePlayback(togglePlayback);
+  window.electronAPI.onTogglePlayback(() => {
+    // Ignore Space-triggered toggle when editor or any text input is focused
+    const active = document.activeElement;
+    if (active && (active.closest('#editor') || active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) {
+      return;
+    }
+    togglePlayback();
+  });
   window.electronAPI.onResetTime(resetTime);
   window.electronAPI.onRunBenchmark(runBenchmark);
   window.electronAPI.onRestartRender(restartRender);
@@ -617,7 +624,7 @@ function initRemoteHandlers() {
     const ch = state.mixerChannels[channelIndex];
     if (ch) {
       ch.alpha = value;
-      const slider = document.querySelectorAll('#mixer-panel .mixer-slider')[channelIndex];
+      const slider = document.querySelectorAll('#mixer-channels .mixer-slider')[channelIndex];
       if (slider) slider.value = String(value);
       window.electronAPI.sendMixerAlphaUpdate({ channelIndex, alpha: value });
     }
@@ -626,7 +633,7 @@ function initRemoteHandlers() {
   window.electronAPI.onRemoteMixerSelect(({ channelIndex }) => {
     if (typeof channelIndex === 'number') {
       // Simulate selecting the mixer channel
-      const btns = document.querySelectorAll('#mixer-panel .mixer-btn');
+      const btns = document.querySelectorAll('#mixer-channels .mixer-btn');
       btns.forEach(b => b.classList.remove('selected'));
       btns[channelIndex]?.classList.add('selected');
       state.mixerSelectedChannel = channelIndex;

@@ -4,6 +4,7 @@ import { setStatus, updateChannelSlot } from './utils.js';
 import { saveActiveSlotShader } from './shader-grid.js';
 import { generateCustomParamUI } from './params.js';
 import { initTabs, markTabSaved, getActiveTab } from './tabs.js';
+import { toggleConsolePanel } from './console-panel.js';
 
 export async function initEditor() {
   state.editor = ace.edit('editor');
@@ -55,6 +56,12 @@ export async function initEditor() {
         markTabSaved(activeTab.id);
       }
     }
+  });
+
+  state.editor.commands.addCommand({
+    name: 'toggleConsole',
+    bindKey: { win: 'Ctrl-J', mac: 'Cmd-J' },
+    exec: toggleConsolePanel
   });
 
   // Listen for tab activation to switch modes and compile

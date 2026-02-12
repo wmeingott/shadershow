@@ -9,7 +9,7 @@
 // @param spotIntensity float 50 [10, 100] "Spot light intensity"
 // @param movingHeadIntensity float 80 [20, 150] "Moving head intensity"
 // @param autoRotate int 1 [0, 1] "Camera auto-rotation"
-// @param cameraView float 60.0 [1.0,360] "Camera View"
+// @param cameraAngle int 60 [0, 180] "Camera auto-rotation"
 
 function setup(THREE, canvas, params, channels, mouse) {
   // Scene setup
@@ -17,7 +17,7 @@ function setup(THREE, canvas, params, channels, mouse) {
   scene.background = new THREE.Color(0x050508);
   scene.fog = new THREE.FogExp2(0x050508, 0.015);
 
-  const camera = new THREE.PerspectiveCamera(params.cameraView, canvas.width / canvas.height, 0.1, 1000);
+  const camera = new THREE.PerspectiveCamera(cameraAngle, canvas.width / canvas.height, 0.1, 1000);
   camera.position.set(0, 8, 25);
   camera.lookAt(0, 3, 0);
 

@@ -1,6 +1,7 @@
 // View State module
 import { state } from './state.js';
 import { startGridAnimation } from './shader-grid.js';
+import { getConsolePanelState, restoreConsolePanelState } from './console-panel.js';
 
 export function saveViewState() {
   const editorPanel = document.getElementById('editor-panel');
@@ -11,6 +12,7 @@ export function saveViewState() {
   const previewPanel = document.getElementById('preview-panel');
   const gridPanel = document.getElementById('grid-panel');
 
+  const consoleState = getConsolePanelState();
   const viewState = {
     editorEnabled: state.editorEnabled,
     previewEnabled: state.previewEnabled,
@@ -21,7 +23,9 @@ export function saveViewState() {
     gridWidth: gridPanel.style.width || '',
     resolution: resolutionSelect.value,
     customWidth: customWidth.value,
-    customHeight: customHeight.value
+    customHeight: customHeight.value,
+    consolePanelHeight: consoleState.height,
+    consolePanelCollapsed: consoleState.collapsed
   };
 
   window.electronAPI.saveViewState(viewState);
@@ -119,6 +123,14 @@ export async function restoreViewState() {
         state.renderer.setResolution(w, h);
       }
     }
+  }
+
+  // Restore console panel state
+  if (viewState.consolePanelHeight !== undefined || viewState.consolePanelCollapsed !== undefined) {
+    restoreConsolePanelState({
+      height: viewState.consolePanelHeight,
+      collapsed: viewState.consolePanelCollapsed
+    });
   }
 
   // Update layout classes

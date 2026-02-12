@@ -1,28 +1,54 @@
 {
   "version": 2,
-  "activeTab": 0,
+  "activeTab": 2,
   "tabs": [
     {
       "name": "My Shaders",
       "type": "shaders",
       "slots": [
         {
-          "shaderCode": "// Fire shader - Parametric flame effect\n\n// @param iterations float 0.5 [0.0, 1.0] \"Iteration depth\"\n// @param amplitude float 0.5 [0.0, 1.0] \"Wave amplitude\"\n// @param zoom float 0.5 [0.1, 1.0] \"Zoom level\"\n// @param fireColor color [1.0, 0.3, 0.1] \"Fire color\"\n\n/*\n    @SnoopethDuckDuck -6 chars\n    @Xor              -1 chars\n\n    Thanks! :D\n\n*/\n\n\nvoid mainImage(out vec4 o, vec2 u) {\n    float f, i, r, e,\n          t = iTime;\n    vec3 p, z = iResolution;\n    for(o*=i;\n        i++<1e2;\n        f += r = .01 + abs(--r)*.1,\n        o += 1. / r)\n        for(p = vec3((u-z.xy/(2. * 2.0 * zoom))/z.y * f, f+t),\n            p += cos(t+p.yzx+p.zzx)*(.6 + 5.0 * amplitude),\n            r =  cos(p.z),\n            e = 1.6 + iterations;\n            e < 32.;\n            e += e )\n            r += abs(dot(sin(t + p*e ), z/z)) / e;\n    o = tanh(vec4(fireColor,1) * o * o / f / 7e6);\n}\n\n\n\n/* you can put it out with this :D\n\nvoid mainImage( out vec4 o, vec2 u ) {\n    float s=.002,i,n;\n    vec3 r = iResolution,p;\n    for(o *= i; i++ < 40. && s > .001;) {\n        s = 1. + (p += vec3((u-r.xy/2.)/r.y,1) * s).y;\n        for (n =.5; n < 20.;n+=n)\n            s += abs(dot(sin(p.z+iTime+p * n), vec3(.1))) / n;\n        o += s *.03+.03;\n    }\n    o = tanh(o);\n}\n\n*/\n\n\n/* original fire shader\n\nvoid mainImage(out vec4 o, vec2 u) {\n    float f, i, r, e,\n          t = iTime;\n    vec3 p, z = iResolution;\n    for(o*=i;\n        i++<1e2;\n        f += r = .01 + abs(r)*.1,\n        o += 1. / r)\n        for(p = vec3(((u-z.xy/2.)/z.y) * f, f+t),\n            p += cos(t+p.yzx+p.zzx)*.6,\n            r =  cos(p.z)-1.,\n            e = 1.6;\n            e < 32.;\n            e += e )\n            r += abs(dot(sin(t + p*e ), vec3(1))) / e;\n    o = tanh(vec4(6,2,1,1) * o * o / f / 7e6);\n}\n\n*/",
-          "filePath": "/Users/mbp11/development/ai/anthropic/shadershow/data/shaders/button1.glsl",
+          "shaderCode": "// Fire shader - Parametric flame effect\n\n// @param amplification float 1.0 [0.0,5.0] \"Verstaerkung\"\n// @param iterations float 0.5 [0.0, 1.0] \"Iteration depth\"\n// @param amplitude float 0.5 [0.0, 1.0] \"Wave amplitude\"\n// @param zoom float 0.5 [0.1, 1.0] \"Zoom level\"\n// @param fireColor color [1.0, 0.3, 0.1] \"Fire color\"\n\n/*\n    @SnoopethDuckDuck -6 chars\n    @Xor              -1 chars\n\n    Thanks! :D\n\n*/\n\n\nvoid mainImage(out vec4 o, vec2 u) {\n    float f, i, r, e,\n          t = iTime;\n    vec3 p, z = iResolution;\n    for(o*=i;\n        i++<1e2;\n        f += r = .01 + abs(--r)*.1,\n        o += 1. / r)\n        for(p = vec3((u-z.xy/(2. * 2.0 * zoom))/z.y * f, f+t),\n            p += cos(t+p.yzx+p.zzx)*(.6 + 5.0 * amplitude),\n            r =  cos(p.z),\n            e = 1.6 + iterations;\n            e < 32.;\n            e += e )\n            r += abs(dot(sin(t + p*e ), z/z)) / e;\n    o = amplification * tanh(vec4(fireColor,1) * o * o / f / 7e6);\n}\n\n\n\n/* you can put it out with this :D\n\nvoid mainImage( out vec4 o, vec2 u ) {\n    float s=.002,i,n;\n    vec3 r = iResolution,p;\n    for(o *= i; i++ < 40. && s > .001;) {\n        s = 1. + (p += vec3((u-r.xy/2.)/r.y,1) * s).y;\n        for (n =.5; n < 20.;n+=n)\n            s += abs(dot(sin(p.z+iTime+p * n), vec3(.1))) / n;\n        o += s *.03+.03;\n    }\n    o = tanh(o);\n}\n\n*/\n\n\n/* original fire shader\n\nvoid mainImage(out vec4 o, vec2 u) {\n    float f, i, r, e,\n          t = iTime;\n    vec3 p, z = iResolution;\n    for(o*=i;\n        i++<1e2;\n        f += r = .01 + abs(r)*.1,\n        o += 1. / r)\n        for(p = vec3(((u-z.xy/2.)/z.y) * f, f+t),\n            p += cos(t+p.yzx+p.zzx)*.6,\n            r =  cos(p.z)-1.,\n            e = 1.6;\n            e < 32.;\n            e += e )\n            r += abs(dot(sin(t + p*e ), vec3(1))) / e;\n    o = tanh(vec4(6,2,1,1) * o * o / f / 7e6);\n}\n\n*/",
+          "filePath": null,
           "params": {
-            "speed": 1
-          },
-          "customParams": {
+            "speed": 1,
+            "amplification": 3.04,
             "iterations": 0.5,
             "amplitude": 0.5,
             "zoom": 0.5,
             "fireColor": [
-              0.5372549019607843,
-              0.17647058823529413,
-              0.27450980392156865
+              1,
+              0.3,
+              0.1
             ]
           },
-          "presets": [],
+          "customParams": {
+            "amplification": 3.04,
+            "iterations": 0.5,
+            "amplitude": 0.5,
+            "zoom": 0.5,
+            "fireColor": [
+              1,
+              0.3,
+              0.1
+            ]
+          },
+          "presets": [
+            {
+              "params": {
+                "speed": 1,
+                "amplification": 3.04,
+                "iterations": 0.5,
+                "amplitude": 0.5,
+                "zoom": 0.5,
+                "fireColor": [
+                  1,
+                  0.3,
+                  0.1
+                ]
+              },
+              "name": null
+            }
+          ],
           "type": "shader"
         },
         {
@@ -47,7 +73,7 @@
           "type": "shader"
         },
         {
-          "shaderCode": "// Stage Lights Array Simulation - OPTIMIZED\n// Creates an array of animated stage lights with volumetric fog\n\n// @param showGround float 0.5 [0.0, 1.0] \"Show ground (>0.5)\"\n// @param lightHeight float 0.5 [0.0, 1.0] \"Light height\"\n// @param lightDepth float 0.5 [0.0, 1.0] \"Light depth\"\n// @param light1 color [1.0, 0.0, 0.0] \"Light 1\"\n// @param light2 color [0.0, 1.0, 0.0] \"Light 2\"\n// @param light3 color [0.0, 0.0, 1.0] \"Light 3\"\n// @param light4 color [1.0, 1.0, 0.0] \"Light 4\"\n// @param light5 color [1.0, 0.0, 1.0] \"Light 5\"\n// @param light6 color [0.0, 1.0, 1.0] \"Light 6\"\n// @param light7 color [1.0, 0.5, 0.0] \"Light 7\"\n// @param light8 color [0.5, 0.0, 1.0] \"Light 8\"\n\n#define NUM_LIGHTS 8\n#define PI 3.14159265359\n#define MAX_STEPS 88  // Reduziert von ~100\n\n// Vereinfachte Noise-Funktion\nfloat hash(float n) {\n    return fract(sin(n) * 43758.5453123);\n}\n\n// Schnellerer Noise - weniger Operationen\nfloat noise2(vec3 x) {\n    vec3 p = floor(x);\n    vec3 f = fract(x);\n    f = f * f * (3.0 - 2.0 * f);\n    \n    float n = p.x + p.y * 57.0 + 113.0 * p.z;\n    float a = hash(n);\n    float b = hash(n + 1.0);\n    float c = hash(n + 57.0);\n    float d = hash(n + 58.0);\n    float e = hash(n + 113.0);\n    float f1 = hash(n + 114.0);\n    float g = hash(n + 170.0);\n    float h = hash(n + 171.0);\n    \n    return mix(mix(mix(a, b, f.x), mix(c, d, f.x), f.y),\n               mix(mix(e, f1, f.x), mix(g, h, f.x), f.y), f.z);\n}\n\nfloat noise(vec3 x){\n  return 1.0;\n}\n// Vorberechnete Lichtdaten\nstruct Light {\n    vec3 pos;\n    vec3 dir;\n    vec3 color;\n    float angle;\n    float intensity;\n};\n\n// Lichtparameter einmal pro Frame berechnen\nvoid setupLights(out Light lights[NUM_LIGHTS]) {\n    // Build color array from named parameters\n    vec3 lightColors[NUM_LIGHTS];\n    lightColors[0] = light1;\n    lightColors[1] = light2;\n    lightColors[2] = light3;\n    lightColors[3] = light4;\n    lightColors[4] = light5;\n    lightColors[5] = light6;\n    lightColors[6] = light7;\n    lightColors[7] = light8;\n\n    for (int j = 0; j < NUM_LIGHTS; j++) {\n        float lightIndex = float(j);\n        float phase = lightIndex * PI * 2.0 / float(NUM_LIGHTS);\n        float swing = sin(iTime * 0.5 + phase) * 0.3;\n        float tilt = cos(iTime * 0.7 + phase * 1.5) * 0.2;\n\n        lights[j].pos = vec3(-3.5 + lightIndex * 1.0, 3.0 * lightHeight + 3.0, 10.0 * lightDepth - 10.0);\n        lights[j].dir = normalize(vec3(swing, -0.8 + tilt, 1.0));\n        lights[j].angle = 0.3 + 0.1 * sin(iTime + phase);\n\n        // Flicker\n        float flicker = 0.9 + 0.1 * sin(iTime * 20.0 + lightIndex * 7.0);\n        lights[j].intensity = 2.0 * flicker;\n        lights[j].color = lightColors[j];\n    }\n}\n\n// Optimierte Spotlight-Berechnung\nvec3 spotlightFast(vec3 pos, Light light, float fog) {\n    vec3 toLight = light.pos - pos;\n    float dist2 = dot(toLight, toLight);  // Quadrat statt length()\n    vec3 lightVec = toLight * inversesqrt(dist2);\n    \n    float spotEffect = dot(lightVec, -light.dir);\n    float spotCutoff = cos(light.angle);\n    \n    if (spotEffect < spotCutoff) return vec3(0.0);\n    \n    float edge = smoothstep(spotCutoff, 1.0, spotEffect);\n    float dist = sqrt(dist2);\n    float attenuation = 1.0 / (1.0 + 0.1 * dist + 0.01 * dist2);\n    \n    return light.color * (edge * attenuation * fog * light.intensity);\n}\n\n// Optimiertes Ray Marching\nvec3 volumetricLighting(vec3 ro, vec3 rd, float maxDist, Light lights[NUM_LIGHTS]) {\n    vec3 color = vec3(0.0);\n    \n    // Adaptive Schrittweite\n    float stepSize = maxDist / float(MAX_STEPS);\n    stepSize = max(stepSize, 0.15);  // Minimum 0.15\n    \n    float t = stepSize * 0.5;  // Start mit halber Schrittweite (besseres Sampling)\n    \n    for (int i = 0; i < MAX_STEPS; i++) {\n        if (t >= maxDist) break;\n        \n        vec3 pos = ro + rd * t;\n        \n        // Fog nur einmal pro Schritt berechnen\n        float fog = 0.1 + noise(pos * 0.5 + vec3(0.0, -iTime * 0.1, 0.0)) * 0.05;\n        \n        // Alle Lichter akkumulieren\n        vec3 lightContrib = vec3(0.0);\n        for (int j = 0; j < NUM_LIGHTS; j++) {\n            lightContrib += spotlightFast(pos, lights[j], fog);\n        }\n        \n        color += lightContrib;\n        t += stepSize;\n    }\n    \n    return color * stepSize;\n}\n\nfloat groundPlane(vec3 ro, vec3 rd) {\n    return rd.y < 0.0 ? -ro.y / rd.y : -1.0;\n}\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;\n    \n    // Lichter einmal pro Pixel vorberechnen\n    Light lights[NUM_LIGHTS];\n    setupLights(lights);\n    \n    // Camera\n    vec3 ro = vec3(0.0, 1.5, 5.0);\n    vec3 forward = normalize(vec3(0.0, 1.0, 0.0) - ro);\n    vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), forward));\n    vec3 up = cross(forward, right);\n    vec3 rd = normalize(forward + uv.x * right + uv.y * up);\n    \n    // Background\n    vec3 color = vec3(0.02, 0.02, 0.05) * (1.0 - uv.y * 0.5);\n    \n    // Ground\n    float groundT = 0.0;\n    if(showGround >= 0.5){\n    groundT = groundPlane(ro, rd);\n    if (groundT > 0.0) {\n        vec3 groundPos = ro + rd * groundT;\n        vec2 checker = floor(groundPos.xz * 2.0);\n        float pattern = mod(checker.x + checker.y, 2.0);\n        color = mix(color, mix(vec3(0.05), vec3(0.1), pattern), exp(-groundT * 0.1));\n    }\n    }\n    // Volumetric lighting\n    color += volumetricLighting(ro, rd, groundT > 0.0 ? groundT : 10.0, lights);\n    \n    // Tonemapping + Gamma + Vignette kombiniert\n    color = pow(color / (1.0 + color), vec3(0.4545)) * (1.0 - dot(uv, uv) * 0.3);\n    if(uv.y < 0.48 || uv.y > 0.52){\n      fragColor = vec4(color, 1.0);\n    } else {\n      fragColor = vec4(0.0,0.0,0.0,1.0);\n    }\n    \n} ",
+          "shaderCode": "// Stage Lighting Simulator\n// A Three.js scene demonstrating concert/stage lighting effects\n//\n// @param cameraSpeed float 0.002 [0, 0.01] \"Camera rotation speed\"\n// @param movingHeadSpeed float 0.5 [0.1, 2.0] \"Moving head animation speed\"\n// @param ledBarSpeed float 0.3 [0.1, 1.0] \"LED bar color cycle speed\"\n// @param hazeOpacity float 0.4 [0, 1] \"Haze particle opacity\"\n// @param blinderFlashRate float 2.0 [0.5, 5.0] \"Blinder flash rate\"\n// @param spotIntensity float 50 [10, 100] \"Spot light intensity\"\n// @param movingHeadIntensity float 80 [20, 150] \"Moving head intensity\"\n// @param autoRotate int 1 [0, 1] \"Camera auto-rotation\"\n// @param cameraView float 60.0 [1.0,360] \"Camera View\"\n\nfunction setup(THREE, canvas, params, channels, mouse) {\n  // Scene setup\n  const scene = new THREE.Scene();\n  scene.background = new THREE.Color(0x050508);\n  scene.fog = new THREE.FogExp2(0x050508, 0.015);\n\n  const camera = new THREE.PerspectiveCamera(params.cameraView, canvas.width / canvas.height, 0.1, 1000);\n  camera.position.set(0, 8, 25);\n  camera.lookAt(0, 3, 0);\n\n  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });\n  renderer.setSize(canvas.width, canvas.height, false);\n  renderer.shadowMap.enabled = true;\n  renderer.shadowMap.type = THREE.PCFSoftShadowMap;\n\n  // Ambient light (very dim)\n  const ambient = new THREE.AmbientLight(0x111122, 0.3);\n  scene.add(ambient);\n\n  // Stage floor\n  const stageGeo = new THREE.BoxGeometry(30, 0.5, 20);\n  const stageMat = new THREE.MeshStandardMaterial({\n    color: 0x1a1a1a,\n    roughness: 0.8,\n    metalness: 0.2\n  });\n  const stage = new THREE.Mesh(stageGeo, stageMat);\n  stage.position.y = -0.25;\n  stage.receiveShadow = true;\n  scene.add(stage);\n\n  // Back wall\n  const wallGeo = new THREE.BoxGeometry(30, 15, 0.5);\n  const wallMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.9 });\n  const backWall = new THREE.Mesh(wallGeo, wallMat);\n  backWall.position.set(0, 7, -10);\n  backWall.receiveShadow = true;\n  scene.add(backWall);\n\n  // Truss system\n  const trussMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.8, roughness: 0.3 });\n\n  function createTruss(length) {\n    const group = new THREE.Group();\n    const radius = 0.08;\n\n    const positions = [[-0.3, 0.3], [0.3, 0.3], [-0.3, -0.3], [0.3, -0.3]];\n\n    positions.forEach(([y, z]) => {\n      const geo = new THREE.CylinderGeometry(radius, radius, length, 8);\n      geo.rotateZ(Math.PI / 2);\n      const mesh = new THREE.Mesh(geo, trussMat);\n      mesh.position.set(0, y, z);\n      group.add(mesh);\n    });\n\n    const braceCount = Math.floor(length / 2);\n    for (let i = 0; i <= braceCount; i++) {\n      const x = -length/2 + i * (length / braceCount);\n      const ringGeo = new THREE.TorusGeometry(0.35, 0.04, 8, 4);\n      ringGeo.rotateY(Math.PI / 2);\n      const ring = new THREE.Mesh(ringGeo, trussMat);\n      ring.position.x = x;\n      group.add(ring);\n    }\n\n    return group;\n  }\n\n  // Trusses\n  const frontTruss = createTruss(28);\n  frontTruss.position.set(0, 10, 5);\n  scene.add(frontTruss);\n\n  const backTruss = createTruss(28);\n  backTruss.position.set(0, 12, -5);\n  scene.add(backTruss);\n\n  const leftTruss = createTruss(12);\n  leftTruss.rotation.y = Math.PI / 2;\n  leftTruss.position.set(-14, 10, 0);\n  scene.add(leftTruss);\n\n  const rightTruss = createTruss(12);\n  rightTruss.rotation.y = Math.PI / 2;\n  rightTruss.position.set(14, 10, 0);\n  scene.add(rightTruss);\n\n  // Arrays to store animated lights\n  const movingHeads = [];\n  const spotLights = [];\n  const barLights = [];\n\n  // Helper to create volumetric cone\n  function createLightCone(color, angle = 0.4, length = 12) {\n    const coneGeo = new THREE.ConeGeometry(Math.tan(angle) * length, length, 32, 1, true);\n    const coneMat = new THREE.MeshBasicMaterial({\n      color: color,\n      transparent: true,\n      opacity: 0.08,\n      side: THREE.DoubleSide,\n      blending: THREE.AdditiveBlending,\n      depthWrite: false\n    });\n    const cone = new THREE.Mesh(coneGeo, coneMat);\n    cone.rotation.x = Math.PI;\n    cone.position.y = -length / 2;\n    return cone;\n  }\n\n  // Create fixture housing\n  function createFixtureHousing(type = 'spot') {\n    const group = new THREE.Group();\n    const housingMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.7, roughness: 0.3 });\n\n    if (type === 'moving') {\n      const yokeGeo = new THREE.BoxGeometry(0.6, 0.8, 0.15);\n      const yoke = new THREE.Mesh(yokeGeo, housingMat);\n      group.add(yoke);\n\n      const headGroup = new THREE.Group();\n      const headGeo = new THREE.CylinderGeometry(0.35, 0.4, 0.7, 16);\n      headGeo.rotateX(Math.PI / 2);\n      const head = new THREE.Mesh(headGeo, housingMat);\n      headGroup.add(head);\n\n      const lensGeo = new THREE.CircleGeometry(0.3, 16);\n      const lensMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 });\n      const lens = new THREE.Mesh(lensGeo, lensMat);\n      lens.position.z = 0.36;\n      headGroup.add(lens);\n\n      headGroup.position.y = -0.4;\n      group.add(headGroup);\n      group.headGroup = headGroup;\n      group.lens = lens;\n    } else if (type === 'spot') {\n      const bodyGeo = new THREE.CylinderGeometry(0.25, 0.35, 0.8, 12);\n      const body = new THREE.Mesh(bodyGeo, housingMat);\n      body.rotation.x = Math.PI;\n      group.add(body);\n\n      const lensGeo = new THREE.CircleGeometry(0.33, 16);\n      const lensMat = new THREE.MeshBasicMaterial({ color: 0xffffcc });\n      const lens = new THREE.Mesh(lensGeo, lensMat);\n      lens.rotation.x = Math.PI / 2;\n      lens.position.y = -0.41;\n      group.add(lens);\n    } else if (type === 'par') {\n      const bodyGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.4, 12);\n      const body = new THREE.Mesh(bodyGeo, housingMat);\n      body.rotation.x = Math.PI / 2;\n      group.add(body);\n    }\n\n    return group;\n  }\n\n  // SPOT LIGHTS - Front truss\n  const spotColors = [0xff4444, 0x44ff44, 0x4444ff, 0xffff44, 0xff44ff, 0x44ffff];\n  for (let i = 0; i < 6; i++) {\n    const x = -12 + i * 4.8;\n    const color = spotColors[i];\n\n    const fixture = createFixtureHousing('spot');\n    fixture.position.set(x, 9.5, 5);\n    fixture.rotation.x = 0.3;\n    scene.add(fixture);\n\n    const spot = new THREE.SpotLight(color, params.spotIntensity, 25, 0.4, 0.5, 1);\n    spot.position.set(x, 9.2, 5);\n    spot.target.position.set(x * 0.3, 0, -2);\n    scene.add(spot);\n    scene.add(spot.target);\n\n    const cone = createLightCone(color, 0.4, 10);\n    cone.position.set(x, 9.2, 5);\n    cone.rotation.x = 0.3;\n    scene.add(cone);\n\n    spotLights.push({ light: spot, cone, fixture, baseX: x, color });\n  }\n\n  // MOVING HEADS - Back truss\n  const movingColors = [0xff0066, 0x00ffff, 0xff6600, 0x00ff66, 0x6600ff, 0xffff00];\n  for (let i = 0; i < 6; i++) {\n    const x = -10 + i * 4;\n    const color = movingColors[i];\n\n    const fixture = createFixtureHousing('moving');\n    fixture.position.set(x, 11.5, -5);\n    scene.add(fixture);\n\n    const spot = new THREE.SpotLight(color, params.movingHeadIntensity, 30, 0.25, 0.3, 1);\n    spot.position.set(x, 10.8, -5);\n    spot.castShadow = true;\n    spot.shadow.mapSize.width = 512;\n    spot.shadow.mapSize.height = 512;\n    scene.add(spot);\n    scene.add(spot.target);\n\n    const cone = createLightCone(color, 0.25, 14);\n    scene.add(cone);\n\n    movingHeads.push({\n      light: spot,\n      cone,\n      fixture,\n      baseX: x,\n      phase: i * Math.PI / 3,\n      color\n    });\n  }\n\n  // LED BARS\n  function createLEDBar(width, segments) {\n    const group = new THREE.Group();\n    const housingGeo = new THREE.BoxGeometry(width, 0.15, 0.2);\n    const housingMat = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.8 });\n    const housing = new THREE.Mesh(housingGeo, housingMat);\n    group.add(housing);\n\n    const segmentWidth = width / segments;\n    const lights = [];\n\n    for (let i = 0; i < segments; i++) {\n      const x = -width/2 + segmentWidth/2 + i * segmentWidth;\n      const ledGeo = new THREE.PlaneGeometry(segmentWidth * 0.8, 0.1);\n      const ledMat = new THREE.MeshBasicMaterial({ color: 0xffffff });\n      const led = new THREE.Mesh(ledGeo, ledMat);\n      led.position.set(x, 0.08, 0);\n      led.rotation.x = -Math.PI / 2;\n      group.add(led);\n\n      const pointLight = new THREE.PointLight(0xffffff, 2, 4);\n      pointLight.position.set(x, 0.2, 0);\n      group.add(pointLight);\n\n      lights.push({ mesh: led, light: pointLight, index: i });\n    }\n\n    group.lights = lights;\n    return group;\n  }\n\n  const frontBar1 = createLEDBar(8, 12);\n  frontBar1.position.set(-8, 0.1, 8);\n  frontBar1.rotation.x = -0.2;\n  scene.add(frontBar1);\n  barLights.push({ bar: frontBar1, phase: 0 });\n\n  const frontBar2 = createLEDBar(8, 12);\n  frontBar2.position.set(8, 0.1, 8);\n  frontBar2.rotation.x = -0.2;\n  scene.add(frontBar2);\n  barLights.push({ bar: frontBar2, phase: Math.PI });\n\n  const backBar = createLEDBar(20, 24);\n  backBar.position.set(0, 0.1, -8);\n  backBar.rotation.x = 0.8;\n  scene.add(backBar);\n  barLights.push({ bar: backBar, phase: 0, isBack: true });\n\n  // WASH LIGHTS\n  const washColors = [0xff3366, 0x3366ff, 0xff3366, 0x3366ff];\n  const washPositions = [[-14, 10, 4], [-14, 10, -4], [14, 10, 4], [14, 10, -4]];\n\n  washPositions.forEach((pos, i) => {\n    const color = washColors[i];\n    const wash = new THREE.SpotLight(color, 40, 25, 0.8, 0.8, 1);\n    wash.position.set(...pos);\n    wash.target.position.set(0, 0, pos[2] * 0.5);\n    scene.add(wash);\n    scene.add(wash.target);\n\n    const cone = createLightCone(color, 0.8, 12);\n    cone.position.set(...pos);\n    cone.rotation.z = i < 2 ? 0.5 : -0.5;\n    scene.add(cone);\n  });\n\n  // BLINDERS\n  function createBlinder() {\n    const group = new THREE.Group();\n    const housingGeo = new THREE.BoxGeometry(2, 0.8, 0.4);\n    const housingMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.7 });\n    const housing = new THREE.Mesh(housingGeo, housingMat);\n    group.add(housing);\n\n    const cells = [];\n    for (let i = 0; i < 4; i++) {\n      const x = -0.75 + i * 0.5;\n      const cellGeo = new THREE.CircleGeometry(0.18, 16);\n      const cellMat = new THREE.MeshBasicMaterial({ color: 0xffffcc });\n      const cell = new THREE.Mesh(cellGeo, cellMat);\n      cell.position.set(x, 0, 0.21);\n      group.add(cell);\n\n      const light = new THREE.SpotLight(0xffffcc, 0, 15, 0.6, 0.5, 1);\n      light.position.set(x, 0, 0.3);\n      light.target.position.set(x, -5, 10);\n      group.add(light);\n      group.add(light.target);\n\n      cells.push({ mesh: cell, light });\n    }\n\n    group.cells = cells;\n    return group;\n  }\n\n  const blinder = createBlinder();\n  blinder.position.set(0, 9.5, 5.3);\n  blinder.rotation.x = 0.4;\n  scene.add(blinder);\n\n  // Haze particles\n  const hazeGeo = new THREE.BufferGeometry();\n  const hazeCount = 2000;\n  const hazePositions = new Float32Array(hazeCount * 3);\n\n  for (let i = 0; i < hazeCount; i++) {\n    hazePositions[i * 3] = (Math.random() - 0.5) * 30;\n    hazePositions[i * 3 + 1] = Math.random() * 15;\n    hazePositions[i * 3 + 2] = (Math.random() - 0.5) * 25;\n  }\n\n  hazeGeo.setAttribute('position', new THREE.BufferAttribute(hazePositions, 3));\n  const hazeMat = new THREE.PointsMaterial({\n    color: 0x666688,\n    size: 0.08,\n    transparent: true,\n    opacity: params.hazeOpacity,\n    blending: THREE.AdditiveBlending\n  });\n  const haze = new THREE.Points(hazeGeo, hazeMat);\n  scene.add(haze);\n\n  return {\n    scene,\n    camera,\n    renderer,\n    objects: {\n      movingHeads,\n      spotLights,\n      barLights,\n      blinder,\n      haze,\n      hazeMat,\n      hazeCount,\n      cameraAngle: 0\n    }\n  };\n}\n\nfunction animate(time, delta, params, objects, mouse, channels) {\n  const { movingHeads, spotLights, barLights, blinder, haze, hazeMat, hazeCount } = objects;\n  const THREE = window.THREE;\n\n  // Update haze opacity from params\n  hazeMat.opacity = params.hazeOpacity;\n\n  // Animate moving heads\n  movingHeads.forEach((mh, i) => {\n    const speed = params.movingHeadSpeed;\n    const pan = Math.sin(time * speed + mh.phase) * 0.8;\n    const tilt = Math.sin(time * speed * 1.4 + mh.phase * 1.5) * 0.3 + 0.5;\n\n    if (mh.fixture.headGroup) {\n      mh.fixture.headGroup.rotation.x = tilt;\n      mh.fixture.rotation.y = pan;\n    }\n\n    const targetX = mh.baseX + Math.sin(time * speed + mh.phase) * 8;\n    const targetZ = Math.sin(time * speed * 1.4 + mh.phase * 1.5) * 5;\n    mh.light.target.position.set(targetX, 0, targetZ);\n\n    mh.cone.position.copy(mh.light.position);\n    const dir = new THREE.Vector3().subVectors(mh.light.target.position, mh.light.position).normalize();\n    mh.cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), dir);\n\n    // Color cycling\n    const hue = (time * 0.1 + i * 0.1) % 1;\n    const color = new THREE.Color().setHSL(hue, 1, 0.5);\n    mh.light.color = color;\n    mh.light.intensity = params.movingHeadIntensity;\n    mh.cone.material.color = color;\n    if (mh.fixture.lens) mh.fixture.lens.material.color = color;\n  });\n\n  // Animate LED bars\n  const ledSpeed = params.ledBarSpeed;\n  barLights.forEach((bl) => {\n    bl.bar.lights.forEach((led, i) => {\n      const hue = (time * ledSpeed + i * 0.05 + bl.phase) % 1;\n      const brightness = (Math.sin(time * 3 + i * 0.3 + bl.phase) + 1) / 2;\n      const color = new THREE.Color().setHSL(hue, 1, 0.5 * brightness + 0.2);\n      led.mesh.material.color = color;\n      led.light.color = color;\n      led.light.intensity = brightness * 3;\n    });\n  });\n\n  // Blinder flash effect\n  const blinderOn = Math.sin(time * params.blinderFlashRate) > 0.9;\n  blinder.cells.forEach((cell) => {\n    cell.light.intensity = blinderOn ? 100 : 0;\n    cell.mesh.material.color.setHex(blinderOn ? 0xffffff : 0x333322);\n  });\n\n  // Animate spot light intensity\n  spotLights.forEach((sl, i) => {\n    const pulse = (Math.sin(time * 2 + i * 0.5) + 1) / 2;\n    sl.light.intensity = params.spotIntensity * (0.6 + pulse * 0.4);\n    sl.cone.material.opacity = 0.05 + pulse * 0.05;\n  });\n\n  // Haze drift\n  const positions = haze.geometry.attributes.position.array;\n  for (let i = 0; i < hazeCount; i++) {\n    positions[i * 3 + 1] += 0.005;\n    if (positions[i * 3 + 1] > 15) positions[i * 3 + 1] = 0;\n  }\n  haze.geometry.attributes.position.needsUpdate = true;\n\n  // Camera auto-rotation\n  if (params.autoRotate === 1) {\n    objects.cameraAngle += params.cameraSpeed;\n  }\n}\n\nfunction cleanup(objects) {\n  if (objects.haze) {\n    objects.haze.geometry.dispose();\n    objects.hazeMat.dispose();\n  }\n}\n",
           "filePath": null,
           "params": {
             "speed": 1,
@@ -95,51 +121,7 @@
               1
             ]
           },
-          "customParams": {
-            "showGround": 0.33,
-            "lightHeight": 0.5,
-            "lightDepth": 0.5,
-            "light1": [
-              0.984313725490196,
-              0.03529411764705882,
-              0.03529411764705882
-            ],
-            "light2": [
-              0.0196078431372549,
-              0.34509803921568627,
-              1
-            ],
-            "light3": [
-              1,
-              1,
-              1
-            ],
-            "light4": [
-              1,
-              1,
-              1
-            ],
-            "light5": [
-              1,
-              1,
-              1
-            ],
-            "light6": [
-              1,
-              1,
-              1
-            ],
-            "light7": [
-              1,
-              1,
-              1
-            ],
-            "light8": [
-              1,
-              1,
-              1
-            ]
-          },
+          "customParams": {},
           "presets": [
             {
               "params": {
@@ -289,7 +271,7 @@
               "name": null
             }
           ],
-          "type": "shader"
+          "type": "scene"
         },
         {
           "shaderCode": "// Colorful flames effect\n// Custom params: // @param name type [default] [min, max] \"description\"\n// @texture iChannel0 RGBANoise\n// @param iFlame float 0.3 [0.0,5.0] \"Flamme\"\n// @param light1 color [0.9, 0.4, 0.1] \"Flame 1\"\n// @param light2 color [0.2, 0.6, 0.8] \"Flame 2\"\n// @param light3 color [0.9, 0.0, 1.0] \"Flame 3\"\n// @param light4 color [0.2, 0.3, 0.8] \"Flame 4\"\n// @param light5 color [0.9, 0.4, 0.6] \"Flame 5\"\n// @param light6 color [0.2, 0.6, 0.7] \"Flame 6\"\n// @param light7 color [0.9, 0.4, 0.3] \"Flame 7\"\n// @param light8 color [0.2, 0.3, 0.8] \"Flame 8\"\n\n#define R iResolution.xy\n#define S smoothstep\n#define T texture\n\nvec3 flame (vec2 u, float s, vec3 c1, vec3 c2) {\n    float y = S(-.6,.6,u.y);\n    u += T(iChannel0, u*.02 + vec2(s - iTime*.03*iFlame, s - iTime*.1*iFlame)).r * y * vec2(0.7, 0.2);\n    float f = S(.1, 0., length(u) - .4);\n    f *= S(0., 1., length(u + vec2(0., .35)));\n    return f*mix(c1,c2,y);\n}\n\nvoid mainImage( out vec4 O, in vec2 I )\n{\n    vec2 u = (I-.5*R)/R.y*vec2(10.,1.3);\n    \n    vec3 f1 = flame(u+vec2( 7.5,0.2),.1,light1,vec3(.9,.7,.3));\n    vec3 f2 = flame(u+vec2( 6.,0.),.2,light2,vec3(.6,.8,.9));\n    vec3 f3 = flame(u+vec2( 4.5,0.),.3,light3,vec3(.9,.3,.0));\n    vec3 f4 = flame(u+vec2( 3.,0.),.4,light4,vec3(.9,.6,.9));\n    vec3 f5 = flame(u+vec2( 1.5,0.),.5,light5,vec3(.9,.7,.3));\n    vec3 f6 = flame(u+vec2( 0.,0.),.6,light6,vec3(.6,.8,.9));\n    vec3 f7 = flame(u+vec2( -1.5,0.),.7,light7,vec3(1.,.8,.5));\n    vec3 f8 = flame(u+vec2(-3.,0.),.8,light8,vec3(.9,.6,.9));\n\n    vec3 C = f1+f2+f3+f4+f5+f6+f7+f8;\n    O = vec4(C+C,1.0);\n    \n}",
@@ -818,18 +800,18 @@
               ]
             ],
             "colors": [
-              0,
+              3.64,
               3
             ],
             "rradius": 0.5,
             "mradius": 0.1,
             "gridsize": 10,
             "xspeed": [
-              0,
-              0
+              0.7,
+              -0.43
             ],
             "cspeed": [
-              0,
+              0.54,
               0
             ],
             "pos": [
@@ -940,7 +922,7 @@
               ]
             ],
             "fspeed": [
-              0.03,
+              0.12,
               0.14
             ],
             "size": [
@@ -1502,60 +1484,6 @@
           "params": {
             "speed": 1
           },
-          "customParams": {
-            "showGround": 0.5,
-            "lightHeight": 0.5,
-            "lightDepth": 0.5,
-            "light1": [
-              1,
-              1,
-              1
-            ],
-            "light2": [
-              1,
-              1,
-              1
-            ],
-            "light3": [
-              1,
-              1,
-              1
-            ],
-            "light4": [
-              1,
-              1,
-              1
-            ],
-            "light5": [
-              1,
-              1,
-              1
-            ],
-            "light6": [
-              1,
-              1,
-              1
-            ],
-            "light7": [
-              1,
-              1,
-              1
-            ],
-            "light8": [
-              1,
-              1,
-              1
-            ]
-          },
-          "presets": [],
-          "type": "shader"
-        },
-        {
-          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n *\n * Supported types: int, float, vec2, vec3, vec4, color\n *\n * Examples:\n *   // @param speed float 1.0 [0.0, 2.0] \"Animation speed\"\n *   // @param center vec2 0.5, 0.5 \"Center position\"\n *   // @param tint color [1.0, 0.5, 0.0] \"Tint color\"\n */\n\n/*\n * \"Seascape\" by Alexander Alekseev aka TDM - 2014\n * License Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported License.\n * Contact: tdmaav@gmail.com\n */\n\nconst int NUM_STEPS = 32;\nconst float PI\t \t= 3.141592;\nconst float EPSILON\t= 1e-3;\n#define EPSILON_NRM (0.1 / iResolution.x)\n//#define AA\n\n// sea\nconst int ITER_GEOMETRY = 3;\nconst int ITER_FRAGMENT = 5;\nconst float SEA_HEIGHT = 0.6;\nconst float SEA_CHOPPY = 4.0;\nconst float SEA_SPEED = 0.8;\nconst float SEA_FREQ = 0.16;\nconst vec3 SEA_BASE = vec3(0.0,0.09,0.18);\nconst vec3 SEA_WATER_COLOR = vec3(0.8,0.9,0.6)*0.6;\n#define SEA_TIME (1.0 + iTime * SEA_SPEED)\nconst mat2 octave_m = mat2(1.6,1.2,-1.2,1.6);\n\n// math\nmat3 fromEuler(vec3 ang) {\n\tvec2 a1 = vec2(sin(ang.x),cos(ang.x));\n    vec2 a2 = vec2(sin(ang.y),cos(ang.y));\n    vec2 a3 = vec2(sin(ang.z),cos(ang.z));\n    mat3 m;\n    m[0] = vec3(a1.y*a3.y+a1.x*a2.x*a3.x,a1.y*a2.x*a3.x+a3.y*a1.x,-a2.y*a3.x);\n\tm[1] = vec3(-a2.y*a1.x,a1.y*a2.y,a2.x);\n\tm[2] = vec3(a3.y*a1.x*a2.x+a1.y*a3.x,a1.x*a3.x-a1.y*a3.y*a2.x,a2.y*a3.y);\n\treturn m;\n}\nfloat hash( vec2 p ) {\n\tfloat h = dot(p,vec2(127.1,311.7));\t\n    return fract(sin(h)*43758.5453123);\n}\nfloat noise( in vec2 p ) {\n    vec2 i = floor( p );\n    vec2 f = fract( p );\t\n\tvec2 u = f*f*(3.0-2.0*f);\n    return -1.0+2.0*mix( mix( hash( i + vec2(0.0,0.0) ), \n                     hash( i + vec2(1.0,0.0) ), u.x),\n                mix( hash( i + vec2(0.0,1.0) ), \n                     hash( i + vec2(1.0,1.0) ), u.x), u.y);\n}\n\n// lighting\nfloat diffuse(vec3 n,vec3 l,float p) {\n    return pow(dot(n,l) * 0.4 + 0.6,p);\n}\nfloat specular(vec3 n,vec3 l,vec3 e,float s) {    \n    float nrm = (s + 8.0) / (PI * 8.0);\n    return pow(max(dot(reflect(e,n),l),0.0),s) * nrm;\n}\n\n// sky\nvec3 getSkyColor(vec3 e) {\n    e.y = (max(e.y,0.0)*0.8+0.2)*0.8;\n    return vec3(pow(1.0-e.y,2.0), 1.0-e.y, 0.6+(1.0-e.y)*0.4) * 1.1;\n}\n\n// sea\nfloat sea_octave(vec2 uv, float choppy) {\n    uv += noise(uv);        \n    vec2 wv = 1.0-abs(sin(uv));\n    vec2 swv = abs(cos(uv));    \n    wv = mix(wv,swv,wv);\n    return pow(1.0-pow(wv.x * wv.y,0.65),choppy);\n}\n\nfloat map(vec3 p) {\n    float freq = SEA_FREQ;\n    float amp = SEA_HEIGHT;\n    float choppy = SEA_CHOPPY;\n    vec2 uv = p.xz; uv.x *= 0.75;\n    \n    float d, h = 0.0;    \n    for(int i = 0; i < ITER_GEOMETRY; i++) {        \n    \td = sea_octave((uv+SEA_TIME)*freq,choppy);\n    \td += sea_octave((uv-SEA_TIME)*freq,choppy);\n        h += d * amp;        \n    \tuv *= octave_m; freq *= 1.9; amp *= 0.22;\n        choppy = mix(choppy,1.0,0.2);\n    }\n    return p.y - h;\n}\n\nfloat map_detailed(vec3 p) {\n    float freq = SEA_FREQ;\n    float amp = SEA_HEIGHT;\n    float choppy = SEA_CHOPPY;\n    vec2 uv = p.xz; uv.x *= 0.75;\n    \n    float d, h = 0.0;    \n    for(int i = 0; i < ITER_FRAGMENT; i++) {        \n    \td = sea_octave((uv+SEA_TIME)*freq,choppy);\n    \td += sea_octave((uv-SEA_TIME)*freq,choppy);\n        h += d * amp;        \n    \tuv *= octave_m; freq *= 1.9; amp *= 0.22;\n        choppy = mix(choppy,1.0,0.2);\n    }\n    return p.y - h;\n}\n\nvec3 getSeaColor(vec3 p, vec3 n, vec3 l, vec3 eye, vec3 dist) {  \n    float fresnel = clamp(1.0 - dot(n, -eye), 0.0, 1.0);\n    fresnel = min(fresnel * fresnel * fresnel, 0.5);\n    \n    vec3 reflected = getSkyColor(reflect(eye, n));    \n    vec3 refracted = SEA_BASE + diffuse(n, l, 80.0) * SEA_WATER_COLOR * 0.12; \n    \n    vec3 color = mix(refracted, reflected, fresnel);\n    \n    float atten = max(1.0 - dot(dist, dist) * 0.001, 0.0);\n    color += SEA_WATER_COLOR * (p.y - SEA_HEIGHT) * 0.18 * atten;\n    \n    color += specular(n, l, eye, 600.0 * inversesqrt(dot(dist,dist)));\n    \n    return color;\n}\n\n// tracing\nvec3 getNormal(vec3 p, float eps) {\n    vec3 n;\n    n.y = map_detailed(p);    \n    n.x = map_detailed(vec3(p.x+eps,p.y,p.z)) - n.y;\n    n.z = map_detailed(vec3(p.x,p.y,p.z+eps)) - n.y;\n    n.y = eps;\n    return normalize(n);\n}\n\nfloat heightMapTracing(vec3 ori, vec3 dir, out vec3 p) {  \n    float tm = 0.0;\n    float tx = 1000.0;    \n    float hx = map(ori + dir * tx);\n    if(hx > 0.0) {\n        p = ori + dir * tx;\n        return tx;   \n    }\n    float hm = map(ori);    \n    for(int i = 0; i < NUM_STEPS; i++) {\n        float tmid = mix(tm, tx, hm / (hm - hx));\n        p = ori + dir * tmid;\n        float hmid = map(p);        \n        if(hmid < 0.0) {\n            tx = tmid;\n            hx = hmid;\n        } else {\n            tm = tmid;\n            hm = hmid;\n        }        \n        if(abs(hmid) < EPSILON) break;\n    }\n    return mix(tm, tx, hm / (hm - hx));\n}\n\nvec3 getPixel(in vec2 coord, float time) {    \n    vec2 uv = coord / iResolution.xy;\n    uv = uv * 2.0 - 1.0;\n    uv.x *= iResolution.x / iResolution.y;    \n        \n    // ray\n    vec3 ang = vec3(sin(time*3.0)*0.1,sin(time)*0.2+0.3,time);    \n    vec3 ori = vec3(0.0,3.5,time*5.0);\n    vec3 dir = normalize(vec3(uv.xy,-2.0)); dir.z += length(uv) * 0.14;\n    dir = normalize(dir) * fromEuler(ang);\n    \n    // tracing\n    vec3 p;\n    heightMapTracing(ori,dir,p);\n    vec3 dist = p - ori;\n    vec3 n = getNormal(p, dot(dist,dist) * EPSILON_NRM);\n    vec3 light = normalize(vec3(0.0,1.0,0.8)); \n             \n    // color\n    return mix(\n        getSkyColor(dir),\n        getSeaColor(p,n,light,dir,dist),\n    \tpow(smoothstep(0.0,-0.02,dir.y),0.2));\n}\n\n// main\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord ) {\n    float time = iTime * 0.3 + iMouse.x*0.01;\n\t\n#ifdef AA\n    vec3 color = vec3(0.0);\n    for(int i = -1; i <= 1; i++) {\n        for(int j = -1; j <= 1; j++) {\n        \tvec2 uv = fragCoord+vec2(i,j)/3.0;\n    \t\tcolor += getPixel(uv, time);\n        }\n    }\n    color /= 9.0;\n#else\n    vec3 color = getPixel(fragCoord, time);\n#endif\n    \n    // post\n\tfragColor = vec4(pow(color,vec3(0.65)), 1.0);\n}",
-          "filePath": "/Users/mbp11/development/ai/anthropic/shadershow/examples/stage-lights.jsx",
-          "params": {
-            "speed": 1
-          },
           "customParams": {},
           "presets": [],
           "type": "scene"
@@ -1973,6 +1901,213 @@
               },
               "customParams": {}
             }
+          ]
+        },
+        {
+          "name": "Mix 4",
+          "blendMode": "lighter",
+          "thumbnail": "data:image/jpeg;base64,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",
+          "channels": [
+            {
+              "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n *\n * Supported types: int, float, vec2, vec3, vec4, color\n *\n * Examples:\n *   // @param speed float 1.0 [0.0, 2.0] \"Animation speed\"\n *   // @param center vec2 0.5, 0.5 \"Center position\"\n *   // @param tint color [1.0, 0.5, 0.0] \"Tint color\"\n */\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n\tvec2 uv = fragCoord.xy / iResolution.xy;\n\tfragColor = vec4(uv,0.5+0.5*sin(iTime),1.0);\n    \n    \n    float pi = 3.1415926535897; \n\n     \n    float cx = uv.x+0.5*sin(iTime/5.0); \n    float cy = uv.y+0.5*cos(iTime/3.0); \n     \n    float v = sin(sqrt(100.0*(cx*cx+cy*cy))); \n    v += sin(uv.x*10.0+iTime); \n    v += cos(uv.y*4.0+iTime); \n     \n    fragColor = vec4(sin(v*pi), cos(v*pi), sin(v*pi + 0.5*pi*v), 1.0); \n    \n}",
+              "alpha": 1,
+              "params": {
+                "speed": 1,
+                "p0": 0.5,
+                "p1": 0.5,
+                "p2": 0.5,
+                "p3": 0.5,
+                "p4": 0.5,
+                "r0": 1,
+                "g0": 1,
+                "b0": 1,
+                "r1": 1,
+                "g1": 1,
+                "b1": 1,
+                "r2": 1,
+                "g2": 1,
+                "b2": 1,
+                "r3": 1,
+                "g3": 1,
+                "b3": 1,
+                "r4": 1,
+                "g4": 1,
+                "b4": 1,
+                "r5": 1,
+                "g5": 1,
+                "b5": 1,
+                "r6": 1,
+                "g6": 1,
+                "b6": 1,
+                "r7": 1,
+                "g7": 1,
+                "b7": 1,
+                "r8": 1,
+                "g8": 1,
+                "b8": 1,
+                "r9": 1,
+                "g9": 1,
+                "b9": 1
+              },
+              "customParams": {}
+            },
+            {
+              "shaderCode": "// Colorful flames effect\n// Custom params: // @param name type [default] [min, max] \"description\"\n// @texture iChannel0 RGBANoise\n// @param iFlame float 0.3 [0.0,5.0] \"Flamme\"\n// @param light1 color [0.9, 0.4, 0.1] \"Flame 1\"\n// @param light2 color [0.2, 0.6, 0.8] \"Flame 2\"\n// @param light3 color [0.9, 0.0, 1.0] \"Flame 3\"\n// @param light4 color [0.2, 0.3, 0.8] \"Flame 4\"\n// @param light5 color [0.9, 0.4, 0.6] \"Flame 5\"\n// @param light6 color [0.2, 0.6, 0.7] \"Flame 6\"\n// @param light7 color [0.9, 0.4, 0.3] \"Flame 7\"\n// @param light8 color [0.2, 0.3, 0.8] \"Flame 8\"\n\n#define R iResolution.xy\n#define S smoothstep\n#define T texture\n\nvec3 flame (vec2 u, float s, vec3 c1, vec3 c2) {\n    float y = S(-.6,.6,u.y);\n    u += T(iChannel0, u*.02 + vec2(s - iTime*.03*iFlame, s - iTime*.1*iFlame)).r * y * vec2(0.7, 0.2);\n    float f = S(.1, 0., length(u) - .4);\n    f *= S(0., 1., length(u + vec2(0., .35)));\n    return f*mix(c1,c2,y);\n}\n\nvoid mainImage( out vec4 O, in vec2 I )\n{\n    vec2 u = (I-.5*R)/R.y*vec2(10.,1.3);\n    \n    vec3 f1 = flame(u+vec2( 7.5,0.2),.1,light1,vec3(.9,.7,.3));\n    vec3 f2 = flame(u+vec2( 6.,0.),.2,light2,vec3(.6,.8,.9));\n    vec3 f3 = flame(u+vec2( 4.5,0.),.3,light3,vec3(.9,.3,.0));\n    vec3 f4 = flame(u+vec2( 3.,0.),.4,light4,vec3(.9,.6,.9));\n    vec3 f5 = flame(u+vec2( 1.5,0.),.5,light5,vec3(.9,.7,.3));\n    vec3 f6 = flame(u+vec2( 0.,0.),.6,light6,vec3(.6,.8,.9));\n    vec3 f7 = flame(u+vec2( -1.5,0.),.7,light7,vec3(1.,.8,.5));\n    vec3 f8 = flame(u+vec2(-3.,0.),.8,light8,vec3(.9,.6,.9));\n\n    vec3 C = f1+f2+f3+f4+f5+f6+f7+f8;\n    O = vec4(C+C,1.0);\n    \n}",
+              "alpha": 0,
+              "params": {
+                "speed": 1
+              },
+              "customParams": {
+                "iFlame": 0.64,
+                "light1": [
+                  0.2,
+                  0.30196078431372547,
+                  0.8
+                ],
+                "light2": [
+                  0.2,
+                  0.6,
+                  0.8
+                ],
+                "light3": [
+                  0.9019607843137255,
+                  0.4,
+                  0.30196078431372547
+                ],
+                "light4": [
+                  1,
+                  0.54,
+                  0.23
+                ],
+                "light5": [
+                  0.9,
+                  0.4,
+                  0.3
+                ],
+                "light6": [
+                  0.2,
+                  0.3,
+                  0.8
+                ],
+                "light7": [
+                  0.9,
+                  0,
+                  1
+                ],
+                "light8": [
+                  0.2,
+                  0.3,
+                  0.8
+                ]
+              }
+            },
+            {
+              "shaderCode": "// Fire shader - Parametric flame effect\n\n// @param amplification float 1.0 [0.0,5.0] \"Verstaerkung\"\n// @param iterations float 0.5 [0.0, 1.0] \"Iteration depth\"\n// @param amplitude float 0.5 [0.0, 1.0] \"Wave amplitude\"\n// @param zoom float 0.5 [0.1, 1.0] \"Zoom level\"\n// @param fireColor color [1.0, 0.3, 0.1] \"Fire color\"\n\n/*\n    @SnoopethDuckDuck -6 chars\n    @Xor              -1 chars\n\n    Thanks! :D\n\n*/\n\n\nvoid mainImage(out vec4 o, vec2 u) {\n    float f, i, r, e,\n          t = iTime;\n    vec3 p, z = iResolution;\n    for(o*=i;\n        i++<1e2;\n        f += r = .01 + abs(--r)*.1,\n        o += 1. / r)\n        for(p = vec3((u-z.xy/(2. * 2.0 * zoom))/z.y * f, f+t),\n            p += cos(t+p.yzx+p.zzx)*(.6 + 5.0 * amplitude),\n            r =  cos(p.z),\n            e = 1.6 + iterations;\n            e < 32.;\n            e += e )\n            r += abs(dot(sin(t + p*e ), z/z)) / e;\n    o = amplification * tanh(vec4(fireColor,1) * o * o / f / 7e6);\n}\n\n\n\n/* you can put it out with this :D\n\nvoid mainImage( out vec4 o, vec2 u ) {\n    float s=.002,i,n;\n    vec3 r = iResolution,p;\n    for(o *= i; i++ < 40. && s > .001;) {\n        s = 1. + (p += vec3((u-r.xy/2.)/r.y,1) * s).y;\n        for (n =.5; n < 20.;n+=n)\n            s += abs(dot(sin(p.z+iTime+p * n), vec3(.1))) / n;\n        o += s *.03+.03;\n    }\n    o = tanh(o);\n}\n\n*/\n\n\n/* original fire shader\n\nvoid mainImage(out vec4 o, vec2 u) {\n    float f, i, r, e,\n          t = iTime;\n    vec3 p, z = iResolution;\n    for(o*=i;\n        i++<1e2;\n        f += r = .01 + abs(r)*.1,\n        o += 1. / r)\n        for(p = vec3(((u-z.xy/2.)/z.y) * f, f+t),\n            p += cos(t+p.yzx+p.zzx)*.6,\n            r =  cos(p.z)-1.,\n            e = 1.6;\n            e < 32.;\n            e += e )\n            r += abs(dot(sin(t + p*e ), vec3(1))) / e;\n    o = tanh(vec4(6,2,1,1) * o * o / f / 7e6);\n}\n\n*/",
+              "alpha": 1,
+              "params": {
+                "speed": 1,
+                "amplification": 3.04,
+                "iterations": 0.5,
+                "amplitude": 0.5,
+                "zoom": 0.5,
+                "fireColor": [
+                  1,
+                  0.3,
+                  0.1
+                ]
+              },
+              "customParams": {
+                "amplification": 3.04,
+                "iterations": 0.5,
+                "amplitude": 0.5,
+                "zoom": 0.5,
+                "fireColor": [
+                  1,
+                  0.3,
+                  0.1
+                ]
+              }
+            },
+            null
+          ]
+        },
+        {
+          "name": "Mix 5",
+          "blendMode": "lighter",
+          "thumbnail": "data:image/jpeg;base64,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",
+          "channels": [
+            {
+              "shaderCode": "// Fire shader - Parametric flame effect\n\n// @param amplification float 1.0 [0.0,5.0] \"Verstaerkung\"\n// @param iterations float 0.5 [0.0, 1.0] \"Iteration depth\"\n// @param amplitude float 0.5 [0.0, 1.0] \"Wave amplitude\"\n// @param zoom float 0.5 [0.1, 1.0] \"Zoom level\"\n// @param fireColor color [1.0, 0.3, 0.1] \"Fire color\"\n\n/*\n    @SnoopethDuckDuck -6 chars\n    @Xor              -1 chars\n\n    Thanks! :D\n\n*/\n\n\nvoid mainImage(out vec4 o, vec2 u) {\n    float f, i, r, e,\n          t = iTime;\n    vec3 p, z = iResolution;\n    for(o*=i;\n        i++<1e2;\n        f += r = .01 + abs(--r)*.1,\n        o += 1. / r)\n        for(p = vec3((u-z.xy/(2. * 2.0 * zoom))/z.y * f, f+t),\n            p += cos(t+p.yzx+p.zzx)*(.6 + 5.0 * amplitude),\n            r =  cos(p.z),\n            e = 1.6 + iterations;\n            e < 32.;\n            e += e )\n            r += abs(dot(sin(t + p*e ), z/z)) / e;\n    o = amplification * tanh(vec4(fireColor,1) * o * o / f / 7e6);\n}\n\n\n\n/* you can put it out with this :D\n\nvoid mainImage( out vec4 o, vec2 u ) {\n    float s=.002,i,n;\n    vec3 r = iResolution,p;\n    for(o *= i; i++ < 40. && s > .001;) {\n        s = 1. + (p += vec3((u-r.xy/2.)/r.y,1) * s).y;\n        for (n =.5; n < 20.;n+=n)\n            s += abs(dot(sin(p.z+iTime+p * n), vec3(.1))) / n;\n        o += s *.03+.03;\n    }\n    o = tanh(o);\n}\n\n*/\n\n\n/* original fire shader\n\nvoid mainImage(out vec4 o, vec2 u) {\n    float f, i, r, e,\n          t = iTime;\n    vec3 p, z = iResolution;\n    for(o*=i;\n        i++<1e2;\n        f += r = .01 + abs(r)*.1,\n        o += 1. / r)\n        for(p = vec3(((u-z.xy/2.)/z.y) * f, f+t),\n            p += cos(t+p.yzx+p.zzx)*.6,\n            r =  cos(p.z)-1.,\n            e = 1.6;\n            e < 32.;\n            e += e )\n            r += abs(dot(sin(t + p*e ), vec3(1))) / e;\n    o = tanh(vec4(6,2,1,1) * o * o / f / 7e6);\n}\n\n*/",
+              "alpha": 1,
+              "params": {
+                "speed": 1,
+                "amplification": 3.04,
+                "iterations": 0.5,
+                "amplitude": 0.5,
+                "zoom": 0.5,
+                "fireColor": [
+                  1,
+                  0.3,
+                  0.1
+                ]
+              },
+              "customParams": {
+                "amplification": 3.04,
+                "iterations": 0.5,
+                "amplitude": 0.5,
+                "zoom": 0.5,
+                "fireColor": [
+                  1,
+                  0.3,
+                  0.1
+                ]
+              }
+            },
+            null,
+            {
+              "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n *\n * Supported types: int, float, vec2, vec3, vec4, color\n *\n * Examples:\n *   // @param speed float 1.0 [0.0, 2.0] \"Animation speed\"\n *   // @param center vec2 0.5, 0.5 \"Center position\"\n *   // @param tint color [1.0, 0.5, 0.0] \"Tint color\"\n */\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n\tvec2 uv = fragCoord.xy / iResolution.xy;\n\tfragColor = vec4(uv,0.5+0.5*sin(iTime),1.0);\n    \n    \n    float pi = 3.1415926535897; \n\n     \n    float cx = uv.x+0.5*sin(iTime/5.0); \n    float cy = uv.y+0.5*cos(iTime/3.0); \n     \n    float v = sin(sqrt(100.0*(cx*cx+cy*cy))); \n    v += sin(uv.x*10.0+iTime); \n    v += cos(uv.y*4.0+iTime); \n     \n    fragColor = vec4(sin(v*pi), cos(v*pi), sin(v*pi + 0.5*pi*v), 1.0); \n    \n}",
+              "alpha": 1,
+              "params": {
+                "speed": 1,
+                "p0": 0.5,
+                "p1": 0.5,
+                "p2": 0.5,
+                "p3": 0.5,
+                "p4": 0.5,
+                "r0": 1,
+                "g0": 1,
+                "b0": 1,
+                "r1": 1,
+                "g1": 1,
+                "b1": 1,
+                "r2": 1,
+                "g2": 1,
+                "b2": 1,
+                "r3": 1,
+                "g3": 1,
+                "b3": 1,
+                "r4": 1,
+                "g4": 1,
+                "b4": 1,
+                "r5": 1,
+                "g5": 1,
+                "b5": 1,
+                "r6": 1,
+                "g6": 1,
+                "b6": 1,
+                "r7": 1,
+                "g7": 1,
+                "b7": 1,
+                "r8": 1,
+                "g8": 1,
+                "b8": 1,
+                "r9": 1,
+                "g9": 1,
+                "b9": 1
+              },
+              "customParams": {}
+            },
+            null
           ]
         }
       ]

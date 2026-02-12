@@ -295,3 +295,140 @@ html, body {
 ::-webkit-scrollbar-thumb:hover {
   background: #555;
 }
+
+/* Console Panel */
+#console-resizer {
+  height: 4px;
+  background-color: var(--border-color);
+  cursor: row-resize;
+  transition: background-color 0.15s;
+  flex-shrink: 0;
+}
+
+#console-resizer:hover,
+#console-resizer.dragging {
+  background-color: var(--accent-color);
+}
+
+#console-panel {
+  min-height: 28px;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+#console-panel.collapsed {
+  height: auto !important;
+}
+
+#console-panel.collapsed #console-messages {
+  display: none;
+}
+
+#console-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2px 8px;
+  background-color: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+  min-height: 24px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.console-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+
+.console-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.console-actions button {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+.console-actions button:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+#console-messages {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 0;
+  font-family: 'SF Mono', Monaco, 'Fira Code', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.console-message {
+  display: flex;
+  align-items: baseline;
+  padding: 1px 8px;
+  gap: 8px;
+}
+
+.console-message:hover {
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+.console-timestamp {
+  color: var(--text-secondary);
+  font-size: 11px;
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.console-type {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: bold;
+  width: 16px;
+  text-align: center;
+}
+
+.console-text {
+  flex: 1;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.console-message.error .console-type,
+.console-message.error .console-text {
+  color: var(--error-color);
+}
+
+.console-message.warning .console-type,
+.console-message.warning .console-text {
+  color: var(--warning-color);
+}
+
+.console-message.success .console-type {
+  color: var(--success-color);
+}
+
+.console-message.success .console-text {
+  color: var(--text-primary);
+}
+
+.console-message.info .console-text {
+  color: var(--text-secondary);
+}

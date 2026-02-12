@@ -1,5 +1,6 @@
 // Fire shader - Parametric flame effect
 
+// @param amplification float 1.0 [0.0,5.0] "Verstaerkung"
 // @param iterations float 0.5 [0.0, 1.0] "Iteration depth"
 // @param amplitude float 0.5 [0.0, 1.0] "Wave amplitude"
 // @param zoom float 0.5 [0.1, 1.0] "Zoom level"
@@ -29,7 +30,7 @@ void mainImage(out vec4 o, vec2 u) {
             e < 32.;
             e += e )
             r += abs(dot(sin(t + p*e ), z/z)) / e;
-    o = tanh(vec4(fireColor,1) * o * o / f / 7e6);
+    o = amplification * tanh(vec4(fireColor,1) * o * o / f / 7e6);
 }
 
 

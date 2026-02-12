@@ -16,11 +16,15 @@ import { setStatus } from './utils.js';
 import { updateLocalPresetsUI } from './presets.js';
 import { initMixer, isMixerActive, renderMixerComposite, hideMixerOverlay } from './mixer.js';
 import { initSettingsOnLoad } from './settings.js';
+import { initConsolePanel } from './console-panel.js';
 
 // Initialize application
 document.addEventListener('DOMContentLoaded', async () => {
   try {
     console.log('Starting initialization...');
+
+    // Initialize console panel before editor so compile messages are captured
+    initConsolePanel();
 
     // Initialize editor first (creates initial tab with default shader)
     await initEditor();

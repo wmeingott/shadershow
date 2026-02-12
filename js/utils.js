@@ -1,4 +1,5 @@
 // Utility functions
+import { logMessage } from './console-panel.js';
 
 export function setStatus(message, type = '') {
   const statusBar = document.getElementById('status-bar');
@@ -6,6 +7,9 @@ export function setStatus(message, type = '') {
 
   statusBar.className = type;
   statusMessage.textContent = message;
+
+  // Log to console panel
+  logMessage(message, type || 'info');
 
   // Auto-clear success messages after 3 seconds
   if (type === 'success') {

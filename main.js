@@ -1611,6 +1611,9 @@ ipcMain.handle('get-default-scene', async () => {
  *   canvas  - The rendering canvas
  *   params  - Custom parameter values
  *
+ * animate() signature:
+ *   animate(time, deltaTime, params, objects, mouse, channels)
+ *
  * Custom Parameters (@param)
  * --------------------------
  * Define custom uniforms with UI controls using @param comments:
@@ -1681,8 +1684,8 @@ function setup(THREE, canvas, params) {
   return { scene, camera, renderer, cube, material };
 }
 
-function animate(context, time, deltaTime, params) {
-  const { cube, material } = context;
+function animate(time, deltaTime, params, objects) {
+  const { cube, material } = objects;
 
   // Rotate the cube
   const speed = params.rotationSpeed || 1.0;
@@ -3261,11 +3264,12 @@ The scene must define two functions:
    - params: Object containing custom parameter values
    - Must return: { scene, camera, renderer, ...anyOtherObjects }
 
-2. animate(context, time, deltaTime, params) - Called every frame
-   - context: The object returned from setup()
+2. animate(time, deltaTime, params, objects, mouse, channels) - Called every frame
    - time: Current time in seconds
    - deltaTime: Time since last frame
    - params: Current parameter values
+   - objects: The object returned from setup()
+   - mouse/channels: Optional input state (same semantics as shader renderer)
 
 CUSTOM PARAMETERS (@param syntax):
 Same as shaders - define with @param comments at the top of the file
@@ -3282,8 +3286,8 @@ function setup(THREE, canvas, params) {
   return { scene, camera, renderer, mesh };
 }
 
-function animate(context, time, deltaTime, params) {
-  context.mesh.rotation.y = time * params.rotationSpeed;
+function animate(time, deltaTime, params, objects) {
+  objects.mesh.rotation.y = time * params.rotationSpeed;
 }
 
 ${context?.customParams ? `\nCURRENT CUSTOM PARAMS:\n${context.customParams}` : ''}

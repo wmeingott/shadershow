@@ -16,7 +16,7 @@
 // =============================================================================
 
 const SceneParamParser = {
-  PARAM_REGEX: /^\s*\/\/\s*@param\s+(\w+)\s+(int|float|vec[234])(\[(\d+)\])?\s*(.*)/,
+  PARAM_REGEX: /^\s*\/\/\s*@param\s+(\w+)\s+(int|float|vec[234]|color)(\[(\d+)\])?\s*(.*)/,
 
   parseValue(valueStr, baseType) {
     const parts = valueStr.split(',').map(s => s.trim());
@@ -26,6 +26,7 @@ const SceneParamParser = {
       case 'vec2': return [parseFloat(parts[0]) || 0, parseFloat(parts[1]) || 0];
       case 'vec3': return [parseFloat(parts[0]) || 0, parseFloat(parts[1]) || 0, parseFloat(parts[2]) || 0];
       case 'vec4': return [parseFloat(parts[0]) || 0, parseFloat(parts[1]) || 0, parseFloat(parts[2]) || 0, parseFloat(parts[3]) || 0];
+      case 'color': return [parseFloat(parts[0]) || 0, parseFloat(parts[1]) || 0, parseFloat(parts[2]) || 0];
       default: return 0;
     }
   },
@@ -38,6 +39,7 @@ const SceneParamParser = {
       case 'vec2': defaultVal = [0.5, 0.5]; break;
       case 'vec3': defaultVal = [1.0, 1.0, 1.0]; break;
       case 'vec4': defaultVal = [0.0, 0.0, 0.0, 1.0]; break;
+      case 'color': defaultVal = [1.0, 1.0, 1.0]; break;
       default: defaultVal = 0;
     }
     if (arraySize) {
@@ -91,6 +93,7 @@ const SceneParamParser = {
     const rest = match[5] || '';
     const { defaultValue, min, max, description } = this.parseRest(rest, baseType, arraySize);
 
+    const glslBaseType = baseType === 'color' ? 'vec3' : baseType;
     return {
       name,
       type: baseType,
@@ -100,7 +103,7 @@ const SceneParamParser = {
       min,
       max,
       description,
-      glslType: arraySize ? `${baseType}[${arraySize}]` : baseType
+      glslType: arraySize ? `${glslBaseType}[${arraySize}]` : glslBaseType
     };
   },
 
@@ -151,6 +154,7 @@ class ThreeSceneRenderer {
     this.sceneModule = null;
     this.sceneObjects = null;
     this.sceneSource = null;
+    this.animateSignature = 'time-first';
 
     // Playback state
     this.isPlaying = true;
@@ -304,6 +308,7 @@ class ThreeSceneRenderer {
 
       // Execute to get the module exports
       this.sceneModule = createModule(THREE, this.canvas, this.customParamValues, this.channelThreeTextures, this.mouse);
+      this.animateSignature = this.detectAnimateSignature(this.sceneModule.animate);
 
       // Call setup to initialize the scene
       if (this.sceneModule.setup) {
@@ -348,6 +353,39 @@ class ThreeSceneRenderer {
     return /<[A-Za-z][^>]*>/.test(source) || /className=/.test(source);
   }
 
+  // Parse parameter names from function source for compatibility heuristics
+  getFunctionParamNames(fn) {
+    if (typeof fn !== 'function') return [];
+    const source = fn.toString().trim();
+    const listMatch = source.match(/^[^(]*\(([^)]*)\)/);
+    if (listMatch) {
+      const raw = listMatch[1].trim();
+      return raw ? raw.split(',').map(p => p.trim()) : [];
+    }
+
+    const arrowMatch = source.match(/^([A-Za-z_$][\w$]*)\s*=>/);
+    if (arrowMatch) {
+      return [arrowMatch[1]];
+    }
+
+    return [];
+  }
+
+  // Support both animate signatures:
+  // 1) animate(time, delta, params, objects, mouse, channels)
+  // 2) animate(objects, time, delta, params, mouse, channels)
+  detectAnimateSignature(animateFn) {
+    const params = this.getFunctionParamNames(animateFn);
+    if (params.length === 0) return 'time-first';
+
+    const firstParam = params[0].toLowerCase();
+    if (firstParam === 'context' || firstParam === 'ctx' || firstParam === 'objects' || firstParam === 'sceneobjects') {
+      return 'objects-first';
+    }
+
+    return 'time-first';
+  }
+
   // Compile JSX to JavaScript using Babel
   compileJSX(source) {
     const Babel = window.Babel;
@@ -376,6 +414,9 @@ class ThreeSceneRenderer {
         this.sceneModule.cleanup(this.sceneObjects);
       } catch (e) {
         console.warn('Scene cleanup error:', e);
+        window.dispatchEvent(new CustomEvent('scene-runtime-error', {
+          detail: { message: e.message || String(e), source: 'cleanup' }
+        }));
       }
     }
 
@@ -435,16 +476,34 @@ class ThreeSceneRenderer {
     // Call scene's animate function
     if (this.sceneModule?.animate) {
       try {
-        this.sceneModule.animate(
-          currentTime,
-          timeDelta,
-          this.customParamValues,
-          this.sceneObjects,
-          this.mouse,
-          this.channelThreeTextures
-        );
+        if (this.animateSignature === 'objects-first') {
+          this.sceneModule.animate(
+            this.sceneObjects,
+            currentTime,
+            timeDelta,
+            this.customParamValues,
+            this.mouse,
+            this.channelThreeTextures
+          );
+        } else {
+          this.sceneModule.animate(
+            currentTime,
+            timeDelta,
+            this.customParamValues,
+            this.sceneObjects,
+            this.mouse,
+            this.channelThreeTextures
+          );
+        }
       } catch (e) {
         console.warn('Scene animate error:', e);
+        // Throttle runtime error reporting to avoid flooding (animate runs every frame)
+        if (!this._lastRuntimeError || Date.now() - this._lastRuntimeError > 2000) {
+          this._lastRuntimeError = Date.now();
+          window.dispatchEvent(new CustomEvent('scene-runtime-error', {
+            detail: { message: e.message || String(e), source: 'animate' }
+          }));
+        }
       }
     }
 

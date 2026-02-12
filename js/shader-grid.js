@@ -3,7 +3,7 @@ import { state, notifyRemoteStateChanged } from './state.js';
 import { setStatus } from './utils.js';
 import { loadParamsToSliders, generateCustomParamUI } from './params.js';
 import { updateLocalPresetsUI } from './presets.js';
-import { setRenderMode, ensureSceneRenderer } from './renderer.js';
+import { setRenderMode, ensureSceneRenderer, detectRenderMode } from './renderer.js';
 import { setEditorMode } from './editor.js';
 import { parseShaderParams, generateUniformDeclarations, parseTextureDirectives } from './param-parser.js';
 import { openInTab } from './tabs.js';
@@ -76,27 +76,94 @@ requestAnimationFrame(() => {
 // Tab Management
 // =============================================================================
 
+// Build the section switcher bar (Shaders / Composition)
+function buildSectionBar() {
+  const gridPanel = document.getElementById('grid-panel');
+  let sectionBar = document.getElementById('grid-section-bar');
+
+  if (!sectionBar) {
+    sectionBar = document.createElement('div');
+    sectionBar.id = 'grid-section-bar';
+    sectionBar.className = 'grid-section-bar';
+    gridPanel.insertBefore(sectionBar, gridPanel.firstChild);
+  }
+
+  sectionBar.innerHTML = '';
+  const activeSection = state.activeSection || 'shaders';
+
+  const sections = [
+    { id: 'shaders', label: 'Shaders' },
+    { id: 'mix', label: 'Composition' }
+  ];
+
+  for (const sec of sections) {
+    const btn = document.createElement('div');
+    btn.className = `grid-section-tab${sec.id === activeSection ? ' active' : ''}`;
+    btn.textContent = sec.label;
+    btn.addEventListener('click', () => switchSection(sec.id));
+    sectionBar.appendChild(btn);
+  }
+}
+
+// Switch between Shaders and Composition sections
+function switchSection(section) {
+  if (state.activeSection === section) return;
+  state.activeSection = section;
+
+  // Find the first tab matching this section
+  const isMixSection = section === 'mix';
+  const matchingIndex = state.shaderTabs.findIndex(t =>
+    isMixSection ? t.type === 'mix' : t.type !== 'mix'
+  );
+
+  if (matchingIndex >= 0) {
+    switchShaderTab(matchingIndex);
+  } else {
+    // No tabs of this type exist — create one
+    if (isMixSection) {
+      addNewMixTab();
+    } else {
+      addNewShaderTab();
+    }
+  }
+}
+
 // Build the shader grid tab bar
 function buildTabBar() {
   const gridPanel = document.getElementById('grid-panel');
+
+  // Build section bar above
+  buildSectionBar();
+
   let tabBar = document.getElementById('shader-grid-tabs');
 
   if (!tabBar) {
     tabBar = document.createElement('div');
     tabBar.id = 'shader-grid-tabs';
     tabBar.className = 'shader-grid-tabs';
-    gridPanel.insertBefore(tabBar, gridPanel.firstChild);
+    // Insert after section bar
+    const sectionBar = document.getElementById('grid-section-bar');
+    if (sectionBar && sectionBar.nextSibling) {
+      gridPanel.insertBefore(tabBar, sectionBar.nextSibling);
+    } else {
+      gridPanel.insertBefore(tabBar, gridPanel.firstChild);
+    }
   }
 
   tabBar.innerHTML = '';
 
-  // Create tabs for each shader tab
+  // Filter tabs by active section
+  const isMixSection = (state.activeSection || 'shaders') === 'mix';
+
+  // Create tabs only for the active section
   state.shaderTabs.forEach((tab, index) => {
-    const tabEl = document.createElement('div');
     const isMix = tab.type === 'mix';
+    if (isMixSection !== isMix) return; // skip tabs from other section
+
+    const tabEl = document.createElement('div');
     tabEl.className = `shader-grid-tab${index === state.activeShaderTab ? ' active' : ''}`;
     tabEl.dataset.tabIndex = index;
-    tabEl.textContent = isMix ? `\u2666 ${tab.name}` : tab.name;
+    tabEl.textContent = tab.name;
     const count = isMix ? (tab.mixPresets || []).length : tab.slots.filter(s => s).length;
     const countLabel = isMix ? 'mixes' : 'shaders';
     tabEl.title = `${tab.name} (${count} ${countLabel})`;
@@ -119,15 +186,17 @@ function buildTabBar() {
     tabBar.appendChild(tabEl);
   });
 
-  // Add "+" button to create new tab
+  // Add "+" button — creates tab of current section type
   const addTabBtn = document.createElement('div');
   addTabBtn.className = 'shader-grid-tab add-tab';
   addTabBtn.textContent = '+';
-  addTabBtn.title = 'Add new shader tab (right-click for options)';
-  addTabBtn.addEventListener('click', addNewShaderTab);
-  addTabBtn.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    showAddTabContextMenu(e.clientX, e.clientY);
+  addTabBtn.title = isMixSection ? 'Add new mix panel' : 'Add new shader tab';
+  addTabBtn.addEventListener('click', () => {
+    if (isMixSection) {
+      addNewMixTab();
+    } else {
+      addNewShaderTab();
+    }
   });
   tabBar.appendChild(addTabBtn);
 }
@@ -142,9 +211,10 @@ export function switchShaderTab(tabIndex) {
   // Cleanup current tab's renderers from DOM
   cleanupGridVisibilityObserver();
 
-  // Update active tab
+  // Update active tab and section
   state.activeShaderTab = tabIndex;
   const tab = state.shaderTabs[tabIndex];
+  state.activeSection = tab.type === 'mix' ? 'mix' : 'shaders';
 
   if (tab.type === 'mix') {
     state.gridSlots = [];
@@ -255,12 +325,17 @@ async function deleteShaderTab(tabIndex) {
   // Remove the tab
   state.shaderTabs.splice(tabIndex, 1);
 
-  // Adjust active tab if needed
-  if (state.activeShaderTab >= state.shaderTabs.length) {
-    state.activeShaderTab = state.shaderTabs.length - 1;
-  } else if (state.activeShaderTab === tabIndex) {
-    // Stay at same index (which is now the next tab)
-    state.activeShaderTab = Math.min(tabIndex, state.shaderTabs.length - 1);
+  // Try to find another tab in the same section
+  const sameSection = state.shaderTabs.findIndex(t =>
+    isMix ? t.type === 'mix' : t.type !== 'mix'
+  );
+
+  if (sameSection >= 0) {
+    state.activeShaderTab = sameSection;
+  } else {
+    // No tabs left in this section — switch to the other section
+    state.activeSection = isMix ? 'shaders' : 'mix';
+    state.activeShaderTab = 0;
   }
 
   // Update gridSlots reference
@@ -748,6 +823,40 @@ async function moveShaderToTab(slotIndex, targetTabIndex) {
   setStatus(`Moved shader to "${targetTab.name}"`, 'success');
 }
 
+// Copy a shader from the current tab to another tab (keeps original)
+async function copyShaderToTab(slotIndex, targetTabIndex) {
+  if (targetTabIndex === state.activeShaderTab) return;
+  if (targetTabIndex < 0 || targetTabIndex >= state.shaderTabs.length) return;
+
+  const sourceTab = state.shaderTabs[state.activeShaderTab];
+  const targetTab = state.shaderTabs[targetTabIndex];
+  const slotData = sourceTab.slots[slotIndex];
+
+  if (!slotData) {
+    setStatus('No shader to copy', 'error');
+    return;
+  }
+
+  // Deep copy the slot data (new renderer will be created when the target tab loads)
+  const copy = {
+    shaderCode: slotData.shaderCode,
+    filePath: null, // New copy gets its own file on save
+    type: slotData.type || 'shader',
+    params: { ...(slotData.params || {}) },
+    customParams: JSON.parse(JSON.stringify(slotData.customParams || {})),
+    presets: JSON.parse(JSON.stringify(slotData.presets || [])),
+    renderer: null
+  };
+  if (slotData.label) copy.label = slotData.label;
+
+  targetTab.slots.push(copy);
+  saveGridState();
+
+  await resaveAllShaderFiles();
+
+  setStatus(`Copied shader to "${targetTab.name}"`, 'success');
+}
+
 // Store event listeners for cleanup (to prevent memory leaks)
 const slotEventListeners = new Map();
 let documentClickHandler = null;
@@ -1124,42 +1233,68 @@ function showGridContextMenu(x, y, slotIndex) {
   });
   menu.appendChild(removeItem);
 
-  // Move to Tab submenu (only if has shader and more than one tab)
-  if (hasShader && state.shaderTabs.length > 1) {
-    const separator1 = document.createElement('div');
-    separator1.className = 'context-menu-separator';
-    menu.appendChild(separator1);
-
-    // Create "Move to Tab" submenu container
-    const tabSubmenu = document.createElement('div');
-    tabSubmenu.className = 'context-menu-item has-submenu';
-    tabSubmenu.textContent = 'Move to Tab';
-
-    const tabSubmenuArrow = document.createElement('span');
-    tabSubmenuArrow.className = 'submenu-arrow';
-    tabSubmenuArrow.textContent = '\u25b6';
-    tabSubmenu.appendChild(tabSubmenuArrow);
-
-    const tabSubmenuContent = document.createElement('div');
-    tabSubmenuContent.className = 'context-submenu';
-
+  // Move/Copy to Tab submenus (only shader tabs, not mix tabs)
+  if (hasShader) {
+    const otherShaderTabs = [];
     for (let i = 0; i < state.shaderTabs.length; i++) {
-      if (i === state.activeShaderTab) continue; // Skip current tab
-
-      const tabItem = document.createElement('div');
-      tabItem.className = 'context-menu-item';
-      tabItem.textContent = state.shaderTabs[i].name;
-
-      tabItem.addEventListener('click', () => {
-        hideContextMenu();
-        moveShaderToTab(slotIndex, i);
-      });
-
-      tabSubmenuContent.appendChild(tabItem);
+      if (i === state.activeShaderTab) continue;
+      if (state.shaderTabs[i].type === 'mix') continue;
+      otherShaderTabs.push(i);
     }
 
-    tabSubmenu.appendChild(tabSubmenuContent);
-    menu.appendChild(tabSubmenu);
+    if (otherShaderTabs.length > 0) {
+      const separator1 = document.createElement('div');
+      separator1.className = 'context-menu-separator';
+      menu.appendChild(separator1);
+
+      // Move to Tab
+      const moveSubmenu = document.createElement('div');
+      moveSubmenu.className = 'context-menu-item has-submenu';
+      moveSubmenu.textContent = 'Move to Tab';
+      const moveArrow = document.createElement('span');
+      moveArrow.className = 'submenu-arrow';
+      moveArrow.textContent = '\u25b6';
+      moveSubmenu.appendChild(moveArrow);
+
+      const moveContent = document.createElement('div');
+      moveContent.className = 'context-submenu';
+      for (const i of otherShaderTabs) {
+        const item = document.createElement('div');
+        item.className = 'context-menu-item';
+        item.textContent = state.shaderTabs[i].name;
+        item.addEventListener('click', () => {
+          hideContextMenu();
+          moveShaderToTab(slotIndex, i);
+        });
+        moveContent.appendChild(item);
+      }
+      moveSubmenu.appendChild(moveContent);
+      menu.appendChild(moveSubmenu);
+
+      // Copy to Tab
+      const copySubmenu = document.createElement('div');
+      copySubmenu.className = 'context-menu-item has-submenu';
+      copySubmenu.textContent = 'Copy to Tab';
+      const copyArrow = document.createElement('span');
+      copyArrow.className = 'submenu-arrow';
+      copyArrow.textContent = '\u25b6';
+      copySubmenu.appendChild(copyArrow);
+
+      const copyContent = document.createElement('div');
+      copyContent.className = 'context-submenu';
+      for (const i of otherShaderTabs) {
+        const item = document.createElement('div');
+        item.className = 'context-menu-item';
+        item.textContent = state.shaderTabs[i].name;
+        item.addEventListener('click', () => {
+          hideContextMenu();
+          copyShaderToTab(slotIndex, i);
+        });
+        copyContent.appendChild(item);
+      }
+      copySubmenu.appendChild(copyContent);
+      menu.appendChild(copySubmenu);
+    }
   }
 
   // Send to Tile submenu (only if has shader and tiles are configured)
@@ -1203,6 +1338,42 @@ function showGridContextMenu(x, y, slotIndex) {
     menu.appendChild(tileSubmenu);
   }
 
+  // Send to Mix Channel submenu (only if has shader)
+  if (hasShader) {
+    const mixSeparator = document.createElement('div');
+    mixSeparator.className = 'context-menu-separator';
+    menu.appendChild(mixSeparator);
+
+    const mixSubmenu = document.createElement('div');
+    mixSubmenu.className = 'context-menu-item has-submenu';
+    mixSubmenu.textContent = 'Send to Mix Channel';
+
+    const mixArrow = document.createElement('span');
+    mixArrow.className = 'submenu-arrow';
+    mixArrow.textContent = '\u25b6';
+    mixSubmenu.appendChild(mixArrow);
+
+    const mixContent = document.createElement('div');
+    mixContent.className = 'context-submenu';
+
+    for (let i = 0; i < state.mixerChannels.length; i++) {
+      const ch = state.mixerChannels[i];
+      const mixItem = document.createElement('div');
+      mixItem.className = 'context-menu-item';
+      const chLabel = ch.slotIndex !== null ? `Ch ${i + 1} (Slot ${ch.slotIndex + 1})` : `Ch ${i + 1} (Empty)`;
+      mixItem.textContent = chLabel;
+
+      mixItem.addEventListener('click', () => {
+        hideContextMenu();
+        assignShaderToMixer(i, slotIndex);
+      });
+      mixContent.appendChild(mixItem);
+    }
+
+    mixSubmenu.appendChild(mixContent);
+    menu.appendChild(mixSubmenu);
+  }
+
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
   document.body.appendChild(menu);
@@ -1213,8 +1384,45 @@ function showGridContextMenu(x, y, slotIndex) {
     menu.style.left = `${window.innerWidth - rect.width - 5}px`;
   }
   if (rect.bottom > window.innerHeight) {
-    menu.style.top = `${window.innerHeight - rect.height - 5}px`;
+    const newTop = Math.max(5, window.innerHeight - rect.height - 5);
+    menu.style.top = `${newTop}px`;
+    // If menu is taller than viewport, make it scrollable
+    if (rect.height > window.innerHeight - 10) {
+      menu.style.maxHeight = `${window.innerHeight - 10}px`;
+      menu.style.overflowY = 'auto';
+    }
   }
+
+  // Reposition submenus on hover to stay within viewport
+  menu.querySelectorAll('.has-submenu').forEach(item => {
+    item.addEventListener('mouseenter', () => {
+      const sub = item.querySelector('.context-submenu');
+      if (!sub) return;
+      // Reset positioning before measuring
+      sub.style.left = '100%';
+      sub.style.right = '';
+      sub.style.top = '-4px';
+      sub.style.maxHeight = '';
+      sub.style.overflowY = '';
+
+      const subRect = sub.getBoundingClientRect();
+      // Flip to left side if overflowing right
+      if (subRect.right > window.innerWidth) {
+        sub.style.left = '';
+        sub.style.right = '100%';
+      }
+      // Shift up if overflowing bottom
+      if (subRect.bottom > window.innerHeight) {
+        const shift = subRect.bottom - window.innerHeight + 5;
+        sub.style.top = `${-4 - shift}px`;
+      }
+      // Make scrollable if taller than viewport
+      if (subRect.height > window.innerHeight - 10) {
+        sub.style.maxHeight = `${window.innerHeight - 10}px`;
+        sub.style.overflowY = 'auto';
+      }
+    });
+  });
 }
 
 function hideContextMenu() {
@@ -1506,6 +1714,7 @@ export async function assignShaderToSlot(slotIndex, shaderCode, filePath, skipSa
       shaderCode,
       filePath,
       renderer: miniRenderer,
+      type: 'shader',
       params: { ...slotParams },
       customParams: slotCustomParams,
       presets: presets || []
@@ -1843,6 +2052,7 @@ export function saveGridState() {
   const gridState = {
     version: 2,
     activeTab: state.activeShaderTab,
+    activeSection: state.activeSection || 'shaders',
     tabs: tabsState
   };
 
@@ -1856,6 +2066,7 @@ export async function loadGridState() {
   if (!savedState) {
     state.shaderTabs = [{ name: 'My Shaders', slots: [] }];
     state.activeShaderTab = 0;
+    state.activeSection = 'shaders';
     state.gridSlots = state.shaderTabs[0].slots;
     rebuildGridDOM();
     return;
@@ -1867,11 +2078,13 @@ export async function loadGridState() {
     await loadTabbedGridState(savedState);
   } else if (Array.isArray(savedState)) {
     // Old format - migrate to new tabbed format
+    state.activeSection = 'shaders';
     await loadLegacyGridState(savedState);
   } else {
     // Unknown format, start fresh
     state.shaderTabs = [{ name: 'My Shaders', slots: [] }];
     state.activeShaderTab = 0;
+    state.activeSection = 'shaders';
     state.gridSlots = state.shaderTabs[0].slots;
     rebuildGridDOM();
   }
@@ -1918,7 +2131,9 @@ async function loadTabbedGridState(savedState) {
     for (let i = 0; i < compactSlots.length; i++) {
       const slotData = compactSlots[i];
       try {
-        const isScene = slotData.type === 'scene';
+        // Detect type from content if not explicitly set (handles legacy data)
+        const detectedType = detectRenderMode(slotData.filePath, slotData.shaderCode);
+        const isScene = slotData.type === 'scene' || detectedType === 'scene';
         if (isScene) {
           await assignSceneToSlot(i, slotData.shaderCode, slotData.filePath, true, slotData.params, slotData.presets);
         } else {
@@ -1942,9 +2157,12 @@ async function loadTabbedGridState(savedState) {
     state.shaderTabs = [{ name: 'My Shaders', slots: [] }];
   }
 
-  // Restore active tab
+  // Restore active section and tab
+  state.activeSection = savedState.activeSection || 'shaders';
   state.activeShaderTab = Math.min(savedState.activeTab || 0, state.shaderTabs.length - 1);
   const restoredTab = state.shaderTabs[state.activeShaderTab];
+  // Sync section with actual tab type
+  state.activeSection = restoredTab.type === 'mix' ? 'mix' : 'shaders';
   state.gridSlots = restoredTab.type === 'mix' ? [] : restoredTab.slots;
 
   // Rebuild DOM for active tab
@@ -1985,7 +2203,8 @@ async function loadLegacyGridState(gridState) {
   for (let i = 0; i < compactState.length; i++) {
     const slotData = compactState[i];
     try {
-      const isScene = slotData.type === 'scene';
+      const detectedType = detectRenderMode(slotData.filePath, slotData.shaderCode);
+      const isScene = slotData.type === 'scene' || detectedType === 'scene';
       if (isScene) {
         await assignSceneToSlot(i, slotData.shaderCode, slotData.filePath, true, slotData.params, slotData.presets);
       } else {
@@ -2038,7 +2257,8 @@ export async function loadGridPresetsFromData(gridState, filePath) {
   for (let i = 0; i < compactState.length; i++) {
     const slotData = compactState[i];
     try {
-      const isScene = slotData.type === 'scene';
+      const detectedType = detectRenderMode(slotData.filePath, slotData.shaderCode);
+      const isScene = slotData.type === 'scene' || detectedType === 'scene';
       if (isScene) {
         await assignSceneToSlot(i, slotData.shaderCode, slotData.filePath, true, slotData.params, slotData.presets);
       } else {
@@ -2076,8 +2296,10 @@ export async function loadGridShaderToEditor(slotIndex) {
   const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`);
   slot.classList.add('active');
 
-  // Determine type and title
-  const isScene = slotData.type === 'scene';
+  // Determine type and title (detect from content as fallback)
+  const detectedType = detectRenderMode(slotData.filePath, slotData.shaderCode);
+  const isScene = slotData.type === 'scene' || detectedType === 'scene';
+  if (isScene && slotData.type !== 'scene') slotData.type = 'scene';
   const slotName = slotData.filePath ? slotData.filePath.split('/').pop().split('\\').pop() : `Slot ${slotIndex + 1}`;
   const typeLabel = isScene ? 'scene' : 'shader';
 
@@ -2247,8 +2469,10 @@ export function playGridShader(slotIndex) {
   const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`);
   if (slot) slot.classList.add('active');
 
-  // Check if this is a scene
-  const isScene = slotData.type === 'scene';
+  // Check if this is a scene (detect from content as fallback)
+  const detectedType = detectRenderMode(slotData.filePath, slotData.shaderCode);
+  const isScene = slotData.type === 'scene' || detectedType === 'scene';
+  if (isScene && slotData.type !== 'scene') slotData.type = 'scene';
   const slotName = slotData.filePath ? slotData.filePath.split('/').pop().split('\\').pop() : `Slot ${slotIndex + 1}`;
 
   // Open in a new tab (or activate existing tab for this slot)

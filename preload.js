@@ -219,6 +219,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadFileTexture: (name) => ipcRenderer.invoke('load-file-texture', name),
   listFileTextures: () => ipcRenderer.invoke('list-file-textures'),
 
+  // Asset media (images & videos in data/media/)
+  openMediaForAsset: () => ipcRenderer.invoke('open-media-for-asset'),
+  copyMediaToLibrary: (sourcePath) => ipcRenderer.invoke('copy-media-to-library', sourcePath),
+  getMediaAbsolutePath: (mediaPath) => ipcRenderer.invoke('get-media-absolute-path', mediaPath),
+  loadMediaDataUrl: (mediaPath) => ipcRenderer.invoke('load-media-data-url', mediaPath),
+
   // Claude AI
   sendClaudePrompt: (data) => ipcRenderer.send('claude-prompt', data),
   onClaudeStreamChunk: (callback) => onIPC('claude-stream-chunk', (event, data) => callback(data)),

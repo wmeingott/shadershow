@@ -5,6 +5,7 @@ import { saveGridState } from './shader-grid.js';
 import { tileState } from './tile-state.js';
 import { updateMixerChannelParam } from './mixer.js';
 import { parseShaderParams } from './param-parser.js';
+import { ASSET_PARAM_DEFS, VIDEO_PARAM_DEFS } from './asset-renderer.js';
 
 // Debounced grid state save
 let saveGridStateTimeout = null;
@@ -337,7 +338,7 @@ export function resetParamLabels() {
 export function generateCustomParamUI() {
   const container = document.getElementById('custom-params-container');
 
-  if (!container || !state.renderer) return;
+  if (!container) return;
 
   // If mixer is active with assigned channels, show multi-channel view
   if (state.mixerEnabled && state.mixerChannels.some(ch =>
@@ -346,6 +347,15 @@ export function generateCustomParamUI() {
     generateMixerParamsUI(container);
     return;
   }
+
+  // Check if the active grid slot is an asset (non-mixer case)
+  const activeSlot = state.activeGridSlot !== null ? state.gridSlots[state.activeGridSlot] : null;
+  if (activeSlot && activeSlot.type?.startsWith('asset-') && activeSlot.renderer) {
+    generateAssetParamUI(container, activeSlot);
+    return;
+  }
+
+  if (!state.renderer) return;
 
   // Get custom param definitions from the shader
   const params = state.renderer.getCustomParamDefs();
@@ -877,6 +887,74 @@ const MIXER_CHANNEL_COLORS = [
 ];
 
 // Generate multi-channel param UI for all active mixer channels
+// Generate param UI for a standalone asset slot (not in mixer)
+function generateAssetParamUI(container, slotData) {
+  selectedColorPickers.clear();
+  container.innerHTML = '';
+  usingCustomParams = true;
+
+  const renderer = slotData.renderer;
+  if (!renderer) return;
+
+  const params = renderer.getCustomParamDefs();
+  if (params.length === 0) return;
+
+  const section = createParamSection(`Asset: ${slotData.label || slotData.mediaPath || 'untitled'}`);
+
+  params.forEach(param => {
+    const row = document.createElement('div');
+    row.className = 'param-row';
+
+    const label = document.createElement('label');
+    label.textContent = param.name;
+    if (param.description) label.title = param.description;
+    row.appendChild(label);
+
+    const currentValue = slotData.customParams?.[param.name] !== undefined
+      ? slotData.customParams[param.name]
+      : param.default;
+
+    const isInt = param.type === 'int';
+    const min = param.min !== undefined ? param.min : 0;
+    const max = param.max !== undefined ? param.max : (isInt ? 10 : 1);
+    const step = param.step || (isInt ? 1 : 0.01);
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = min;
+    slider.max = max;
+    slider.step = step;
+    slider.value = currentValue;
+
+    const valueDisplay = document.createElement('span');
+    valueDisplay.className = 'param-value';
+    valueDisplay.textContent = isInt ? Math.round(currentValue).toString() : Number(currentValue).toFixed(2);
+
+    slider.addEventListener('input', () => {
+      const newValue = isInt ? parseInt(slider.value, 10) : parseFloat(slider.value);
+      valueDisplay.textContent = isInt ? newValue.toString() : newValue.toFixed(2);
+      // Update the renderer and slot data
+      renderer.setParam(param.name, newValue);
+      if (slotData.customParams) slotData.customParams[param.name] = newValue;
+      debouncedSaveGridState();
+    });
+
+    slider.addEventListener('dblclick', () => {
+      slider.value = param.default;
+      valueDisplay.textContent = isInt ? Math.round(param.default).toString() : Number(param.default).toFixed(2);
+      renderer.setParam(param.name, param.default);
+      if (slotData.customParams) slotData.customParams[param.name] = param.default;
+      debouncedSaveGridState();
+    });
+
+    row.appendChild(slider);
+    row.appendChild(valueDisplay);
+    section.appendChild(row);
+  });
+
+  container.appendChild(section);
+}
+
 function generateMixerParamsUI(container) {
   selectedColorPickers.clear();
   container.innerHTML = '';
@@ -886,27 +964,42 @@ function generateMixerParamsUI(container) {
     const ch = state.mixerChannels[i];
 
     // Skip unassigned channels
-    const hasShader = ch.renderer || (ch.slotIndex !== null && ch.tabIndex !== null);
-    if (!hasShader) continue;
+    const hasSource = ch.renderer || (ch.slotIndex !== null && ch.tabIndex !== null);
+    if (!hasSource) continue;
 
-    // Get shader code and parse @param definitions
-    let shaderCode = ch.shaderCode;
-    if (!shaderCode && ch.slotIndex !== null && ch.tabIndex !== null) {
+    // Check if this channel is an asset
+    let slotData = null;
+    if (ch.slotIndex !== null && ch.tabIndex !== null) {
       const tab = state.shaderTabs[ch.tabIndex];
-      shaderCode = tab?.slots?.[ch.slotIndex]?.shaderCode || null;
+      slotData = tab?.slots?.[ch.slotIndex] || null;
     }
-    if (!shaderCode) continue;
+    const isAsset = ch.assetType || slotData?.type?.startsWith('asset-');
 
-    const params = parseShaderParams(shaderCode);
-    if (params.length === 0) continue;
+    let params;
+    if (isAsset) {
+      // Use static asset param definitions
+      const isVideo = ch.assetType === 'asset-video' || slotData?.type === 'asset-video';
+      params = isVideo ? [...ASSET_PARAM_DEFS, ...VIDEO_PARAM_DEFS] : [...ASSET_PARAM_DEFS];
+    } else {
+      // Get shader code and parse @param definitions
+      let shaderCode = ch.shaderCode;
+      if (!shaderCode && slotData) {
+        shaderCode = slotData.shaderCode || null;
+      }
+      if (!shaderCode) continue;
+
+      params = parseShaderParams(shaderCode);
+      if (params.length === 0) continue;
+    }
 
     // Determine channel label
     let filename = null;
-    if (ch.slotIndex !== null && ch.tabIndex !== null) {
-      const tab = state.shaderTabs[ch.tabIndex];
-      filename = tab?.slots?.[ch.slotIndex]?.filePath?.split('/').pop();
+    if (slotData) {
+      filename = isAsset
+        ? (slotData.label || slotData.mediaPath)
+        : slotData.filePath?.split('/').pop();
     }
-    const label = `Ch ${i + 1}: ${filename || 'Mix Preset'}`;
+    const label = `Ch ${i + 1}: ${filename || (isAsset ? 'Asset' : 'Mix Preset')}`;
     const accentColor = MIXER_CHANNEL_COLORS[i % MIXER_CHANNEL_COLORS.length];
 
     // Create channel section

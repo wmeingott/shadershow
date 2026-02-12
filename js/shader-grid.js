@@ -9,7 +9,8 @@ import { parseShaderParams, generateUniformDeclarations, parseTextureDirectives 
 import { openInTab } from './tabs.js';
 import { tileState, assignTile } from './tile-state.js';
 import { updateTileRenderer, refreshTileRenderers } from './controls.js';
-import { assignShaderToMixer, addMixerChannel, recallMixState, resetMixer, isMixerActive, captureMixerThumbnail } from './mixer.js';
+import { assignShaderToMixer, assignAssetToMixer, addMixerChannel, recallMixState, resetMixer, isMixerActive, captureMixerThumbnail } from './mixer.js';
+import { AssetRenderer } from './asset-renderer.js';
 
 // Cache for file texture data URLs (avoids re-reading from disk for each grid slot)
 const fileTextureCache = new Map();
@@ -93,6 +94,7 @@ function buildSectionBar() {
 
   const sections = [
     { id: 'shaders', label: 'Shaders' },
+    { id: 'assets', label: 'Assets' },
     { id: 'mix', label: 'Composition' }
   ];
 
@@ -111,17 +113,20 @@ function switchSection(section) {
   state.activeSection = section;
 
   // Find the first tab matching this section
-  const isMixSection = section === 'mix';
-  const matchingIndex = state.shaderTabs.findIndex(t =>
-    isMixSection ? t.type === 'mix' : t.type !== 'mix'
-  );
+  const matchingIndex = state.shaderTabs.findIndex(t => {
+    if (section === 'mix') return t.type === 'mix';
+    if (section === 'assets') return t.type === 'assets';
+    return t.type !== 'mix' && t.type !== 'assets';
+  });
 
   if (matchingIndex >= 0) {
     switchShaderTab(matchingIndex);
   } else {
     // No tabs of this type exist — create one
-    if (isMixSection) {
+    if (section === 'mix') {
       addNewMixTab();
+    } else if (section === 'assets') {
+      addNewAssetTab();
     } else {
       addNewShaderTab();
     }
@@ -153,19 +158,25 @@ function buildTabBar() {
   tabBar.innerHTML = '';
 
   // Filter tabs by active section
-  const isMixSection = (state.activeSection || 'shaders') === 'mix';
+  const activeSection = state.activeSection || 'shaders';
 
   // Create tabs only for the active section
   state.shaderTabs.forEach((tab, index) => {
-    const isMix = tab.type === 'mix';
-    if (isMixSection !== isMix) return; // skip tabs from other section
+    const tabType = tab.type || 'shaders';
+    // Only show tabs belonging to the current section
+    if (activeSection === 'mix' && tabType !== 'mix') return;
+    if (activeSection === 'assets' && tabType !== 'assets') return;
+    if (activeSection === 'shaders' && tabType !== 'shaders' && tabType !== undefined && tabType !== 'shaders') return;
+    if (activeSection === 'shaders' && (tabType === 'mix' || tabType === 'assets')) return;
 
     const tabEl = document.createElement('div');
     tabEl.className = `shader-grid-tab${index === state.activeShaderTab ? ' active' : ''}`;
     tabEl.dataset.tabIndex = index;
     tabEl.textContent = tab.name;
-    const count = isMix ? (tab.mixPresets || []).length : tab.slots.filter(s => s).length;
-    const countLabel = isMix ? 'mixes' : 'shaders';
+    const isMix = tabType === 'mix';
+    const isAsset = tabType === 'assets';
+    const count = isMix ? (tab.mixPresets || []).length : (tab.slots || []).filter(s => s).length;
+    const countLabel = isMix ? 'mixes' : isAsset ? 'assets' : 'shaders';
     tabEl.title = `${tab.name} (${count} ${countLabel})`;
 
     // Click to switch tab
@@ -190,10 +201,13 @@ function buildTabBar() {
   const addTabBtn = document.createElement('div');
   addTabBtn.className = 'shader-grid-tab add-tab';
   addTabBtn.textContent = '+';
-  addTabBtn.title = isMixSection ? 'Add new mix panel' : 'Add new shader tab';
+  const sectionLabels = { mix: 'Add new mix panel', assets: 'Add new asset tab', shaders: 'Add new shader tab' };
+  addTabBtn.title = sectionLabels[activeSection] || 'Add new tab';
   addTabBtn.addEventListener('click', () => {
-    if (isMixSection) {
+    if (activeSection === 'mix') {
       addNewMixTab();
+    } else if (activeSection === 'assets') {
+      addNewAssetTab();
     } else {
       addNewShaderTab();
     }
@@ -214,12 +228,18 @@ export function switchShaderTab(tabIndex) {
   // Update active tab and section
   state.activeShaderTab = tabIndex;
   const tab = state.shaderTabs[tabIndex];
-  state.activeSection = tab.type === 'mix' ? 'mix' : 'shaders';
+  if (tab.type === 'mix') state.activeSection = 'mix';
+  else if (tab.type === 'assets') state.activeSection = 'assets';
+  else state.activeSection = 'shaders';
 
   if (tab.type === 'mix') {
     state.gridSlots = [];
     state.activeGridSlot = null;
     rebuildMixPanelDOM();
+  } else if (tab.type === 'assets') {
+    state.gridSlots = tab.slots;
+    state.activeGridSlot = null;
+    rebuildAssetGridDOM();
   } else {
     state.gridSlots = tab.slots;
     state.activeGridSlot = null;
@@ -229,7 +249,7 @@ export function switchShaderTab(tabIndex) {
   // Rebuild tab bar to update active state
   buildTabBar();
 
-  // Restart animation if grid is visible (only for shader tabs)
+  // Restart animation if grid is visible (shader and asset tabs)
   if (state.gridEnabled && tab.type !== 'mix') {
     startGridAnimation();
   }
@@ -481,6 +501,17 @@ function addNewMixTab() {
   setStatus(`Created mix panel "${newName}"`, 'success');
 }
 
+function addNewAssetTab() {
+  const assetTabCount = state.shaderTabs.filter(t => t.type === 'assets').length;
+  const newName = `Assets ${assetTabCount + 1}`;
+  state.shaderTabs.push({ name: newName, type: 'assets', slots: [] });
+
+  switchShaderTab(state.shaderTabs.length - 1);
+  saveGridState();
+
+  setStatus(`Created asset tab "${newName}"`, 'success');
+}
+
 // Build the mix preset panel DOM (replaces the shader grid when a mix tab is active)
 function rebuildMixPanelDOM() {
   const container = document.getElementById('shader-grid-container');
@@ -569,11 +600,29 @@ function saveMixPreset() {
   const channels = state.mixerChannels.map(ch => {
     if (ch.slotIndex === null && ch.tabIndex === null && !ch.renderer) return null;
 
-    // Get shader code: stored on channel (always set), or look up from tab
-    let shaderCode = ch.shaderCode;
-    if (!shaderCode && ch.slotIndex !== null && ch.tabIndex !== null) {
+    // Look up slot data for grid-assigned channels
+    let slotData = null;
+    if (ch.slotIndex !== null && ch.tabIndex !== null) {
       const srcTab = state.shaderTabs[ch.tabIndex];
-      shaderCode = srcTab?.slots?.[ch.slotIndex]?.shaderCode;
+      slotData = srcTab?.slots?.[ch.slotIndex] || null;
+    }
+
+    // Check if this is an asset channel
+    const isAsset = ch.assetType || slotData?.type?.startsWith('asset-');
+    if (isAsset) {
+      return {
+        assetType: ch.assetType || slotData?.type,
+        mediaPath: slotData?.mediaPath || ch.mediaPath,
+        alpha: ch.alpha,
+        params: { ...ch.params },
+        customParams: { ...ch.customParams }
+      };
+    }
+
+    // Shader channel — get shader code
+    let shaderCode = ch.shaderCode;
+    if (!shaderCode && slotData) {
+      shaderCode = slotData.shaderCode;
     }
     if (!shaderCode) return null;
 
@@ -884,6 +933,426 @@ export function cleanupShaderGrid() {
   stopGridAnimation();
 }
 
+// =============================================================================
+// Asset Grid
+// =============================================================================
+
+// Rebuild the asset grid DOM for the active asset tab
+function rebuildAssetGridDOM() {
+  const activeTab = state.shaderTabs[state.activeShaderTab];
+  if (!activeTab || activeTab.type !== 'assets') return;
+
+  const container = document.getElementById('shader-grid-container');
+
+  // Build tab bar first
+  buildTabBar();
+
+  // Cleanup existing listeners
+  slotEventListeners.forEach((listeners, slot) => {
+    listeners.forEach(({ event, handler }) => {
+      slot.removeEventListener(event, handler);
+    });
+  });
+  slotEventListeners.clear();
+  cleanupGridVisibilityObserver();
+
+  container.innerHTML = '';
+
+  // Create slot elements for each asset entry
+  for (let i = 0; i < state.gridSlots.length; i++) {
+    const slotEl = createAssetSlotElement(i);
+    container.appendChild(slotEl);
+
+    const data = state.gridSlots[i];
+    if (data) {
+      slotEl.classList.add('has-shader'); // reuse existing class for styling
+      if (state.activeGridSlot === i) slotEl.classList.add('active');
+      slotEl.title = `Asset ${i + 1}: ${data.label || data.mediaPath || 'untitled'}`;
+
+      const labelEl = slotEl.querySelector('.slot-label');
+      if (labelEl) {
+        labelEl.textContent = data.label || data.mediaPath || `Asset ${i + 1}`;
+      }
+
+      // Update renderer's canvas reference to the new DOM element
+      if (data.renderer) {
+        const newCanvas = slotEl.querySelector('canvas');
+        data.renderer.canvas = newCanvas;
+        data.renderer.ctx2d = newCanvas.getContext('2d');
+      }
+    }
+  }
+
+  // Add the "+" button
+  const addBtn = document.createElement('div');
+  addBtn.className = 'grid-slot grid-add-btn';
+  addBtn.title = 'Add image or video';
+  const plusSign = document.createElement('span');
+  plusSign.className = 'grid-add-plus';
+  plusSign.textContent = '+';
+  addBtn.appendChild(plusSign);
+  addBtn.addEventListener('click', () => addNewAssetSlot());
+  container.appendChild(addBtn);
+
+  // Reinitialize visibility observer
+  initGridVisibilityObserver();
+  applyMaxContainerHeight();
+}
+
+// Create an asset slot DOM element
+function createAssetSlotElement(index) {
+  const slot = document.createElement('div');
+  slot.className = 'grid-slot';
+  slot.dataset.slot = index;
+  slot.setAttribute('draggable', 'true');
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 160;
+  canvas.height = 90;
+  slot.appendChild(canvas);
+
+  const numberSpan = document.createElement('span');
+  numberSpan.className = 'slot-number';
+  numberSpan.textContent = index + 1;
+  slot.appendChild(numberSpan);
+
+  const labelSpan = document.createElement('span');
+  labelSpan.className = 'slot-label';
+  slot.appendChild(labelSpan);
+
+  const listeners = [];
+
+  // Drag start
+  const dragstartHandler = (e) => {
+    dragSourceIndex = index;
+    slot.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', index.toString());
+  };
+  slot.addEventListener('dragstart', dragstartHandler);
+  listeners.push({ event: 'dragstart', handler: dragstartHandler });
+
+  // Drag end
+  const dragendHandler = () => {
+    slot.classList.remove('dragging');
+    dragSourceIndex = null;
+    document.querySelectorAll('.grid-slot.drag-over').forEach(s => s.classList.remove('drag-over'));
+  };
+  slot.addEventListener('dragend', dragendHandler);
+  listeners.push({ event: 'dragend', handler: dragendHandler });
+
+  // Drag over
+  const dragoverHandler = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; };
+  slot.addEventListener('dragover', dragoverHandler);
+  listeners.push({ event: 'dragover', handler: dragoverHandler });
+
+  // Drag enter
+  const dragenterHandler = (e) => {
+    e.preventDefault();
+    if (dragSourceIndex !== null && dragSourceIndex !== index) slot.classList.add('drag-over');
+  };
+  slot.addEventListener('dragenter', dragenterHandler);
+  listeners.push({ event: 'dragenter', handler: dragenterHandler });
+
+  // Drag leave
+  const dragleaveHandler = (e) => {
+    if (!slot.contains(e.relatedTarget)) slot.classList.remove('drag-over');
+  };
+  slot.addEventListener('dragleave', dragleaveHandler);
+  listeners.push({ event: 'dragleave', handler: dragleaveHandler });
+
+  // Drop — swap slots
+  const dropHandler = (e) => {
+    e.preventDefault();
+    slot.classList.remove('drag-over');
+    const fromIndex = parseInt(e.dataTransfer.getData('text/plain'), 10);
+    if (!isNaN(fromIndex) && fromIndex !== index) {
+      swapGridSlots(fromIndex, index);
+    }
+  };
+  slot.addEventListener('drop', dropHandler);
+  listeners.push({ event: 'drop', handler: dropHandler });
+
+  // Click: assign to mixer if armed, otherwise select for param editing
+  const clickHandler = () => {
+    if (state.gridSlots[index]) {
+      if (state.mixerArmedChannel !== null) {
+        assignAssetToMixer(state.mixerArmedChannel, index);
+      } else {
+        selectAssetSlot(index);
+      }
+    }
+  };
+  slot.addEventListener('click', clickHandler);
+  listeners.push({ event: 'click', handler: clickHandler });
+
+  // Right-click context menu
+  const contextmenuHandler = (e) => {
+    e.preventDefault();
+    showAssetContextMenu(e.clientX, e.clientY, index);
+  };
+  slot.addEventListener('contextmenu', contextmenuHandler);
+  listeners.push({ event: 'contextmenu', handler: contextmenuHandler });
+
+  slotEventListeners.set(slot, listeners);
+  return slot;
+}
+
+// Add a new asset slot via file dialog
+async function addNewAssetSlot() {
+  const result = await window.electronAPI.openMediaForAsset();
+  if (!result || result.canceled) return;
+
+  const newIndex = state.gridSlots.length;
+  state.gridSlots.push(null);
+
+  // Rebuild DOM to include the new empty slot
+  rebuildAssetGridDOM();
+
+  try {
+    await assignAssetToSlot(newIndex, result.filePath, result.type, result.dataUrl);
+  } catch (err) {
+    // Remove the empty slot on failure
+    state.gridSlots.splice(newIndex, 1);
+    rebuildAssetGridDOM();
+    setStatus(`Failed to load asset: ${err.message}`, 'error');
+  }
+}
+
+// Assign an asset (image or video) to a grid slot
+async function assignAssetToSlot(slotIndex, filePath, assetType, dataUrl, savedParams) {
+  // Copy to media library if not already there
+  const copyResult = await window.electronAPI.copyMediaToLibrary(filePath);
+  if (copyResult.error) throw new Error(copyResult.error);
+
+  const mediaPath = copyResult.mediaPath;
+  const absolutePath = copyResult.absolutePath;
+
+  const slotEl = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`);
+  const canvas = slotEl ? slotEl.querySelector('canvas') : document.createElement('canvas');
+  if (!slotEl) { canvas.width = 160; canvas.height = 90; }
+
+  // Dispose existing renderer
+  if (state.gridSlots[slotIndex] && state.gridSlots[slotIndex].renderer) {
+    state.gridSlots[slotIndex].renderer.dispose();
+  }
+
+  const renderer = new AssetRenderer(canvas);
+  renderer.mediaPath = mediaPath;
+
+  if (assetType === 'video') {
+    await renderer.loadVideo(absolutePath);
+  } else {
+    // For images: use provided dataUrl or load from library
+    if (!dataUrl) {
+      const loaded = await window.electronAPI.loadMediaDataUrl(mediaPath);
+      if (!loaded.success) throw new Error(loaded.error);
+      dataUrl = loaded.dataUrl;
+    }
+    await renderer.loadImage(dataUrl);
+  }
+
+  // Apply saved params if provided
+  if (savedParams) {
+    renderer.setParams(savedParams);
+  }
+
+  const fileName = mediaPath.split('/').pop().split('\\').pop();
+  state.gridSlots[slotIndex] = {
+    type: assetType === 'video' ? 'asset-video' : 'asset-image',
+    mediaPath,
+    renderer,
+    customParams: renderer.getCustomParamValues(),
+    label: fileName
+  };
+
+  if (slotEl) {
+    slotEl.classList.add('has-shader');
+    slotEl.title = `Asset ${slotIndex + 1}: ${fileName}`;
+    const labelEl = slotEl.querySelector('.slot-label');
+    if (labelEl) labelEl.textContent = fileName;
+  }
+
+  saveGridState();
+  setStatus(`Loaded ${assetType}: ${fileName}`, 'success');
+}
+
+// Select an asset slot for parameter editing
+function selectAssetSlot(index) {
+  const slotData = state.gridSlots[index];
+  if (!slotData) return;
+
+  // Clear previous active slot highlight
+  if (state.activeGridSlot !== null) {
+    const prevSlot = document.querySelector(`.grid-slot[data-slot="${state.activeGridSlot}"]`);
+    if (prevSlot) prevSlot.classList.remove('active');
+  }
+
+  state.activeGridSlot = index;
+  const slot = document.querySelector(`.grid-slot[data-slot="${index}"]`);
+  if (slot) slot.classList.add('active');
+
+  // Generate asset param UI
+  generateCustomParamUI();
+
+  setStatus(`Selected asset ${index + 1}: ${slotData.label || slotData.mediaPath}`, 'success');
+}
+
+// Context menu for asset slots
+function showAssetContextMenu(x, y, slotIndex) {
+  hideContextMenu();
+
+  const menu = document.createElement('div');
+  menu.className = 'context-menu';
+  menu.id = 'grid-context-menu';
+
+  const hasAsset = state.gridSlots[slotIndex] !== null;
+
+  // Load Image
+  const loadImgItem = document.createElement('div');
+  loadImgItem.className = 'context-menu-item';
+  loadImgItem.textContent = 'Load Image...';
+  loadImgItem.addEventListener('click', async () => {
+    hideContextMenu();
+    const result = await window.electronAPI.openMediaForAsset();
+    if (result && !result.canceled && result.type === 'image') {
+      // Ensure slot exists
+      while (state.gridSlots.length <= slotIndex) state.gridSlots.push(null);
+      try {
+        await assignAssetToSlot(slotIndex, result.filePath, 'image', result.dataUrl);
+        rebuildAssetGridDOM();
+      } catch (err) {
+        setStatus(`Failed to load image: ${err.message}`, 'error');
+      }
+    }
+  });
+  menu.appendChild(loadImgItem);
+
+  // Load Video
+  const loadVidItem = document.createElement('div');
+  loadVidItem.className = 'context-menu-item';
+  loadVidItem.textContent = 'Load Video...';
+  loadVidItem.addEventListener('click', async () => {
+    hideContextMenu();
+    const result = await window.electronAPI.openMediaForAsset();
+    if (result && !result.canceled && result.type === 'video') {
+      while (state.gridSlots.length <= slotIndex) state.gridSlots.push(null);
+      try {
+        await assignAssetToSlot(slotIndex, result.filePath, 'video');
+        rebuildAssetGridDOM();
+      } catch (err) {
+        setStatus(`Failed to load video: ${err.message}`, 'error');
+      }
+    }
+  });
+  menu.appendChild(loadVidItem);
+
+  // Rename
+  if (hasAsset) {
+    const renameItem = document.createElement('div');
+    renameItem.className = 'context-menu-item';
+    renameItem.textContent = 'Rename';
+    renameItem.addEventListener('click', () => {
+      hideContextMenu();
+      renameGridSlot(slotIndex);
+    });
+    menu.appendChild(renameItem);
+  }
+
+  // Send to Mixer channel submenu
+  if (hasAsset) {
+    const separator = document.createElement('div');
+    separator.className = 'context-menu-separator';
+    menu.appendChild(separator);
+
+    const mixerItem = document.createElement('div');
+    mixerItem.className = 'context-menu-item has-submenu';
+    mixerItem.textContent = 'Send to Mixer';
+    const mixerArrow = document.createElement('span');
+    mixerArrow.className = 'submenu-arrow';
+    mixerArrow.textContent = '\u25b6';
+    mixerItem.appendChild(mixerArrow);
+
+    const mixerContent = document.createElement('div');
+    mixerContent.className = 'context-submenu';
+    for (let i = 0; i < state.mixerChannels.length; i++) {
+      const item = document.createElement('div');
+      item.className = 'context-menu-item';
+      item.textContent = `Channel ${i + 1}`;
+      item.addEventListener('click', () => {
+        hideContextMenu();
+        assignAssetToMixer(i, slotIndex);
+      });
+      mixerContent.appendChild(item);
+    }
+    mixerItem.appendChild(mixerContent);
+    menu.appendChild(mixerItem);
+  }
+
+  // Clear
+  if (hasAsset) {
+    const separator2 = document.createElement('div');
+    separator2.className = 'context-menu-separator';
+    menu.appendChild(separator2);
+
+    const clearItem = document.createElement('div');
+    clearItem.className = 'context-menu-item';
+    clearItem.textContent = 'Clear Slot';
+    clearItem.addEventListener('click', () => {
+      hideContextMenu();
+      if (state.gridSlots[slotIndex]?.renderer) {
+        state.gridSlots[slotIndex].renderer.dispose();
+      }
+      state.gridSlots[slotIndex] = null;
+      rebuildAssetGridDOM();
+      saveGridState();
+      setStatus(`Cleared asset slot ${slotIndex + 1}`, 'success');
+    });
+    menu.appendChild(clearItem);
+  }
+
+  // Remove slot
+  const removeItem = document.createElement('div');
+  removeItem.className = 'context-menu-item';
+  removeItem.textContent = 'Remove Slot';
+  removeItem.addEventListener('click', () => {
+    hideContextMenu();
+    if (state.gridSlots[slotIndex]?.renderer) {
+      state.gridSlots[slotIndex].renderer.dispose();
+    }
+    state.gridSlots.splice(slotIndex, 1);
+    if (state.activeGridSlot === slotIndex) state.activeGridSlot = null;
+    else if (state.activeGridSlot !== null && state.activeGridSlot > slotIndex) state.activeGridSlot--;
+    rebuildAssetGridDOM();
+    saveGridState();
+    setStatus(`Removed asset slot ${slotIndex + 1}`, 'success');
+  });
+  menu.appendChild(removeItem);
+
+  // Position menu
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+  document.body.appendChild(menu);
+
+  const rect = menu.getBoundingClientRect();
+  if (rect.right > window.innerWidth) menu.style.left = `${window.innerWidth - rect.width - 5}px`;
+  if (rect.bottom > window.innerHeight) menu.style.top = `${window.innerHeight - rect.height - 5}px`;
+
+  setTimeout(() => {
+    const handler = (e) => {
+      if (!menu.contains(e.target)) {
+        hideContextMenu();
+        document.removeEventListener('click', handler);
+      }
+    };
+    document.addEventListener('click', handler);
+  }, 0);
+}
+
+// =============================================================================
+// Shader Grid Slot Elements
+// =============================================================================
+
 // Create a grid slot DOM element and wire up event listeners
 function createGridSlotElement(index) {
   const slot = document.createElement('div');
@@ -1071,10 +1540,14 @@ function removeGridSlotElement(index) {
 
 // Rebuild all grid slot DOM elements from state
 function rebuildGridDOM() {
-  // If active tab is a mix panel, delegate to mix panel builder
+  // If active tab is a mix panel or asset tab, delegate
   const activeTab = state.shaderTabs[state.activeShaderTab];
   if (activeTab && activeTab.type === 'mix') {
     rebuildMixPanelDOM();
+    return;
+  }
+  if (activeTab && activeTab.type === 'assets') {
+    rebuildAssetGridDOM();
     return;
   }
 
@@ -2035,14 +2508,36 @@ export function saveGridState() {
           thumbnail: preset.thumbnail || null,
           channels: preset.channels.map(ch => {
             if (!ch) return null;
-            return {
-              shaderCode: ch.shaderCode,
+            const saved = {
               alpha: ch.alpha,
               params: ch.params,
               customParams: ch.customParams || {}
             };
+            if (ch.assetType) {
+              saved.assetType = ch.assetType;
+              saved.mediaPath = ch.mediaPath;
+            } else {
+              saved.shaderCode = ch.shaderCode;
+            }
+            return saved;
           })
         }))
+      };
+    }
+    if (tab.type === 'assets') {
+      return {
+        name: tab.name,
+        type: 'assets',
+        slots: (tab.slots || []).map(slot => {
+          if (!slot) return null;
+          const saved = {
+            type: slot.type,  // 'asset-image' or 'asset-video'
+            mediaPath: slot.mediaPath,
+            customParams: slot.customParams || {}
+          };
+          if (slot.label) saved.label = slot.label;
+          return saved;
+        })
       };
     }
     return {
@@ -2126,6 +2621,56 @@ async function loadTabbedGridState(savedState) {
       continue;
     }
 
+    // Handle asset tabs — restore AssetRenderers from media library
+    if (tabData.type === 'assets') {
+      const compactSlots = (tabData.slots || []).filter(s => s && s.mediaPath);
+      const tab = { name: tabData.name || `Assets ${tabIndex + 1}`, type: 'assets', slots: new Array(compactSlots.length).fill(null) };
+      state.shaderTabs.push(tab);
+
+      state.activeShaderTab = tabIndex;
+      state.gridSlots = tab.slots;
+      rebuildAssetGridDOM();
+
+      for (let i = 0; i < compactSlots.length; i++) {
+        const slotData = compactSlots[i];
+        try {
+          const isVideo = slotData.type === 'asset-video';
+          const absolutePath = await window.electronAPI.getMediaAbsolutePath(slotData.mediaPath);
+
+          const slotEl = document.querySelector(`.grid-slot[data-slot="${i}"]`);
+          const canvas = slotEl ? slotEl.querySelector('canvas') : document.createElement('canvas');
+          if (!slotEl) { canvas.width = 160; canvas.height = 90; }
+
+          const renderer = new AssetRenderer(canvas);
+          renderer.mediaPath = slotData.mediaPath;
+
+          if (isVideo) {
+            await renderer.loadVideo(absolutePath);
+          } else {
+            const loaded = await window.electronAPI.loadMediaDataUrl(slotData.mediaPath);
+            if (loaded.success) {
+              await renderer.loadImage(loaded.dataUrl);
+            }
+          }
+
+          if (slotData.customParams) renderer.setParams(slotData.customParams);
+
+          tab.slots[i] = {
+            type: slotData.type,
+            mediaPath: slotData.mediaPath,
+            renderer,
+            customParams: renderer.getCustomParamValues(),
+            label: slotData.label
+          };
+          totalLoaded++;
+        } catch (err) {
+          console.warn(`Failed to load asset ${tab.name} slot ${i + 1}:`, err.message);
+          allFailedSlots.push(`${tab.name}:${i + 1}`);
+        }
+      }
+      continue;
+    }
+
     const tab = { name: tabData.name || `Tab ${tabIndex + 1}`, type: tabData.type || 'shaders', slots: [] };
 
     // Compact: only keep slots with shader data
@@ -2177,12 +2722,16 @@ async function loadTabbedGridState(savedState) {
   state.activeShaderTab = Math.min(savedState.activeTab || 0, state.shaderTabs.length - 1);
   const restoredTab = state.shaderTabs[state.activeShaderTab];
   // Sync section with actual tab type
-  state.activeSection = restoredTab.type === 'mix' ? 'mix' : 'shaders';
+  if (restoredTab.type === 'mix') state.activeSection = 'mix';
+  else if (restoredTab.type === 'assets') state.activeSection = 'assets';
+  else state.activeSection = 'shaders';
   state.gridSlots = restoredTab.type === 'mix' ? [] : restoredTab.slots;
 
   // Rebuild DOM for active tab
   if (restoredTab.type === 'mix') {
     rebuildMixPanelDOM();
+  } else if (restoredTab.type === 'assets') {
+    rebuildAssetGridDOM();
   } else {
     rebuildGridDOM();
   }

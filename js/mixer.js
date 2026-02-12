@@ -1,6 +1,7 @@
 // Shader Mixer - dynamic channel compositor with per-channel parameters
 import { state, notifyRemoteStateChanged } from './state.js';
 import { MiniShaderRenderer } from './shader-grid.js';
+import { AssetRenderer } from './asset-renderer.js';
 import { loadParamsToSliders, generateCustomParamUI } from './params.js';
 import { updateLocalPresetsUI } from './presets.js';
 import { setStatus } from './utils.js';
@@ -112,7 +113,11 @@ function rebuildChannelElements() {
     const slider = el.querySelector('.mixer-slider');
 
     if ((ch.slotIndex !== null && ch.tabIndex !== null) || ch.renderer) {
-      btn.textContent = ch.renderer ? 'M' : String(ch.slotIndex + 1);
+      if (ch.assetType) {
+        btn.textContent = ch.slotIndex !== null ? 'A' + String(ch.slotIndex + 1) : 'A';
+      } else {
+        btn.textContent = ch.renderer && ch.slotIndex === null ? 'M' : String(ch.slotIndex + 1);
+      }
       btn.classList.add('assigned');
     }
     if (state.mixerSelectedChannel === i) {
@@ -221,22 +226,31 @@ function selectMixerChannel(channelIndex) {
     if (slot) slot.classList.add('active');
   }
 
-  // Compile shader to main renderer so @param definitions are available for UI
-  if (shaderCode) {
-    try {
-      state.renderer.compile(shaderCode);
-    } catch (err) {
-      console.warn('Failed to compile shader for param UI:', err.message);
+  // Check if this is an asset channel
+  const isAsset = ch.assetType || slotData?.type?.startsWith('asset-');
+
+  if (!isAsset) {
+    // Compile shader to main renderer so @param definitions are available for UI
+    if (shaderCode) {
+      try {
+        state.renderer.compile(shaderCode);
+      } catch (err) {
+        console.warn('Failed to compile shader for param UI:', err.message);
+      }
     }
+
+    // Load ALL channel params (speed + custom) into UI in a single pass.
+    const allParams = { ...ch.params, ...ch.customParams };
+    loadParamsToSliders(allParams, { skipMixerSync: true });
   }
 
-  // Load ALL channel params (speed + custom) into UI in a single pass.
-  const allParams = { ...ch.params, ...ch.customParams };
-  loadParamsToSliders(allParams, { skipMixerSync: true });
-
+  // Generate custom param UI (works for both shader and asset channels)
+  generateCustomParamUI();
   updateLocalPresetsUI();
 
-  const name = slotData?.filePath?.split('/').pop() || (ch.shaderCode ? 'Mix Preset' : `Slot ${ch.slotIndex + 1}`);
+  const name = isAsset
+    ? (slotData?.label || slotData?.mediaPath || `Asset ${ch.slotIndex + 1}`)
+    : (slotData?.filePath?.split('/').pop() || (ch.shaderCode ? 'Mix Preset' : `Slot ${ch.slotIndex + 1}`));
   setStatus(`Mixer ${channelIndex + 1}: ${name}`, 'success');
 }
 
@@ -298,6 +312,66 @@ export function assignShaderToMixer(channelIndex, slotIndex) {
   notifyRemoteStateChanged();
 }
 
+export function assignAssetToMixer(channelIndex, slotIndex) {
+  const ch = state.mixerChannels[channelIndex];
+
+  // Dispose only if we own the renderer
+  if (ch.renderer && ch._ownsRenderer && ch.renderer.dispose) {
+    ch.renderer.dispose();
+  }
+  ch.renderer = null;
+  ch.shaderCode = null;
+  ch._ownsRenderer = false;
+
+  ch.slotIndex = slotIndex;
+  ch.tabIndex = state.activeShaderTab;
+
+  const slotData = state.gridSlots[slotIndex];
+  ch.assetType = slotData?.type || null;  // 'asset-image' or 'asset-video'
+  ch.params = {};
+  ch.customParams = { ...(slotData?.customParams || {}) };
+
+  const btn = document.querySelectorAll('#mixer-channels .mixer-btn')[channelIndex];
+  if (btn) {
+    btn.textContent = 'A' + String(slotIndex + 1);
+    btn.classList.add('assigned');
+    btn.classList.remove('armed');
+  }
+
+  state.mixerArmedChannel = null;
+  state.mixerEnabled = true;
+  syncToggleButton();
+  selectMixerChannel(channelIndex);
+
+  // Sync to fullscreen — send asset-specific data
+  const assetRenderer = slotData?.renderer;
+  const updateData = {
+    channelIndex,
+    assetType: slotData?.type,
+    mediaPath: slotData?.mediaPath,
+    params: { ...ch.customParams }
+  };
+
+  // For images, include data URL for fullscreen (it can't access renderer directly)
+  if (assetRenderer?.assetType === 'image' && assetRenderer?.image?.src) {
+    updateData.dataUrl = assetRenderer.image.src;
+  }
+  // For videos, send the absolute path
+  if (assetRenderer?.assetType === 'video') {
+    // Get absolute path asynchronously and send update
+    window.electronAPI.getMediaAbsolutePath(slotData.mediaPath).then(absPath => {
+      updateData.filePath = absPath;
+      window.electronAPI.sendMixerChannelUpdate(updateData);
+    });
+  } else {
+    window.electronAPI.sendMixerChannelUpdate(updateData);
+  }
+
+  const name = slotData?.label || slotData?.mediaPath || `Asset ${slotIndex + 1}`;
+  setStatus(`Mixer ${channelIndex + 1} \u2190 ${name}`, 'success');
+  notifyRemoteStateChanged();
+}
+
 export function clearMixerChannel(channelIndex) {
   const ch = state.mixerChannels[channelIndex];
 
@@ -349,6 +423,7 @@ export function clearMixerChannel(channelIndex) {
   // Single channel — just reset it
   ch.renderer = null;
   ch.shaderCode = null;
+  ch.assetType = null;
   ch._ownsRenderer = false;
   ch.slotIndex = null;
   ch.tabIndex = null;
@@ -573,14 +648,74 @@ export function recallMixState(preset) {
   // Restore each channel from the preset
   for (let i = 0; i < targetCount; i++) {
     const presetCh = preset.channels[i];
-    if (!presetCh || !presetCh.shaderCode) continue;
+    if (!presetCh) continue;
 
     const ch = state.mixerChannels[i];
-    ch.shaderCode = presetCh.shaderCode;
     ch.alpha = presetCh.alpha ?? 1.0;
     ch.params = { ...(presetCh.params || {}) };
     ch.customParams = { ...(presetCh.customParams || {}) };
     ch.slotIndex = null;  // Not tied to a grid slot
+
+    // Handle asset channels
+    if (presetCh.assetType && presetCh.mediaPath) {
+      ch.assetType = presetCh.assetType;
+      ch.mediaPath = presetCh.mediaPath;
+      ch.shaderCode = null;
+
+      const isVideo = presetCh.assetType === 'asset-video';
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = 160;
+      tempCanvas.height = 90;
+
+      // Create AssetRenderer and load media asynchronously
+      const renderer = new AssetRenderer(tempCanvas);
+      renderer.mediaPath = presetCh.mediaPath;
+      if (presetCh.customParams) renderer.setParams(presetCh.customParams);
+
+      ch.renderer = renderer;
+      ch._ownsRenderer = true;
+
+      // Load media async — don't block recall
+      (async () => {
+        try {
+          if (isVideo) {
+            const absPath = await window.electronAPI.getMediaAbsolutePath(presetCh.mediaPath);
+            await renderer.loadVideo(absPath);
+            // Sync to fullscreen
+            window.electronAPI.sendMixerChannelUpdate({
+              channelIndex: i,
+              assetType: presetCh.assetType,
+              mediaPath: presetCh.mediaPath,
+              filePath: absPath,
+              params: { ...ch.customParams }
+            });
+          } else {
+            const loaded = await window.electronAPI.loadMediaDataUrl(presetCh.mediaPath);
+            if (loaded.success) {
+              await renderer.loadImage(loaded.dataUrl);
+              window.electronAPI.sendMixerChannelUpdate({
+                channelIndex: i,
+                assetType: presetCh.assetType,
+                mediaPath: presetCh.mediaPath,
+                dataUrl: loaded.dataUrl,
+                params: { ...ch.customParams }
+              });
+            }
+          }
+        } catch (err) {
+          console.warn(`Failed to load asset for mix preset channel ${i + 1}:`, err.message);
+        }
+      })();
+
+      window.electronAPI.sendMixerAlphaUpdate({ channelIndex: i, alpha: ch.alpha });
+      continue;
+    }
+
+    // Shader channel
+    if (!presetCh.shaderCode) continue;
+
+    ch.shaderCode = presetCh.shaderCode;
+    ch.assetType = null;
 
     // Create a MiniShaderRenderer for this channel
     const tempCanvas = document.createElement('canvas');
@@ -624,7 +759,7 @@ export function recallMixState(preset) {
   // Auto-select the first active channel so param changes route to mixer
   for (let i = 0; i < state.mixerChannels.length; i++) {
     const ch = state.mixerChannels[i];
-    if (ch.renderer || ch.shaderCode) {
+    if (ch.renderer || ch.shaderCode || ch.assetType) {
       selectMixerChannel(i);
       break;
     }

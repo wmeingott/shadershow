@@ -32,6 +32,10 @@ let mixerSelectedChannel = -1; // Track which channel receives param-update fall
 let mixerOverlayCanvas = null;
 let mixerOverlayCtx = null;
 
+// Asset mixer state: per-channel asset sources (Image/Video elements + params)
+// mixerAssets[i] = { source: HTMLImageElement|HTMLVideoElement, type: 'asset-image'|'asset-video', params: {...} } or null
+let mixerAssets = [];
+
 // Reused Date object to avoid allocation per frame
 const reusedDate = new Date();
 
@@ -784,7 +788,8 @@ function initMixerMode(config) {
 function renderMixerFrame() {
   const canvas = document.getElementById('shader-canvas');
 
-  if (!mixerOverlayCanvas || !mixerOverlayCtx || mixerRenderers.length === 0) return;
+  const hasChannels = mixerRenderers.some(Boolean) || mixerAssets.some(Boolean);
+  if (!mixerOverlayCanvas || !mixerOverlayCtx || !hasChannels) return;
 
   // Ensure overlay matches canvas size
   if (mixerOverlayCanvas.width !== canvas.width || mixerOverlayCanvas.height !== canvas.height) {
@@ -847,10 +852,40 @@ function renderMixerFrame() {
   gl.disable(gl.DEPTH_TEST);
   gl.disable(gl.BLEND);
 
-  // Render each active channel
-  for (let i = 0; i < mixerRenderers.length; i++) {
-    const tr = mixerRenderers[i];
-    if (!tr || !tr.program || mixerChannelAlphas[i] <= 0) continue;
+  // Render each active channel (shaders + assets)
+  const maxChannels = Math.max(mixerRenderers.length, mixerAssets.length);
+  for (let i = 0; i < maxChannels; i++) {
+    const alpha = i < mixerChannelAlphas.length ? mixerChannelAlphas[i] : 1;
+    if (alpha <= 0) continue;
+
+    // Check for asset channel first
+    const asset = i < mixerAssets.length ? mixerAssets[i] : null;
+    if (asset && asset.source) {
+      // Handle video loop logic
+      if (asset.type === 'asset-video' && asset.source instanceof HTMLVideoElement) {
+        const { loop, start, end } = asset.params;
+        if (loop && end > start && start >= 0) {
+          if (asset.source.currentTime >= end || asset.source.currentTime < start) {
+            asset.source.currentTime = start;
+          }
+        }
+      }
+
+      ctx.globalAlpha = alpha;
+      const { x = 0, y = 0, width = 0, height = 0, scale = 1 } = asset.params;
+      const drawW = (width || canvas.width) * scale;
+      const drawH = (height || canvas.height) * scale;
+      try {
+        ctx.drawImage(asset.source, x, y, drawW, drawH);
+      } catch (err) {
+        // Image may not be loaded yet
+      }
+      continue;
+    }
+
+    // Shader channel
+    const tr = i < mixerRenderers.length ? mixerRenderers[i] : null;
+    if (!tr || !tr.program) continue;
 
     // Render the channel's shader to the WebGL canvas
     gl.viewport(0, 0, canvas.width, canvas.height);
@@ -865,7 +900,7 @@ function renderMixerFrame() {
     }
 
     // Composite WebGL result onto 2D overlay with alpha
-    ctx.globalAlpha = mixerChannelAlphas[i];
+    ctx.globalAlpha = alpha;
     ctx.drawImage(canvas, 0, 0);
   }
 
@@ -883,6 +918,15 @@ function exitMixerMode() {
   mixerSelectedChannel = -1;
   mixerRenderers.forEach(r => { if (r) r.dispose(); });
   mixerRenderers = [];
+  // Clean up asset sources
+  mixerAssets.forEach(a => {
+    if (a?.source instanceof HTMLVideoElement) {
+      a.source.pause();
+      a.source.removeAttribute('src');
+      a.source.load();
+    }
+  });
+  mixerAssets = [];
   if (mixerOverlayCanvas) {
     mixerOverlayCanvas.style.display = 'none';
   }
@@ -894,7 +938,17 @@ function exitMixerMode() {
 
 window.electronAPI.onMixerParamUpdate?.((data) => {
   const { channelIndex, paramName, value } = data;
-  if (channelIndex >= 0 && channelIndex < mixerRenderers.length && mixerRenderers[channelIndex]) {
+  if (channelIndex < 0) return;
+
+  // Check if this is an asset channel
+  if (channelIndex < mixerAssets.length && mixerAssets[channelIndex]) {
+    mixerAssets[channelIndex].params[paramName] = value;
+    mixerSelectedChannel = channelIndex;
+    return;
+  }
+
+  // Shader channel
+  if (channelIndex < mixerRenderers.length && mixerRenderers[channelIndex]) {
     mixerRenderers[channelIndex].setParam(paramName, value);
     mixerSelectedChannel = channelIndex;
   }
@@ -917,7 +971,7 @@ window.electronAPI.onMixerBlendMode?.((data) => {
 });
 
 window.electronAPI.onMixerChannelUpdate?.((data) => {
-  const { channelIndex, shaderCode, params, clear } = data;
+  const { channelIndex, shaderCode, params, clear, assetType, dataUrl, filePath } = data;
   if (channelIndex < 0) return;
 
   const canvas = document.getElementById('shader-canvas');
@@ -928,6 +982,16 @@ window.electronAPI.onMixerChannelUpdate?.((data) => {
       mixerRenderers[channelIndex].dispose();
       mixerRenderers[channelIndex] = null;
     }
+    // Clear asset source
+    while (mixerAssets.length <= channelIndex) mixerAssets.push(null);
+    if (mixerAssets[channelIndex]) {
+      if (mixerAssets[channelIndex].source instanceof HTMLVideoElement) {
+        mixerAssets[channelIndex].source.pause();
+        mixerAssets[channelIndex].source.removeAttribute('src');
+        mixerAssets[channelIndex].source.load();
+      }
+      mixerAssets[channelIndex] = null;
+    }
     if (channelIndex < mixerChannelAlphas.length) {
       mixerChannelAlphas[channelIndex] = 1;
     }
@@ -936,7 +1000,7 @@ window.electronAPI.onMixerChannelUpdate?.((data) => {
     if (mixerSelectedChannel === channelIndex) {
       mixerSelectedChannel = -1;
       for (let i = 0; i < mixerRenderers.length; i++) {
-        if (i !== channelIndex && mixerRenderers[i]) {
+        if (i !== channelIndex && (mixerRenderers[i] || mixerAssets[i])) {
           mixerSelectedChannel = i;
           break;
         }
@@ -944,9 +1008,47 @@ window.electronAPI.onMixerChannelUpdate?.((data) => {
     }
 
     // If no channels active, exit mixer mode
-    if (!mixerRenderers.some(Boolean)) {
+    const hasAny = mixerRenderers.some(Boolean) || mixerAssets.some(Boolean);
+    if (!hasAny) {
       exitMixerMode();
     }
+    return;
+  }
+
+  // Handle asset channels (images and videos)
+  if (assetType) {
+    while (mixerAssets.length <= channelIndex) mixerAssets.push(null);
+    while (mixerChannelAlphas.length <= channelIndex) mixerChannelAlphas.push(1);
+
+    // Clear any existing shader renderer for this channel
+    if (channelIndex < mixerRenderers.length && mixerRenderers[channelIndex]) {
+      mixerRenderers[channelIndex].dispose();
+      mixerRenderers[channelIndex] = null;
+    }
+
+    // Clean up previous asset
+    if (mixerAssets[channelIndex]?.source instanceof HTMLVideoElement) {
+      mixerAssets[channelIndex].source.pause();
+    }
+
+    const isVideo = assetType === 'asset-video';
+
+    if (isVideo && filePath) {
+      const video = document.createElement('video');
+      video.muted = true;
+      video.playsInline = true;
+      video.loop = true;
+      video.src = filePath.startsWith('file://') ? filePath : `file://${filePath}`;
+      video.play().catch(() => {});
+      mixerAssets[channelIndex] = { source: video, type: assetType, params: params || {} };
+    } else if (dataUrl) {
+      const img = new Image();
+      img.src = dataUrl;
+      mixerAssets[channelIndex] = { source: img, type: assetType, params: params || {} };
+    }
+
+    mixerSelectedChannel = channelIndex;
+    if (!mixerMode) initMixerModeIfNeeded(canvas);
     return;
   }
 
@@ -960,6 +1062,10 @@ window.electronAPI.onMixerChannelUpdate?.((data) => {
   // Grow arrays as needed
   while (mixerRenderers.length <= channelIndex) mixerRenderers.push(null);
   while (mixerChannelAlphas.length <= channelIndex) mixerChannelAlphas.push(1);
+
+  // Clear any asset for this channel
+  while (mixerAssets.length <= channelIndex) mixerAssets.push(null);
+  mixerAssets[channelIndex] = null;
 
   // Create or replace TileRenderer for this channel
   if (mixerRenderers[channelIndex]) {

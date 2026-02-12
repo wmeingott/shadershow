@@ -93,6 +93,7 @@ const viewStateFile = path.join(dataDir, 'view-state.json');
 const tileStateFile = path.join(dataDir, 'tile-state.json');
 const tilePresetsFile = path.join(dataDir, 'tile-presets.json');
 const texturesDir = path.join(dataDir, 'textures');
+const mediaDir = path.join(dataDir, 'media');
 const claudeKeyFile = path.join(dataDir, 'claude-key.json');
 
 // Claude AI state
@@ -110,6 +111,7 @@ async function ensureDataDir() {
   await fsPromises.mkdir(dataDir, { recursive: true });
   await fsPromises.mkdir(shadersDir, { recursive: true });
   await fsPromises.mkdir(texturesDir, { recursive: true });
+  await fsPromises.mkdir(mediaDir, { recursive: true });
 
   // Migrate old grid state from userData if exists
   const oldGridStateFile = path.join(app.getPath('userData'), 'grid-state.json');
@@ -2519,6 +2521,117 @@ ipcMain.handle('list-file-textures', async () => {
   } catch (err) {
     console.error('Failed to list file textures:', err);
     return [];
+  }
+});
+
+// =============================================================================
+// Asset Media IPC handlers
+// =============================================================================
+
+// Open a file dialog for images and videos (for asset grid)
+ipcMain.handle('open-media-for-asset', async () => {
+  const parentWindow = BrowserWindow.getFocusedWindow() || mainWindow;
+  const result = await dialog.showOpenDialog(parentWindow, {
+    properties: ['openFile'],
+    filters: [
+      { name: 'Images & Videos', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'mp4', 'webm', 'mov', 'avi', 'mkv'] },
+      { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'] },
+      { name: 'Videos', extensions: ['mp4', 'webm', 'mov', 'avi', 'mkv'] },
+      { name: 'All Files', extensions: ['*'] }
+    ]
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return { canceled: true };
+  }
+
+  const filePath = result.filePaths[0];
+  const ext = path.extname(filePath).toLowerCase();
+  const videoExts = ['.mp4', '.webm', '.mov', '.avi', '.mkv'];
+  const isVideo = videoExts.includes(ext);
+  const assetType = isVideo ? 'video' : 'image';
+
+  if (isVideo) {
+    // For videos, return file path only (loaded via <video> element)
+    return { canceled: false, filePath, type: assetType };
+  }
+
+  // For images, read and return as data URL
+  try {
+    const data = await fsPromises.readFile(filePath);
+    const mimeTypes = {
+      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif', '.bmp': 'image/bmp', '.webp': 'image/webp'
+    };
+    const mimeType = mimeTypes[ext] || 'image/png';
+    const dataUrl = `data:${mimeType};base64,${data.toString('base64')}`;
+    return { canceled: false, filePath, dataUrl, type: assetType };
+  } catch (err) {
+    return { canceled: true, error: err.message };
+  }
+});
+
+// Copy a media file into data/media/ if it's not already there
+ipcMain.handle('copy-media-to-library', async (event, sourcePath) => {
+  try {
+    await ensureDataDir();
+    const fileName = path.basename(sourcePath);
+    const destPath = path.join(mediaDir, fileName);
+
+    // Check if source is already inside media dir
+    const resolvedSource = path.resolve(sourcePath);
+    const resolvedMedia = path.resolve(mediaDir);
+    if (resolvedSource.startsWith(resolvedMedia + path.sep)) {
+      return { mediaPath: fileName, absolutePath: resolvedSource };
+    }
+
+    // Handle name collisions by appending a number
+    let finalName = fileName;
+    let finalPath = destPath;
+    let counter = 1;
+    const ext = path.extname(fileName);
+    const base = path.basename(fileName, ext);
+    while (true) {
+      try {
+        await fsPromises.access(finalPath);
+        // File exists, try next name
+        finalName = `${base}_${counter}${ext}`;
+        finalPath = path.join(mediaDir, finalName);
+        counter++;
+      } catch {
+        // File doesn't exist, we can use this name
+        break;
+      }
+    }
+
+    await fsPromises.copyFile(sourcePath, finalPath);
+    return { mediaPath: finalName, absolutePath: finalPath };
+  } catch (err) {
+    console.error('Failed to copy media to library:', err);
+    return { error: err.message };
+  }
+});
+
+// Resolve a relative media path to an absolute file path
+ipcMain.handle('get-media-absolute-path', async (event, mediaPath) => {
+  return path.join(mediaDir, mediaPath);
+});
+
+// Load an image from media dir and return as base64 data URL
+ipcMain.handle('load-media-data-url', async (event, mediaPath) => {
+  try {
+    const filePath = path.join(mediaDir, mediaPath);
+    const data = await fsPromises.readFile(filePath);
+    const ext = path.extname(mediaPath).toLowerCase();
+    const mimeTypes = {
+      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif', '.bmp': 'image/bmp', '.webp': 'image/webp'
+    };
+    const mimeType = mimeTypes[ext] || 'image/png';
+    return { success: true, dataUrl: `data:${mimeType};base64,${data.toString('base64')}` };
+  } catch (err) {
+    console.error('Failed to load media data URL:', err);
+    return { success: false, error: err.message };
   }
 });
 

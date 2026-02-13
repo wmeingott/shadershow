@@ -119,7 +119,7 @@ export async function compileShader() {
     // Update channel UI for builtin @texture directives
     if (state.renderer.textureDirectives) {
       for (const { channel, textureName } of state.renderer.textureDirectives) {
-        const spec = { RGBANoise: [256, 256], RGBANoiseSmall: [64, 64], GrayNoise: [256, 256], GrayNoiseSmall: [64, 64] };
+        const spec = { RGBANoise: [256, 256], RGBANoiseBig: [1024, 1024], RGBANoiseSmall: [64, 64], GrayNoise: [256, 256], GrayNoiseBig: [1024, 1024], GrayNoiseSmall: [64, 64] };
         const [w, h] = spec[textureName] || [0, 0];
         updateChannelSlot(channel, 'builtin', textureName, w, h);
       }
@@ -127,9 +127,11 @@ export async function compileShader() {
 
     // Load AudioFFT channels from @texture directives
     if (state.renderer.audioDirectives) {
-      for (const { channel } of state.renderer.audioDirectives) {
+      for (const { channel, fftSize, textureName } of state.renderer.audioDirectives) {
+        const sz = fftSize || 1024;
+        const bins = sz / 2;
         state.channelState[channel] = { type: 'audio' };
-        updateChannelSlot(channel, 'audio', 'Audio FFT', 512, 2);
+        updateChannelSlot(channel, 'audio', `Audio FFT ${bins}`, bins, 2);
       }
     }
 

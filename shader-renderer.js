@@ -29,7 +29,7 @@ const SHADER_ERROR_REGEX = /ERROR:\s*\d+:(\d+):\s*(.+)/;
 const BUILTIN_TEXTURES = GLUtils.BUILTIN_TEXTURES;
 function createBuiltinTexture(gl, name) { return GLUtils.createBuiltinTexture(gl, name); }
 
-const TEXTURE_DIRECTIVE_REGEX = /^\s*\/\/\s*@texture\s+(iChannel[0-3])\s+(texture:(\w+)|(\w+))/;
+const TEXTURE_DIRECTIVE_REGEX = /^\s*\/\/\s*@texture\s+(iChannel[0-3])\s+(texture:(\w+)|(\w+)(?:\((\d+)\))?)/;
 const FILE_TEXTURE_NAME_REGEX = /^[\w-]+$/;
 
 const ShaderParamParser = {
@@ -213,8 +213,17 @@ const ShaderParamParser = {
         } else {
           // Built-in texture name or AudioFFT
           const textureName = match[4];
-          if (textureName === 'AudioFFT') {
-            directives.push({ channel, textureName, type: 'audio' });
+          const sizeArg = match[5] ? parseInt(match[5], 10) : null;
+          if (textureName === 'AudioFFT' && sizeArg !== null) {
+            // AudioFFT(size) — validate power of 2, 64..4096
+            const VALID_FFT = [64, 128, 256, 512, 1024, 2048, 4096];
+            if (VALID_FFT.includes(sizeArg)) {
+              directives.push({ channel, textureName: `AudioFFT(${sizeArg})`, type: 'audio', fftSize: sizeArg });
+            }
+          } else if (textureName === 'AudioFFT') {
+            directives.push({ channel, textureName, type: 'audio', fftSize: 1024 });
+          } else if (textureName === 'AudioFFTBig') {
+            directives.push({ channel, textureName, type: 'audio', fftSize: 2048 });
           } else if (BUILTIN_TEXTURES[textureName]) {
             directives.push({ channel, textureName, type: 'builtin' });
           }
@@ -546,8 +555,9 @@ class ShaderRenderer {
     }
   }
 
-  async loadAudio(channel) {
+  async loadAudio(channel, fftSize = 1024) {
     const gl = this.gl;
+    const bins = fftSize / 2; // frequency bins = fftSize / 2
 
     // Clean up any existing source for this channel
     this.cleanupChannel(channel);
@@ -561,17 +571,17 @@ class ShaderRenderer {
       // Create audio context and analyser
       const audioContext = new (window.AudioContext || window.webkitAudioContext)();
       const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 1024; // 512 frequency bins
+      analyser.fftSize = fftSize;
       analyser.smoothingTimeConstant = 0.8;
 
       const source = audioContext.createMediaStreamSource(stream);
       source.connect(analyser);
 
       // Create data arrays for FFT and waveform
-      const frequencyData = new Uint8Array(512);
-      const timeDomainData = new Uint8Array(512);
+      const frequencyData = new Uint8Array(bins);
+      const timeDomainData = new Uint8Array(bins);
 
-      // Create texture (512x2: row 0 = FFT, row 1 = waveform)
+      // Create texture (bins x 2: row 0 = FFT, row 1 = waveform)
       const texture = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, texture);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
@@ -580,7 +590,7 @@ class ShaderRenderer {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
       // Initialize with empty data
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, 512, 2, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, null);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, bins, 2, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, null);
 
       this.channelTextures[channel] = texture;
       this.channelAudioSources[channel] = {
@@ -589,12 +599,18 @@ class ShaderRenderer {
         stream,
         source,
         frequencyData,
-        timeDomainData
+        timeDomainData,
+        bins
       };
-      this.channelResolutions[channel] = [512, 2, 1];
+      this.channelResolutions[channel] = [bins, 2, 1];
       this.channelTypes[channel] = 'audio';
 
-      return { width: 512, height: 2, type: 'audio' };
+      // Ensure shared audio buffer is large enough
+      if (this._audioBuffer.length < bins * 2) {
+        this._audioBuffer = new Uint8Array(bins * 2);
+      }
+
+      return { width: bins, height: 2, type: 'audio' };
     } catch (err) {
       throw new Error(`Audio access denied: ${err.message}`);
     }
@@ -738,6 +754,7 @@ class ShaderRenderer {
       if (channelType === 'audio') {
         const audio = this.channelAudioSources[i];
         if (audio) {
+          const bins = audio.bins;
           // Get frequency data (FFT)
           audio.analyser.getByteFrequencyData(audio.frequencyData);
 
@@ -745,17 +762,18 @@ class ShaderRenderer {
           audio.analyser.getByteTimeDomainData(audio.timeDomainData);
 
           // Combine into pre-allocated buffer (2 rows: FFT on row 0, waveform on row 1)
-          this._audioBuffer.set(audio.frequencyData, 0);      // Row 0: FFT
-          this._audioBuffer.set(audio.timeDomainData, 512);   // Row 1: Waveform
+          this._audioBuffer.set(audio.frequencyData, 0);       // Row 0: FFT
+          this._audioBuffer.set(audio.timeDomainData, bins);   // Row 1: Waveform
 
-          // Update texture (audio is always 512x2, use texSubImage2D after first upload)
+          // Update texture (bins x 2, use texSubImage2D after first upload)
           gl.bindTexture(gl.TEXTURE_2D, this.channelTextures[i]);
           const sz = this._channelTexSizes[i];
-          if (sz[0] === 512 && sz[1] === 2) {
-            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 512, 2, gl.LUMINANCE, gl.UNSIGNED_BYTE, this._audioBuffer);
+          const buf = new Uint8Array(this._audioBuffer.buffer, 0, bins * 2);
+          if (sz[0] === bins && sz[1] === 2) {
+            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, bins, 2, gl.LUMINANCE, gl.UNSIGNED_BYTE, buf);
           } else {
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, 512, 2, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, this._audioBuffer);
-            sz[0] = 512;
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, bins, 2, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, buf);
+            sz[0] = bins;
             sz[1] = 2;
           }
         }
@@ -919,8 +937,8 @@ class ShaderRenderer {
     this.applyTextureDirectives(this.textureDirectives);
 
     // Apply audio directives (async, non-blocking)
-    for (const { channel } of this.audioDirectives) {
-      this.loadAudio(channel).catch(err => _srLog.warn('AudioFFT directive failed:', err.message));
+    for (const { channel, fftSize } of this.audioDirectives) {
+      this.loadAudio(channel, fftSize).catch(err => _srLog.warn('AudioFFT directive failed:', err.message));
     }
 
     _srLog.debug('Compiled', fragmentSource.length, 'chars,', this.customParams.length, 'params');

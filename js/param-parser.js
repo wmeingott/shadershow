@@ -239,10 +239,10 @@ export function createParamValues(params) {
 
 // Valid built-in texture names for @texture directives
 const VALID_TEXTURE_NAMES = new Set([
-  'RGBANoise', 'RGBANoiseSmall', 'GrayNoise', 'GrayNoiseSmall'
+  'RGBANoise', 'RGBANoiseBig', 'RGBANoiseSmall', 'GrayNoise', 'GrayNoiseBig', 'GrayNoiseSmall'
 ]);
 
-const TEXTURE_REGEX = /^\s*\/\/\s*@texture\s+(iChannel[0-3])\s+(texture:(\w+)|(\w+))/;
+const TEXTURE_REGEX = /^\s*\/\/\s*@texture\s+(iChannel[0-3])\s+(texture:(\w+)|(\w+)(?:\((\d+)\))?)/;
 
 // Validate file texture names (alphanumeric, underscores, hyphens only)
 const FILE_TEXTURE_NAME_REGEX = /^[\w-]+$/;
@@ -266,8 +266,17 @@ export function parseTextureDirectives(shaderSource) {
       } else {
         // Built-in texture name or AudioFFT
         const textureName = match[4];
-        if (textureName === 'AudioFFT') {
-          directives.push({ channel, textureName, type: 'audio' });
+        const sizeArg = match[5] ? parseInt(match[5], 10) : null;
+        if (textureName === 'AudioFFT' && sizeArg !== null) {
+          // AudioFFT(size) — validate power of 2, 64..4096
+          const VALID_FFT = [64, 128, 256, 512, 1024, 2048, 4096];
+          if (VALID_FFT.includes(sizeArg)) {
+            directives.push({ channel, textureName: `AudioFFT(${sizeArg})`, type: 'audio', fftSize: sizeArg });
+          }
+        } else if (textureName === 'AudioFFT') {
+          directives.push({ channel, textureName, type: 'audio', fftSize: 1024 });
+        } else if (textureName === 'AudioFFTBig') {
+          directives.push({ channel, textureName, type: 'audio', fftSize: 2048 });
         } else if (VALID_TEXTURE_NAMES.has(textureName)) {
           directives.push({ channel, textureName, type: 'builtin' });
         }

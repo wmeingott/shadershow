@@ -222,8 +222,10 @@ const GLUtils = {
   // Built-in noise texture specs
   BUILTIN_TEXTURES: {
     RGBANoise:      { width: 256, height: 256, gray: false },
+    RGBANoiseBig:   { width: 1024, height: 1024, gray: false },
     RGBANoiseSmall: { width: 64,  height: 64,  gray: false },
     GrayNoise:      { width: 256, height: 256, gray: true },
+    GrayNoiseBig:   { width: 1024, height: 1024, gray: true },
     GrayNoiseSmall: { width: 64,  height: 64,  gray: true }
   },
 

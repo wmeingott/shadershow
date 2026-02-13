@@ -1,10 +1,11 @@
 // Shader Grid module
 import { state, notifyRemoteStateChanged } from './state.js';
+import { log } from './logger.js';
 import { setStatus } from './utils.js';
 import { loadParamsToSliders, generateCustomParamUI } from './params.js';
 import { updateLocalPresetsUI } from './presets.js';
 import { setRenderMode, ensureSceneRenderer, detectRenderMode } from './renderer.js';
-import { setEditorMode } from './editor.js';
+import { setEditorMode, compileShader } from './editor.js';
 import { parseShaderParams, generateUniformDeclarations, parseTextureDirectives } from './param-parser.js';
 import { openInTab } from './tabs.js';
 import { tileState, assignTile } from './tile-state.js';
@@ -111,6 +112,7 @@ function buildSectionBar() {
 // Switch between Shaders and Composition sections
 function switchSection(section) {
   if (state.activeSection === section) return;
+  log.debug('Grid', `switchSection: ${section}`);
   state.activeSection = section;
 
   // Find the first tab matching this section
@@ -228,6 +230,7 @@ export function switchShaderTab(tabIndex) {
   // Update active tab and section
   state.activeShaderTab = tabIndex;
   const tab = state.shaderTabs[tabIndex];
+  log.debug('Grid', `switchShaderTab: index=${tabIndex}, type=${tab?.type || 'shaders'}, name="${tab?.name}"`);
   if (tab.type === 'mix') state.activeSection = 'mix';
   else if (tab.type === 'assets') state.activeSection = 'assets';
   else state.activeSection = 'shaders';
@@ -265,6 +268,7 @@ export function switchShaderTab(tabIndex) {
 // Add a new shader tab
 function addNewShaderTab() {
   const newName = `Tab ${state.shaderTabs.length + 1}`;
+  log.info('Grid', `addNewShaderTab: "${newName}"`);
   state.shaderTabs.push({ name: newName, slots: [] });
 
   // Switch to new tab
@@ -326,6 +330,7 @@ async function deleteShaderTab(tabIndex) {
   const isMix = tab.type === 'mix';
   const itemCount = isMix ? (tab.mixPresets || []).length : (tab.slots || []).filter(s => s).length;
   const itemLabel = isMix ? 'mix preset(s)' : 'shader(s)';
+  log.info('Grid', `deleteShaderTab: "${tab.name}" with ${itemCount} ${itemLabel}`);
 
   if (itemCount > 0) {
     if (!confirm(`Delete "${tab.name}" with ${itemCount} ${itemLabel}?`)) {
@@ -494,6 +499,7 @@ function addNewMixTab() {
   // Count existing mix tabs for naming
   const mixTabCount = state.shaderTabs.filter(t => t.type === 'mix').length;
   const newName = `Mixes ${mixTabCount + 1}`;
+  log.info('Grid', `addNewMixTab: "${newName}"`);
   state.shaderTabs.push({ name: newName, type: 'mix', mixPresets: [] });
 
   switchShaderTab(state.shaderTabs.length - 1);
@@ -505,6 +511,7 @@ function addNewMixTab() {
 function addNewAssetTab() {
   const assetTabCount = state.shaderTabs.filter(t => t.type === 'assets').length;
   const newName = `Assets ${assetTabCount + 1}`;
+  log.info('Grid', `addNewAssetTab: "${newName}"`);
   state.shaderTabs.push({ name: newName, type: 'assets', slots: [] });
 
   switchShaderTab(state.shaderTabs.length - 1);
@@ -646,6 +653,7 @@ function saveMixPreset() {
 
   if (!tab.mixPresets) tab.mixPresets = [];
   tab.mixPresets.push(preset);
+  log.info('Grid', `saveMixPreset: "${presetName}" with ${channels.filter(c => c !== null).length} channel(s)`);
 
   rebuildMixPanelDOM();
   saveGridState();
@@ -877,6 +885,7 @@ export function rebuildVisualPresetsDOM() {
 
 export function toggleVisualPresetsPanel() {
   state.visualPresetsEnabled = !state.visualPresetsEnabled;
+  log.debug('Grid', `toggleVisualPresetsPanel: ${state.visualPresetsEnabled ? 'open' : 'closed'}`);
   const panel = document.getElementById('visual-presets-panel');
   const btn = document.getElementById('btn-visual-presets');
 
@@ -962,12 +971,20 @@ function serializeMixerChannels() {
   });
 }
 
-function saveVisualPreset() {
-  // Capture current editor content
-  const shaderCode = state.editor ? state.editor.getValue() : '';
+async function saveVisualPreset() {
+  // Capture shader/scene code from the renderer (which reflects the active content,
+  // even if the editor hasn't been updated via double-click/edit)
+  const shaderCode = state.renderer?._lastShaderSource || state.renderer?.sceneSource || (state.editor ? state.editor.getValue() : '');
   if (!shaderCode) {
     setStatus('No shader loaded to save as preset', 'error');
     return;
+  }
+
+  // Ensure the shader is compiled (editor change may still be debounced)
+  if (state.compileTimeout) {
+    clearTimeout(state.compileTimeout);
+    state.compileTimeout = null;
+    await compileShader();
   }
 
   // Get speed param from slider
@@ -991,6 +1008,7 @@ function saveVisualPreset() {
   };
 
   state.visualPresets.push(preset);
+  log.info('Grid', `saveVisualPreset: "${preset.name}" (mode=${preset.renderMode}, mixer=${preset.mixerEnabled})`);
 
   rebuildVisualPresetsDOM();
   saveGridState();
@@ -1001,22 +1019,28 @@ function saveVisualPreset() {
 async function recallVisualPreset(presetIndex) {
   const preset = state.visualPresets?.[presetIndex];
   if (!preset) return;
+  log.info('Grid', `recallVisualPreset: "${preset.name}" index=${presetIndex}`);
   try {
 
-  // 1. Switch render mode
-  await setRenderMode(preset.renderMode || 'shader');
+  // 1. Switch render mode — detect actual mode from code content to handle
+  //    presets saved with mismatched renderMode (e.g. GLSL code saved as 'scene')
+  const detectedMode = detectRenderMode(null, preset.shaderCode);
+  const targetMode = detectedMode || preset.renderMode || 'shader';
+  if (state.renderMode !== targetMode) {
+    await setRenderMode(targetMode);
+  } else if (targetMode === 'scene') {
+    // Same mode but scene: reinitialize so compile starts fresh
+    const sceneRenderer = await ensureSceneRenderer();
+    if (sceneRenderer) sceneRenderer.reinitialize();
+  }
 
-  // 2. Load shader code into editor
+  // 2. Load shader/scene code into editor and compile via full pipeline
   if (state.editor && preset.shaderCode) {
     state.editor.setValue(preset.shaderCode, -1);
-    // Cancel any debounced compile
+    // Cancel debounced compile set by setValue's change event
     if (state.compileTimeout) clearTimeout(state.compileTimeout);
-    // Compile immediately
-    try {
-      state.renderer.compile(preset.shaderCode);
-    } catch (err) {
-      console.warn('Failed to compile visual preset shader:', err.message);
-    }
+    // Use the full compile pipeline (handles textures, custom params, fullscreen sync)
+    await compileShader();
   }
 
   // 3. Restore params (speed etc.)
@@ -1043,16 +1067,11 @@ async function recallVisualPreset(presetIndex) {
     resetMixer();
   }
 
-  // 7. Sync to fullscreen
+  // 7. Sync params to fullscreen
   const allParams = {
     ...(preset.params || {}),
     ...(preset.customParams || {})
   };
-  window.electronAPI.sendShaderUpdate({
-    shaderCode: preset.shaderCode,
-    renderMode: preset.renderMode || 'shader',
-    params: allParams
-  });
   if (window.electronAPI.sendBatchParamUpdate) {
     window.electronAPI.sendBatchParamUpdate(allParams);
   }
@@ -1070,7 +1089,7 @@ async function recallVisualPreset(presetIndex) {
   setStatus(`Recalled visual preset "${preset.name}"`, 'success');
   notifyRemoteStateChanged();
   } catch (err) {
-    console.error('[VP] Error recalling preset:', err);
+    log.error('Grid', `recallVisualPreset failed: ${err.message}`, err);
     setStatus(`Failed to recall preset: ${err.message}`, 'error');
   }
 }
@@ -1137,7 +1156,7 @@ function updateVisualPreset(presetIndex) {
   const preset = state.visualPresets?.[presetIndex];
   if (!preset) return;
 
-  const shaderCode = state.editor ? state.editor.getValue() : '';
+  const shaderCode = state.renderer?._lastShaderSource || state.renderer?.sceneSource || (state.editor ? state.editor.getValue() : '');
   if (!shaderCode) {
     setStatus('No shader loaded to update preset', 'error');
     return;
@@ -1157,6 +1176,7 @@ function updateVisualPreset(presetIndex) {
   preset.mixerBlendMode = mixerActive ? state.mixerBlendMode : undefined;
   preset.mixerChannels = mixerActive ? serializeMixerChannels() : undefined;
 
+  log.info('Grid', `updateVisualPreset: "${preset.name}" index=${presetIndex}`);
   rebuildVisualPresetsDOM();
   saveGridState();
   setStatus(`Updated visual preset "${preset.name}"`, 'success');
@@ -1203,6 +1223,7 @@ function renameVisualPreset(presetIndex) {
 function deleteVisualPreset(presetIndex) {
   const preset = state.visualPresets?.[presetIndex];
   if (!preset) return;
+  log.info('Grid', `deleteVisualPreset: "${preset.name}" index=${presetIndex}`);
 
   state.visualPresets.splice(presetIndex, 1);
   rebuildVisualPresetsDOM();
@@ -2608,6 +2629,7 @@ function isSceneCode(code) {
 }
 
 export async function assignShaderToSlot(slotIndex, shaderCode, filePath, skipSave = false, params = null, presets = null, customParams = null) {
+  log.debug('Grid', `assignShaderToSlot: slot=${slotIndex}, codeLen=${shaderCode?.length || 0}, file=${filePath || 'none'}`);
   const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`);
   const canvas = slot.querySelector('canvas');
 
@@ -2943,6 +2965,7 @@ export function updateSaveButtonState() {
 }
 
 export function saveGridState() {
+  log.debug('Grid', `saveGridState: ${state.shaderTabs.length} tab(s), ${(state.visualPresets || []).length} visual preset(s)`);
   // Save all tabs with embedded shader code
   const tabsState = state.shaderTabs.map(tab => {
     if (tab.type === 'mix') {
@@ -3050,6 +3073,7 @@ export function saveGridState() {
 }
 
 export async function loadGridState() {
+  log.info('Grid', 'loadGridState: loading saved state');
   const savedState = await window.electronAPI.loadGridState();
 
   // Handle empty state
@@ -3153,7 +3177,7 @@ async function loadTabbedGridState(savedState) {
           };
           totalLoaded++;
         } catch (err) {
-          console.warn(`Failed to load asset ${tab.name} slot ${i + 1}:`, err.message);
+          log.warn('Grid', `Failed to load asset ${tab.name} slot ${i + 1}: ${err.message}`);
           allFailedSlots.push(`${tab.name}:${i + 1}`);
         }
       }
@@ -3187,7 +3211,7 @@ async function loadTabbedGridState(savedState) {
           if (result && result.success) {
             code = result.content;
           } else {
-            console.warn(`Could not read file for ${tab.name} slot ${i + 1}: ${slotData.filePath}`);
+            log.warn('Grid', `Could not read file for ${tab.name} slot ${i + 1}: ${slotData.filePath}`);
           }
         }
         if (!code) {
@@ -3211,7 +3235,7 @@ async function loadTabbedGridState(savedState) {
       } catch (err) {
         assignFailedShaderToSlot(i, slotData.shaderCode, slotData.filePath, slotData);
         allFailedSlots.push(`${tab.name}:${i + 1}`);
-        console.warn(`Failed to compile ${tab.name} slot ${i + 1}:`, err.message);
+        log.warn('Grid', `Failed to compile ${tab.name} slot ${i + 1}: ${err.message}`);
       }
     }
   }
@@ -3254,14 +3278,17 @@ async function loadTabbedGridState(savedState) {
   }
 
   if (allFailedSlots.length > 0) {
+    log.warn('Grid', `loadTabbedGridState: ${allFailedSlots.length} failed slot(s): ${allFailedSlots.join(', ')}`);
     setStatus(`Restored ${totalLoaded} items, ${allFailedSlots.length} failed`, 'success');
   } else if (totalLoaded > 0) {
     setStatus(`Restored ${totalLoaded} item${totalLoaded > 1 ? 's' : ''} across ${state.shaderTabs.length} tab${state.shaderTabs.length > 1 ? 's' : ''}`, 'success');
   }
+  log.info('Grid', `loadTabbedGridState: loaded ${totalLoaded} item(s) across ${state.shaderTabs.length} tab(s), ${(state.visualPresets || []).length} visual preset(s)`);
 }
 
 // Load old array format and migrate to tabs
 async function loadLegacyGridState(gridState) {
+  log.info('Grid', `loadLegacyGridState: migrating ${gridState.length} slot(s) to tabbed format`);
   // Only load slots that have actual shader data or a file path (compact the array)
   const compactState = [];
   for (let i = 0; i < gridState.length; i++) {
@@ -3304,7 +3331,7 @@ async function loadLegacyGridState(gridState) {
       // Store the shader anyway so user can edit it
       assignFailedShaderToSlot(i, slotData.shaderCode, slotData.filePath, slotData);
       failedSlots.push(i + 1);
-      console.warn(`Failed to compile slot ${i + 1}:`, err.message);
+      log.warn('Grid', `Failed to compile slot ${i + 1}: ${err.message}`);
     }
   }
 
@@ -3373,6 +3400,7 @@ export async function loadGridPresetsFromData(gridState, filePath) {
 export async function loadGridShaderToEditor(slotIndex) {
   const slotData = state.gridSlots[slotIndex];
   if (!slotData) return;
+  log.debug('Grid', `loadGridShaderToEditor: slot=${slotIndex}, type=${slotData.type || 'shader'}`);
 
   // Clear previous active slot highlight
   if (state.activeGridSlot !== null) {
@@ -3428,6 +3456,7 @@ export async function loadGridShaderToEditor(slotIndex) {
 export async function selectGridSlot(slotIndex) {
   const slotData = state.gridSlots[slotIndex];
   if (!slotData) return;
+  log.debug('Grid', `selectGridSlot: slot=${slotIndex}, type=${slotData.type || 'shader'}`);
 
   // If this slot is assigned to a mixer channel, select that channel instead of clearing
   const mixerBtns = document.querySelectorAll('#mixer-channels .mixer-btn');
@@ -3474,7 +3503,7 @@ export async function selectGridSlot(slotIndex) {
   try {
     state.renderer.compile(slotData.shaderCode);
   } catch (err) {
-    console.warn(`Failed to compile for preview:`, err.message);
+    log.warn('Grid', `Failed to compile for preview: ${err.message}`);
   }
 
   // If tiled preview is enabled, also assign shader to selected tile

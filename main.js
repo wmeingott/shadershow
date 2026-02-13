@@ -25,6 +25,16 @@ const NDIReceiver = require('./ndi-receiver');
 const SyphonSender = require('./syphon-sender');
 const RemoteServer = require('./remote-server');
 
+// Logger — near-zero overhead when disabled
+const LOG_LEVEL = { OFF: 0, ERROR: 1, WARN: 2, INFO: 3, DEBUG: 4 };
+const _logLevel = process.argv.includes('--dev') ? LOG_LEVEL.DEBUG : LOG_LEVEL.WARN;
+const mlog = {
+  debug(tag, msg, ...a) { if (_logLevel >= 4) console.debug(`[${tag}] ${msg}`, ...a); },
+  info(tag, msg, ...a)  { if (_logLevel >= 3) console.info(`[${tag}] ${msg}`, ...a); },
+  warn(tag, msg, ...a)  { if (_logLevel >= 2) console.warn(`[${tag}] ${msg}`, ...a); },
+  error(tag, msg, ...a) { if (_logLevel >= 1) console.error(`[${tag}] ${msg}`, ...a); },
+};
+
 let mainWindow;
 let fullscreenWindow = null;
 let currentFilePath = null;
@@ -123,9 +133,9 @@ async function ensureDataDir() {
       // gridStateFile doesn't exist, migrate
       try {
         await fsPromises.copyFile(oldGridStateFile, gridStateFile);
-        console.log('Migrated grid-state.json from userData to data directory');
+        mlog.info('File', 'Migrated grid-state.json from userData to data directory');
       } catch (err) {
-        console.error('Failed to migrate grid state:', err);
+        mlog.error('File', 'Failed to migrate grid state:', err);
       }
     }
   } catch {
@@ -139,7 +149,7 @@ async function readFileOrNull(filePath) {
     return await fsPromises.readFile(filePath, 'utf-8');
   } catch (err) {
     if (err.code === 'ENOENT') return null;
-    console.error(`Failed to read ${filePath}:`, err);
+    mlog.error('File', `Failed to read ${filePath}:`, err);
     return null;
   }
 }
@@ -482,7 +492,7 @@ function buildRecordingResolutionSubmenu() {
     checked: recordingResolution.label === res.label,
     click: () => {
       recordingResolution = res;
-      console.log(`Recording resolution set to ${res.label}`);
+      mlog.debug('File', `Recording resolution set to ${res.label}`);
       saveSettingsToFile();
       createMenu();
     }
@@ -547,7 +557,7 @@ async function setNDIResolution(res) {
   }
 
   ndiResolution = res;
-  console.log(`NDI resolution set to ${res.label}`);
+  mlog.debug('NDI', `Resolution set to ${res.label}`);
 
   // If NDI is running, restart with new resolution
   if (ndiEnabled) {
@@ -676,6 +686,7 @@ let pendingFullscreenDisplay = null;
 
 function createFullscreenWindow(display, shaderState) {
   const { x, y, width, height } = display.bounds;
+  mlog.info('Window', `Creating fullscreen window on display ${display.id} (${width}x${height})`);
 
   fullscreenWindow = new BrowserWindow({
     x,
@@ -720,6 +731,7 @@ function createFullscreenWindow(display, shaderState) {
   }
 
   fullscreenWindow.on('closed', () => {
+    mlog.info('Window', 'Fullscreen window closed');
     // Notify main window that fullscreen closed (for adaptive preview framerate)
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('fullscreen-closed');
@@ -877,14 +889,14 @@ function clearChannel(channel) {
 
 // NDI Source functions
 async function refreshNDISources() {
-  console.log('Searching for NDI sources...');
+  mlog.debug('NDI', 'Searching for NDI sources...');
   ndiSourceCache = await NDIReceiver.findSources(3000);
-  console.log(`Found ${ndiSourceCache.length} NDI sources:`, ndiSourceCache.map(s => s.name));
+  mlog.debug('NDI', `Found ${ndiSourceCache.length} NDI sources`, ndiSourceCache.map(s => s.name));
   return ndiSourceCache;
 }
 
 async function useNDISource(channel, source) {
-  console.log(`Connecting channel ${channel} to NDI source "${source.name}"...`);
+  mlog.info('NDI', `Connecting channel ${channel} to NDI source "${source.name}"`);
 
   // Disconnect existing receiver on this channel
   if (ndiReceivers[channel]) {
@@ -920,7 +932,7 @@ async function useNDISource(channel, source) {
     });
     createMenu(); // Update menu to show checked state
   } else {
-    console.error(`Failed to connect to NDI source "${source.name}"`);
+    mlog.error('NDI', `Failed to connect to NDI source "${source.name}"`);
   }
 }
 
@@ -954,7 +966,7 @@ async function startNDIOutput() {
       height: ndiResolution.height
     });
     updateNDIMenu();
-    console.log('Native NDI output started');
+    mlog.info('NDI', `Output started (${ndiResolution.width}x${ndiResolution.height})`);
   } else {
     mainWindow.webContents.send('ndi-status', { enabled: false, error: 'Failed to start NDI' });
   }
@@ -968,7 +980,7 @@ function stopNDIOutput() {
   ndiEnabled = false;
   mainWindow.webContents.send('ndi-status', { enabled: false });
   updateNDIMenu();
-  console.log('NDI output stopped');
+  mlog.info('NDI', 'Output stopped');
 }
 
 function updateNDIMenu() {
@@ -997,7 +1009,7 @@ async function sendNDIFrame(frameData) {
         // Legacy base64 format fallback
         sourceBuffer = Buffer.from(frameData.rgbaData, 'base64');
       } else {
-        console.error('NDI frame: invalid data format');
+        mlog.warn('NDI', 'Frame: invalid data format');
         return;
       }
 
@@ -1028,7 +1040,7 @@ async function sendNDIFrame(frameData) {
 
       await ndiSender.sendFrame(ndiFlipBuffer, width, height);
     } catch (e) {
-      console.error('NDI frame send error:', e.message);
+      mlog.warn('NDI', 'Frame send error:', e.message);
     }
   }
 }
@@ -1044,7 +1056,7 @@ function toggleSyphonOutput() {
 
 async function startSyphonOutput() {
   if (process.platform !== 'darwin') {
-    console.log('Syphon is only available on macOS');
+    mlog.info('NDI', 'Syphon is only available on macOS');
     return;
   }
 
@@ -1061,7 +1073,7 @@ async function startSyphonOutput() {
     syphonEnabled = true;
     mainWindow.webContents.send('syphon-status', { enabled: true });
     updateSyphonMenu();
-    console.log('Syphon output started');
+    mlog.info('NDI', 'Syphon output started');
   } else {
     mainWindow.webContents.send('syphon-status', { enabled: false, error: 'Failed to start Syphon' });
   }
@@ -1075,7 +1087,7 @@ function stopSyphonOutput() {
   syphonEnabled = false;
   mainWindow.webContents.send('syphon-status', { enabled: false });
   updateSyphonMenu();
-  console.log('Syphon output stopped');
+  mlog.info('NDI', 'Syphon output stopped');
 }
 
 function updateSyphonMenu() {
@@ -1104,7 +1116,7 @@ async function sendSyphonFrame(frameData) {
         // Legacy base64 format fallback
         sourceBuffer = Buffer.from(frameData.rgbaData, 'base64');
       } else {
-        console.error('Syphon frame: invalid data format');
+        mlog.warn('NDI', 'Syphon frame: invalid data format');
         return;
       }
 
@@ -1127,7 +1139,7 @@ async function sendSyphonFrame(frameData) {
 
       await syphonSender.sendFrame(syphonFlipBuffer, width, height);
     } catch (e) {
-      console.error('Syphon frame send error:', e.message);
+      mlog.warn('NDI', 'Syphon frame send error:', e.message);
     }
   }
 }
@@ -1196,7 +1208,7 @@ async function startRecording() {
     recordingFilePath
   ];
 
-  console.log(`Starting recording: ${ffmpegPath} ${ffmpegArgs.join(' ')}`);
+  mlog.info('File', `Starting recording: ${recWidth}x${recHeight} to ${recordingFilePath}`);
 
   recordingProcess = spawn(ffmpegPath, ffmpegArgs, {
     stdio: ['pipe', 'pipe', 'pipe']
@@ -1206,12 +1218,12 @@ async function startRecording() {
     // FFmpeg outputs progress info to stderr
     const msg = data.toString();
     if (msg.includes('Error') || msg.includes('error')) {
-      console.error('FFmpeg error:', msg);
+      mlog.error('File', 'FFmpeg error:', msg);
     }
   });
 
   recordingProcess.on('close', (code) => {
-    console.log(`FFmpeg exited with code ${code}`);
+    mlog.info('File', `FFmpeg exited with code ${code}`);
     recordingEnabled = false;
     recordingProcess = null;
 
@@ -1227,7 +1239,7 @@ async function startRecording() {
   });
 
   recordingProcess.on('error', (err) => {
-    console.error('FFmpeg spawn error:', err);
+    mlog.error('File', 'FFmpeg spawn error:', err);
     recordingEnabled = false;
     recordingProcess = null;
 
@@ -1242,7 +1254,7 @@ async function startRecording() {
   // Handle broken pipe gracefully
   recordingProcess.stdin.on('error', (err) => {
     if (err.code !== 'EPIPE') {
-      console.error('FFmpeg stdin error:', err);
+      mlog.error('File', 'FFmpeg stdin error:', err);
     }
   });
 
@@ -1267,13 +1279,13 @@ async function startRecording() {
 function stopRecording() {
   if (!recordingProcess) return;
 
-  console.log('Stopping recording...');
+  mlog.info('File', 'Stopping recording...');
 
   // Close stdin to signal FFmpeg to finalize the file
   try {
     recordingProcess.stdin.end();
   } catch (err) {
-    console.error('Error closing FFmpeg stdin:', err);
+    mlog.error('File', 'Error closing FFmpeg stdin:', err);
     // Force kill if stdin close fails (avoid SIGTERM on Windows where it hard-kills)
     if (process.platform === 'win32') {
       recordingProcess.kill();
@@ -1295,7 +1307,7 @@ function sendRecordingFrame(frameData) {
     if (data instanceof Uint8Array || Buffer.isBuffer(data)) {
       sourceBuffer = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
     } else {
-      console.error('Recording frame: invalid data format');
+      mlog.warn('File', 'Recording frame: invalid data format');
       return;
     }
 
@@ -1324,7 +1336,7 @@ function sendRecordingFrame(frameData) {
       recordingProcess.stdin.once('drain', () => { recordingBackpressure = false; });
     }
   } catch (err) {
-    console.error('Recording frame error:', err.message);
+    mlog.error('File', 'Recording frame error:', err.message);
   }
 }
 
@@ -1396,7 +1408,7 @@ async function readDirectoryContents(dirPath, basePath = '') {
           content: isText ? data.toString('utf8') : data.toString('base64')
         };
       } catch (err) {
-        console.error(`Failed to read ${entryPath}:`, err);
+        mlog.error('File', `Failed to read ${entryPath}:`, err);
       }
     }
   }
@@ -1412,13 +1424,13 @@ async function writeDirectoryContents(dirPath, contents) {
 
     // Prevent path traversal
     if (!fullPath.startsWith(resolvedBase)) {
-      console.error(`Path traversal blocked: ${relativePath}`);
+      mlog.error('File', `Path traversal blocked: ${relativePath}`);
       continue;
     }
 
     // Validate encoding
     if (fileData.encoding !== 'utf8' && fileData.encoding !== 'base64') {
-      console.error(`Invalid encoding for ${relativePath}: ${fileData.encoding}`);
+      mlog.error('File', `Invalid encoding for ${relativePath}: ${fileData.encoding}`);
       continue;
     }
 
@@ -1830,6 +1842,7 @@ ipcMain.on('open-fullscreen-with-shader', (event, shaderState) => {
 
 // Save grid state (supports both legacy array format and new tabbed format)
 ipcMain.on('save-grid-state', async (event, gridState) => {
+  mlog.info('File', 'Saving grid state...');
   await ensureDataDir();
   try {
     // Check if this is the new tabbed format (version 2)
@@ -1880,6 +1893,7 @@ ipcMain.on('save-grid-state', async (event, gridState) => {
         visualPresets: gridState.visualPresets || []
       };
       await fsPromises.writeFile(gridStateFile, JSON.stringify(saveData, null, 2), 'utf-8');
+      mlog.debug('File', 'Grid state saved', tabs.length, 'tabs');
     } else {
       // Legacy format - save metadata without shader code
       const metadata = gridState.map((slot, index) => {
@@ -1891,14 +1905,16 @@ ipcMain.on('save-grid-state', async (event, gridState) => {
         };
       });
       await fsPromises.writeFile(gridStateFile, JSON.stringify(metadata, null, 2), 'utf-8');
+      mlog.debug('File', 'Grid state saved (legacy)', metadata.length, 'slots');
     }
   } catch (err) {
-    console.error('Failed to save grid state:', err);
+    mlog.error('File', 'Failed to save grid state:', err);
   }
 });
 
 // Load grid state (loads metadata and shader code)
 ipcMain.handle('load-grid-state', async () => {
+  mlog.info('File', 'Loading grid state...');
   try {
     const raw = await readFileOrNull(gridStateFile);
     if (raw) {
@@ -1927,6 +1943,7 @@ ipcMain.handle('load-grid-state', async () => {
             globalSlotIndex++;
           }
         }
+        mlog.debug('File', 'Grid state loaded (v2)', savedData.tabs.length, 'tabs');
         return savedData;
       }
 
@@ -1967,6 +1984,7 @@ ipcMain.handle('load-grid-state', async () => {
         };
       }));
 
+      mlog.debug('File', 'Grid state loaded (legacy)', state.filter(Boolean).length, 'slots');
       return state;
     } else {
       // No metadata file - scan for shader files dynamically
@@ -1983,10 +2001,11 @@ ipcMain.handle('load-grid-state', async () => {
           break;
         }
       }
+      mlog.debug('File', 'Grid state loaded (scan)', state.length, 'slots');
       return state;
     }
   } catch (err) {
-    console.error('Failed to load grid state:', err);
+    mlog.error('File', 'Failed to load grid state:', err);
   }
   return null;
 });
@@ -1997,7 +2016,7 @@ ipcMain.on('save-presets', async (event, presets) => {
   try {
     await fsPromises.writeFile(presetsFile, JSON.stringify(presets, null, 2), 'utf-8');
   } catch (err) {
-    console.error('Failed to save presets:', err);
+    mlog.error('File', 'Failed to save presets:', err);
   }
 });
 
@@ -2007,7 +2026,7 @@ ipcMain.handle('load-presets', async () => {
     const raw = await readFileOrNull(presetsFile);
     if (raw) return JSON.parse(raw);
   } catch (err) {
-    console.error('Failed to load presets:', err);
+    mlog.error('File', 'Failed to load presets:', err);
   }
   return [];
 });
@@ -2048,7 +2067,7 @@ ipcMain.on('custom-ndi-resolution-from-dialog', async (event, { width, height })
     height,
     label: `${width}x${height} (Custom)`
   };
-  console.log(`NDI resolution set to ${ndiResolution.label}`);
+  mlog.debug('NDI', `Resolution set to ${ndiResolution.label}`);
   if (ndiEnabled) {
     await restartNDIWithNewResolution();
   }
@@ -2064,7 +2083,7 @@ ipcMain.on('custom-ndi-resolution', async (event, { width, height }) => {
     height,
     label: `${width}x${height} (Custom)`
   };
-  console.log(`NDI resolution set to ${ndiResolution.label}`);
+  mlog.debug('NDI', `Resolution set to ${ndiResolution.label}`);
 
   if (ndiEnabled) {
     await restartNDIWithNewResolution();
@@ -2080,7 +2099,7 @@ ipcMain.on('preview-resolution', async (event, { width, height }) => {
     height,
     label: `${width}x${height} (Match Preview)`
   };
-  console.log(`NDI resolution set to ${ndiResolution.label}`);
+  mlog.debug('NDI', `Resolution set to ${ndiResolution.label}`);
 
   if (ndiEnabled) {
     await restartNDIWithNewResolution();
@@ -2141,7 +2160,9 @@ ipcMain.on('open-fullscreen-primary', () => {
 
 // Get available displays for the fullscreen selector
 ipcMain.handle('get-displays', () => {
-  return screen.getAllDisplays().map((display, index) => ({
+  const displays = screen.getAllDisplays();
+  mlog.debug('Window', `Enumerated ${displays.length} displays`);
+  return displays.map((display, index) => ({
     id: display.id,
     label: `Display ${index + 1} (${display.size.width}x${display.size.height})`,
     primary: display.bounds.x === 0 && display.bounds.y === 0
@@ -2173,7 +2194,7 @@ ipcMain.handle('get-settings', async () => {
       paramRanges = data.paramRanges || null;
     }
   } catch (err) {
-    console.error('Failed to load param ranges:', err);
+    mlog.error('File', 'Failed to load param ranges:', err);
   }
 
   // Load grid slot width from settings file
@@ -2306,6 +2327,7 @@ app.whenReady().then(async () => {
 
 // Load saved settings on startup
 async function loadSettings() {
+  mlog.debug('File', 'Loading settings...');
   try {
     const raw = await readFileOrNull(settingsFile);
     if (raw) {
@@ -2327,7 +2349,7 @@ async function loadSettings() {
       }
     }
   } catch (err) {
-    console.error('Failed to load settings:', err);
+    mlog.error('File', 'Failed to load settings:', err);
   }
 }
 
@@ -2351,7 +2373,7 @@ async function saveSettingsToFile(additionalData = {}) {
     };
     await fsPromises.writeFile(settingsFile, JSON.stringify(data, null, 2), 'utf-8');
   } catch (err) {
-    console.error('Failed to save settings:', err);
+    mlog.error('File', 'Failed to save settings:', err);
   }
 }
 
@@ -2375,6 +2397,7 @@ function queryRenderer(channel, data = null) {
 
 function startRemoteServer() {
   if (remoteServer) return;
+  mlog.info('Remote', `Starting remote control server on port ${remotePort}`);
   remoteServer = new RemoteServer({
     queryRenderer,
     dispatchAction: (channel, data) => {
@@ -2388,6 +2411,7 @@ function startRemoteServer() {
 
 function stopRemoteServer() {
   if (remoteServer) {
+    mlog.info('Remote', 'Stopping remote control server');
     remoteServer.stop();
     remoteServer = null;
   }
@@ -2414,9 +2438,10 @@ ipcMain.handle('save-shader-to-slot', async (event, slotIndex, shaderCode) => {
   try {
     const shaderFile = getShaderFilePath(slotIndex);
     await fsPromises.writeFile(shaderFile, shaderCode, 'utf-8');
+    mlog.info('File', `Shader saved to slot ${slotIndex} (${shaderCode.length} chars)`);
     return { success: true, path: shaderFile };
   } catch (err) {
-    console.error(`Failed to save shader to slot ${slotIndex}:`, err);
+    mlog.error('File', `Failed to save shader to slot ${slotIndex}:`, err);
     return { success: false, error: err.message };
   }
 });
@@ -2429,7 +2454,7 @@ ipcMain.handle('load-shader-from-slot', async (event, slotIndex) => {
     return { success: true, shaderCode };
   } catch (err) {
     if (err.code === 'ENOENT') return { success: false, error: 'File not found' };
-    console.error(`Failed to load shader from slot ${slotIndex}:`, err);
+    mlog.error('File', `Failed to load shader from slot ${slotIndex}:`, err);
     return { success: false, error: err.message };
   }
 });
@@ -2442,7 +2467,7 @@ ipcMain.handle('delete-shader-from-slot', async (event, slotIndex) => {
     return { success: true };
   } catch (err) {
     if (err.code === 'ENOENT') return { success: true }; // Already deleted
-    console.error(`Failed to delete shader from slot ${slotIndex}:`, err);
+    mlog.error('File', `Failed to delete shader from slot ${slotIndex}:`, err);
     return { success: false, error: err.message };
   }
 });
@@ -2473,7 +2498,7 @@ ipcMain.handle('load-file-texture', async (event, name) => {
     return { success: true, dataUrl };
   } catch (err) {
     if (err.code === 'ENOENT') return { success: false, error: `Texture "${name}" not found` };
-    console.error(`Failed to load file texture "${name}":`, err);
+    mlog.error('File', `Failed to load file texture "${name}":`, err);
     return { success: false, error: err.message };
   }
 });
@@ -2490,7 +2515,7 @@ ipcMain.handle('save-texture', async (event, name, dataUrl) => {
     await fsPromises.writeFile(filePath, Buffer.from(base64Data, 'base64'));
     return { success: true, path: filePath };
   } catch (err) {
-    console.error(`Failed to save texture "${name}":`, err);
+    mlog.error('File', `Failed to save texture "${name}":`, err);
     return { success: false, error: err.message };
   }
 });
@@ -2541,7 +2566,7 @@ ipcMain.handle('list-file-textures', async () => {
       .filter(f => f.endsWith('.png'))
       .map(f => f.replace(/\.png$/, ''));
   } catch (err) {
-    console.error('Failed to list file textures:', err);
+    mlog.error('File', 'Failed to list file textures:', err);
     return [];
   }
 });
@@ -2629,7 +2654,7 @@ ipcMain.handle('copy-media-to-library', async (event, sourcePath) => {
     await fsPromises.copyFile(sourcePath, finalPath);
     return { mediaPath: finalName, absolutePath: finalPath };
   } catch (err) {
-    console.error('Failed to copy media to library:', err);
+    mlog.error('File', 'Failed to copy media to library:', err);
     return { error: err.message };
   }
 });
@@ -2652,7 +2677,7 @@ ipcMain.handle('load-media-data-url', async (event, mediaPath) => {
     const mimeType = mimeTypes[ext] || 'image/png';
     return { success: true, dataUrl: `data:${mimeType};base64,${data.toString('base64')}` };
   } catch (err) {
-    console.error('Failed to load media data URL:', err);
+    mlog.error('File', 'Failed to load media data URL:', err);
     return { success: false, error: err.message };
   }
 });
@@ -2947,7 +2972,7 @@ ipcMain.on('save-view-state', async (event, viewState) => {
   try {
     await fsPromises.writeFile(viewStateFile, JSON.stringify(viewState, null, 2), 'utf-8');
   } catch (err) {
-    console.error('Failed to save view state:', err);
+    mlog.debug('File', 'Failed to save view state:', err);
   }
 });
 
@@ -2957,7 +2982,7 @@ ipcMain.handle('load-view-state', async () => {
     const raw = await readFileOrNull(viewStateFile);
     if (raw) return JSON.parse(raw);
   } catch (err) {
-    console.error('Failed to load view state:', err);
+    mlog.debug('File', 'Failed to load view state:', err);
   }
   return null;
 });
@@ -2972,7 +2997,7 @@ ipcMain.on('save-tile-state', async (event, tileState) => {
   try {
     await fsPromises.writeFile(tileStateFile, JSON.stringify(tileState, null, 2), 'utf-8');
   } catch (err) {
-    console.error('Failed to save tile state:', err);
+    mlog.error('File', 'Failed to save tile state:', err);
   }
 });
 
@@ -2982,7 +3007,7 @@ ipcMain.handle('load-tile-state', async () => {
     const raw = await readFileOrNull(tileStateFile);
     if (raw) return JSON.parse(raw);
   } catch (err) {
-    console.error('Failed to load tile state:', err);
+    mlog.error('File', 'Failed to load tile state:', err);
   }
   return null;
 });
@@ -2993,7 +3018,7 @@ ipcMain.on('save-tile-presets', async (event, presets) => {
   try {
     await fsPromises.writeFile(tilePresetsFile, JSON.stringify(presets, null, 2), 'utf-8');
   } catch (err) {
-    console.error('Failed to save tile presets:', err);
+    mlog.error('File', 'Failed to save tile presets:', err);
   }
 });
 
@@ -3003,7 +3028,7 @@ ipcMain.handle('load-tile-presets', async () => {
     const raw = await readFileOrNull(tilePresetsFile);
     if (raw) return JSON.parse(raw);
   } catch (err) {
-    console.error('Failed to load tile presets:', err);
+    mlog.error('File', 'Failed to load tile presets:', err);
   }
   return null;
 });
@@ -3087,6 +3112,7 @@ function openTiledFullscreen(config) {
   // Use primary display or first display
   const display = displays.find(d => d.bounds.x === 0 && d.bounds.y === 0) || displays[0];
   const { x, y, width, height } = display.bounds;
+  mlog.info('Window', `Creating tiled fullscreen window (${width}x${height})`);
 
   fullscreenWindow = new BrowserWindow({
     x,
@@ -3120,6 +3146,7 @@ function openTiledFullscreen(config) {
   });
 
   fullscreenWindow.on('closed', () => {
+    mlog.info('Window', 'Tiled fullscreen window closed');
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('fullscreen-closed');
     }
@@ -3142,7 +3169,7 @@ async function loadClaudeKey() {
       claudeModel = data.model || 'claude-sonnet-4-20250514';
     }
   } catch (err) {
-    console.error('Failed to load Claude API key:', err);
+    mlog.error('File', 'Failed to load Claude API key:', err);
   }
 }
 
@@ -3173,26 +3200,26 @@ async function fetchClaudeModels() {
                 id: m.id,
                 display_name: m.display_name || m.id
               }));
-              console.log(`Fetched ${claudeModels.length} Claude models from API`);
+              mlog.debug('Remote', `Fetched ${claudeModels.length} Claude models from API`);
             }
           } catch (err) {
-            console.warn('Failed to parse Claude models response:', err.message);
+            mlog.warn('Remote', 'Failed to parse Claude models response:', err.message);
           }
         } else {
-          console.warn(`Failed to fetch Claude models: HTTP ${res.statusCode}`);
+          mlog.warn('Remote', `Failed to fetch Claude models: HTTP ${res.statusCode}`);
         }
         resolve();
       });
     });
 
     req.on('error', (err) => {
-      console.warn('Failed to fetch Claude models:', err.message);
+      mlog.warn('Remote', 'Failed to fetch Claude models:', err.message);
       resolve();
     });
 
     req.setTimeout(10000, () => {
       req.destroy();
-      console.warn('Claude models fetch timed out');
+      mlog.warn('Remote', 'Claude models fetch timed out');
       resolve();
     });
 
@@ -3219,7 +3246,7 @@ ipcMain.handle('save-claude-key', async (event, key, model) => {
     }
     return { success: true };
   } catch (err) {
-    console.error('Failed to save Claude API key:', err);
+    mlog.error('File', 'Failed to save Claude API key:', err);
     return { success: false, error: err.message };
   }
 });

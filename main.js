@@ -1844,6 +1844,12 @@ ipcMain.on('save-grid-state', async (event, gridState) => {
           continue;
         }
 
+        // Asset tabs: pass through directly (no shader files)
+        if (tab.type === 'assets') {
+          tabs.push({ name: tab.name, type: 'assets', slots: tab.slots || [] });
+          continue;
+        }
+
         const slots = [];
         for (let i = 0; i < tab.slots.length; i++) {
           const slot = tab.slots[i];
@@ -1901,7 +1907,7 @@ ipcMain.handle('load-grid-state', async () => {
         // New tabbed format — fill in missing shaderCode from .glsl files
         let globalSlotIndex = 0;
         for (const tab of savedData.tabs) {
-          if (!tab.slots) continue;
+          if (!tab.slots || tab.type === 'assets') continue;
           for (let i = 0; i < tab.slots.length; i++) {
             const slot = tab.slots[i];
             if (slot && !slot.shaderCode) {
@@ -2643,10 +2649,10 @@ ipcMain.handle('load-media-data-url', async (event, mediaPath) => {
 function showTextureCreatorDialog() {
   const dialogWindow = new BrowserWindow({
     width: 620,
-    height: 720,
+    height: 760,
     modal: true,
     parent: mainWindow,
-    resizable: false,
+    resizable: true,
     minimizable: false,
     maximizable: false,
     webPreferences: {
@@ -2667,7 +2673,7 @@ function showTextureCreatorDialog() {
 <meta charset="UTF-8">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1e1e1e; color: #ccc; padding: 16px; overflow: hidden; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1e1e1e; color: #ccc; padding: 16px; overflow: auto; }
   h2 { font-size: 16px; color: #eee; margin-bottom: 12px; }
   .row { display: flex; gap: 12px; margin-bottom: 10px; align-items: center; }
   .row label { min-width: 80px; font-size: 13px; color: #aaa; }
@@ -2694,6 +2700,10 @@ function showTextureCreatorDialog() {
     <div class="row" style="margin-bottom:12px">
       <button class="btn-choose" id="choose-btn">Choose Image...</button>
       <span id="file-name" style="font-size:12px;color:#888;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+      <span id="img-res" style="font-size:12px;color:#6af;white-space:nowrap"></span>
+    </div>
+    <div class="row" style="margin-bottom:12px">
+      <button class="btn-secondary" id="autocrop-btn" disabled>Auto-Crop</button>
     </div>
     <div class="preview-wrap">
       <canvas id="preview" width="512" height="512"></canvas>
@@ -2741,7 +2751,7 @@ function showTextureCreatorDialog() {
     </div>
     <div class="actions">
       <button class="btn-secondary" id="cancel-btn">Cancel</button>
-      <button class="btn-primary" id="save-btn" disabled>Save Texture</button>
+      <button class="btn-primary" id="save-btn" disabled>Create Texture</button>
     </div>
   </div>
   <script>
@@ -2766,19 +2776,99 @@ function showTextureCreatorDialog() {
       ctx.restore();
     }
 
+    function autoCrop() {
+      if (!img) return;
+      const w = img.naturalWidth, h = img.naturalHeight;
+      const tmp = document.createElement('canvas');
+      tmp.width = w; tmp.height = h;
+      const tCtx = tmp.getContext('2d');
+      tCtx.drawImage(img, 0, 0);
+      const data = tCtx.getImageData(0, 0, w, h).data;
+
+      // Sample corner pixels to detect background color
+      const corners = [[0,0],[w-1,0],[0,h-1],[w-1,h-1]];
+      let rSum=0, gSum=0, bSum=0, aSum=0;
+      corners.forEach(([cx,cy]) => {
+        const i = (cy * w + cx) * 4;
+        rSum += data[i]; gSum += data[i+1]; bSum += data[i+2]; aSum += data[i+3];
+      });
+      const bgR = rSum/4, bgG = gSum/4, bgB = bSum/4, bgA = aSum/4;
+
+      const tolerance = 30;
+      function isBg(i) {
+        return Math.abs(data[i]-bgR) <= tolerance &&
+               Math.abs(data[i+1]-bgG) <= tolerance &&
+               Math.abs(data[i+2]-bgB) <= tolerance &&
+               Math.abs(data[i+3]-bgA) <= tolerance;
+      }
+
+      // Find bounding box of non-background content
+      let top = 0, bottom = h-1, left = 0, right = w-1;
+      outer_top: for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          if (!isBg((y*w+x)*4)) { top = y; break outer_top; }
+        }
+      }
+      outer_bottom: for (let y = h-1; y >= top; y--) {
+        for (let x = 0; x < w; x++) {
+          if (!isBg((y*w+x)*4)) { bottom = y; break outer_bottom; }
+        }
+      }
+      outer_left: for (let x = 0; x < w; x++) {
+        for (let y = top; y <= bottom; y++) {
+          if (!isBg((y*w+x)*4)) { left = x; break outer_left; }
+        }
+      }
+      outer_right: for (let x = w-1; x >= left; x--) {
+        for (let y = top; y <= bottom; y++) {
+          if (!isBg((y*w+x)*4)) { right = x; break outer_right; }
+        }
+      }
+
+      const cw = right - left + 1, ch = bottom - top + 1;
+      if (cw <= 0 || ch <= 0 || (cw === w && ch === h)) return; // nothing to crop
+
+      const crop = document.createElement('canvas');
+      crop.width = cw; crop.height = ch;
+      crop.getContext('2d').drawImage(tmp, left, top, cw, ch, 0, 0, cw, ch);
+
+      const newImg = new Image();
+      newImg.onload = () => {
+        img = newImg;
+        document.getElementById('img-res').textContent = cw + 'x' + ch;
+        updatePreview();
+      };
+      crop.toBlob(blob => {
+        newImg.src = URL.createObjectURL(blob);
+      }, 'image/png');
+    }
+
+    document.getElementById('autocrop-btn').addEventListener('click', autoCrop);
+
+    function dataUrlToBlobUrl(dataUrl) {
+      const parts = dataUrl.split(',');
+      const mime = parts[0].match(/:(.*?);/)[1];
+      const binary = atob(parts[1]);
+      const arr = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+      return URL.createObjectURL(new Blob([arr], { type: mime }));
+    }
+
     document.getElementById('choose-btn').addEventListener('click', async () => {
       const result = await window.textureAPI.openImage();
       if (result.canceled) return;
       img = new Image();
       img.onload = () => {
         hint.style.display = 'none';
+        document.getElementById('img-res').textContent = img.naturalWidth + 'x' + img.naturalHeight;
+        document.getElementById('autocrop-btn').disabled = false;
         updatePreview();
         document.getElementById('save-btn').disabled = false;
         if (!document.getElementById('tex-name').value && result.fileName) {
           document.getElementById('tex-name').value = result.fileName.replace(/[^\\w-]/g, '_');
         }
       };
-      img.src = result.dataUrl;
+      img.src = dataUrlToBlobUrl(result.dataUrl);
       document.getElementById('file-name').textContent = result.fileName || '';
     });
 

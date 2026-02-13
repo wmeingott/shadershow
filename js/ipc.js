@@ -11,6 +11,7 @@ import { updatePreviewFrameLimit, setRenderMode, detectRenderMode, restartRender
 import { createTab, openInTab, activeTabHasChanges, markTabSaved, getActiveTab } from './tabs.js';
 import { tileState } from './tile-state.js';
 import { isMixerActive, assignShaderToMixer, clearMixerChannel, resetMixer, recallMixState } from './mixer.js';
+import { log } from './logger.js';
 
 export async function initIPC() {
   // Load initial settings (including ndiFrameSkip)
@@ -20,7 +21,7 @@ export async function initIPC() {
       state.ndiFrameSkip = settings.ndiFrameSkip;
     }
   } catch (err) {
-    console.warn('Failed to load initial settings:', err);
+    log.error('IPC', 'Failed to load initial settings:', err);
   }
 
   // File operations
@@ -81,8 +82,10 @@ export async function initIPC() {
       const result = await state.renderer.loadTexture(channel, dataUrl);
       state.channelState[channel] = { type: 'image', dataUrl, filePath };
       updateChannelSlot(channel, 'image', filePath, result.width, result.height, dataUrl);
+      log.debug('IPC', 'Texture loaded to iChannel' + channel, filePath);
       setStatus(`Loaded texture to iChannel${channel}`, 'success');
     } catch (err) {
+      log.error('IPC', 'Failed to load texture:', err.message);
       setStatus(`Failed to load texture: ${err.message}`, 'error');
     }
   });
@@ -93,8 +96,10 @@ export async function initIPC() {
       const result = await state.renderer.loadVideo(channel, filePath);
       state.channelState[channel] = { type: 'video', filePath };
       updateChannelSlot(channel, 'video', filePath, result.width, result.height);
+      log.debug('IPC', 'Video loaded to iChannel' + channel, filePath);
       setStatus(`Loaded video to iChannel${channel}`, 'success');
     } catch (err) {
+      log.error('IPC', 'Failed to load video:', err.message);
       setStatus(`Failed to load video: ${err.message}`, 'error');
     }
   });
@@ -105,8 +110,10 @@ export async function initIPC() {
       const result = await state.renderer.loadCamera(channel);
       state.channelState[channel] = { type: 'camera' };
       updateChannelSlot(channel, 'camera', 'Camera', result.width, result.height);
+      log.debug('IPC', 'Camera connected to iChannel' + channel);
       setStatus(`Camera connected to iChannel${channel}`, 'success');
     } catch (err) {
+      log.error('IPC', 'Failed to access camera:', err.message);
       setStatus(`Failed to access camera: ${err.message}`, 'error');
     }
   });
@@ -117,8 +124,10 @@ export async function initIPC() {
       const result = await state.renderer.loadAudio(channel);
       state.channelState[channel] = { type: 'audio' };
       updateChannelSlot(channel, 'audio', 'Audio FFT', result.width, result.height);
+      log.debug('IPC', 'Audio connected to iChannel' + channel);
       setStatus(`Audio input connected to iChannel${channel}`, 'success');
     } catch (err) {
+      log.error('IPC', 'Failed to access audio:', err.message);
       setStatus(`Failed to access audio: ${err.message}`, 'error');
     }
   });
@@ -159,7 +168,7 @@ export async function initIPC() {
 
     // Build tiled mode configuration if enabled
     let tiledConfig = null;
-    console.log('Building fullscreen state, tiledPreviewEnabled:', state.tiledPreviewEnabled);
+    log.debug('IPC', 'Building fullscreen state, tiledPreviewEnabled:', state.tiledPreviewEnabled);
     if (state.tiledPreviewEnabled) {
       const tiles = tileState.tiles.map((tile) => {
         if (!tile || tile.gridSlotIndex === null) {
@@ -191,7 +200,7 @@ export async function initIPC() {
           height: previewCanvas.height
         }
       };
-      console.log('Built tiledConfig:', tiledConfig);
+      log.debug('IPC', 'Built tiledConfig with', tiledConfig.tiles.length, 'tiles');
     }
 
     // Build mixer configuration if mixer is active
@@ -226,7 +235,7 @@ export async function initIPC() {
       };
     }
 
-    console.log('Sending fullscreen state with tiledConfig:', tiledConfig ? 'yes' : 'no', 'mixerConfig:', mixerConfig ? 'yes' : 'no');
+    log.debug('IPC', 'Sending fullscreen state, tiled:', tiledConfig ? 'yes' : 'no', 'mixer:', mixerConfig ? 'yes' : 'no');
     const fullscreenState = {
       shaderCode: shaderCode,
       renderMode: state.renderMode,  // Include render mode for scene support
@@ -271,10 +280,12 @@ export async function initIPC() {
     if (enabled) {
       btnNdi.classList.add('active');
       btnNdi.title = `NDI Output Active (${width}x${height})`;
+      log.info('IPC', 'NDI output started at', width + 'x' + height);
       setStatus(`NDI output started at ${width}x${height}`, 'success');
     } else {
       btnNdi.classList.remove('active');
       btnNdi.title = 'Toggle NDI Output';
+      log.info('IPC', 'NDI output stopped');
       setStatus('NDI output stopped', 'success');
     }
   });
@@ -297,11 +308,14 @@ export async function initIPC() {
         btnRecord.title = 'Start Recording (Cmd+Shift+R)';
       }
       if (error) {
+        log.error('IPC', 'Recording error:', error);
         setStatus(`Recording error: ${error}`, 'error');
       } else if (filePath && exitCode === 0) {
         const fileName = filePath.split('/').pop().split('\\').pop();
+        log.debug('IPC', 'Recording saved:', fileName);
         setStatus(`Recording saved: ${fileName}`, 'success');
       } else if (exitCode !== 0 && exitCode !== undefined) {
+        log.error('IPC', 'Recording finished with errors, exit code:', exitCode);
         setStatus(`Recording finished with errors (exit code ${exitCode})`, 'error');
       }
     }
@@ -320,10 +334,13 @@ export async function initIPC() {
   window.electronAPI.onSyphonStatus(({ enabled, error }) => {
     state.syphonEnabled = enabled;
     if (enabled) {
+      log.info('IPC', 'Syphon output started');
       setStatus('Syphon output started', 'success');
     } else if (error) {
+      log.error('IPC', 'Syphon error:', error);
       setStatus(`Syphon error: ${error}`, 'error');
     } else {
+      log.info('IPC', 'Syphon output stopped');
       setStatus('Syphon output stopped', 'success');
     }
   });
@@ -358,6 +375,7 @@ export async function initIPC() {
     state.renderer.initNDIChannel(channel, source);
     state.channelState[channel] = { type: 'ndi', source };
     updateChannelSlot(channel, 'ndi', source, width || 0, height || 0);
+    log.info('IPC', 'NDI source connected to iChannel' + channel + ':', source);
     setStatus(`NDI source "${source}" connected to iChannel${channel}`, 'success');
   });
 
@@ -544,7 +562,7 @@ function initRemoteHandlers() {
         }
       }
     } catch (err) {
-      console.warn('Remote thumbnail error:', err);
+      log.error('IPC', 'Remote thumbnail error:', err);
     }
 
     window.electronAPI.sendRemoteGetThumbnailResponse({

@@ -13,6 +13,15 @@
 //   color             - RGB color with color picker (alias for vec3)
 // =============================================================================
 
+// Logger for shader-renderer (non-module script)
+const _srLog = {
+  _level: 2, // default WARN, set higher by renderer module if --dev
+  debug(msg, ...a) { if (this._level >= 4) console.debug('[Shader]', msg, ...a); },
+  info(msg, ...a)  { if (this._level >= 3) console.info('[Shader]', msg, ...a); },
+  warn(msg, ...a)  { if (this._level >= 2) console.warn('[Shader]', msg, ...a); },
+  error(msg, ...a) { if (this._level >= 1) console.error('[Shader]', msg, ...a); },
+};
+
 // Pre-compiled regex for shader error parsing (avoid recompiling on each error)
 const SHADER_ERROR_REGEX = /ERROR:\s*\d+:(\d+):\s*(.+)/;
 
@@ -284,11 +293,11 @@ class ShaderRenderer {
     canvas.addEventListener('webglcontextlost', (e) => {
       e.preventDefault();
       this.contextLost = true;
-      console.warn('WebGL context lost');
+      _srLog.warn('WebGL context lost');
     });
 
     canvas.addEventListener('webglcontextrestored', () => {
-      console.log('WebGL context restored, reinitializing...');
+      _srLog.info('WebGL context restored, reinitializing');
       this.contextLost = false;
       this.reinitialize();
     });
@@ -399,7 +408,7 @@ class ShaderRenderer {
       try {
         this.compile(this._lastShaderSource);
       } catch (err) {
-        console.error('Failed to recompile shader after context restore:', err);
+        _srLog.error('Failed to recompile after context restore:', err);
       }
     }
   }
@@ -514,6 +523,7 @@ class ShaderRenderer {
         this.channelResolutions[channel] = [img.width, img.height, 1];
         this.channelTypes[channel] = 'image';
 
+        _srLog.debug('Texture loaded ch' + channel, img.width + 'x' + img.height);
         resolve({ width: img.width, height: img.height });
       };
 
@@ -967,6 +977,7 @@ class ShaderRenderer {
   }
 
   setResolution(width, height) {
+    _srLog.debug('Resolution', width + 'x' + height);
     this.canvas.width = width;
     this.canvas.height = height;
     this.gl.viewport(0, 0, width, height);
@@ -974,6 +985,7 @@ class ShaderRenderer {
 
   compile(fragmentSource) {
     const gl = this.gl;
+    _srLog.info('Compiling', fragmentSource.length, 'chars');
 
     // Store for potential recompile after context restore
     this._lastShaderSource = fragmentSource;
@@ -1056,6 +1068,7 @@ class ShaderRenderer {
 
       // Parse error to extract line number (adjust for wrapper lines)
       const parsed = this.parseShaderError(error);
+      _srLog.error('Compile failed at line', parsed.line, parsed.message);
       throw { message: parsed.message, line: parsed.line, raw: error };
     }
 
@@ -1123,9 +1136,10 @@ class ShaderRenderer {
 
     // Apply audio directives (async, non-blocking)
     for (const { channel } of this.audioDirectives) {
-      this.loadAudio(channel).catch(err => console.warn('AudioFFT directive failed:', err.message));
+      this.loadAudio(channel).catch(err => _srLog.warn('AudioFFT directive failed:', err.message));
     }
 
+    _srLog.debug('Compiled', fragmentSource.length, 'chars,', this.customParams.length, 'params');
     return { success: true };
   }
 

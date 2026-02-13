@@ -5,6 +5,7 @@ import { AssetRenderer } from './asset-renderer.js';
 import { loadParamsToSliders, generateCustomParamUI } from './params.js';
 import { updateLocalPresetsUI } from './presets.js';
 import { setStatus } from './utils.js';
+import { log } from './logger.js';
 
 const MAX_MIXER_CHANNELS = 8;
 
@@ -86,6 +87,7 @@ export function addMixerChannel() {
   }
 
   updateAddButtonVisibility();
+  log.info('Mixer', 'Channel added, total:', state.mixerChannels.length);
   notifyRemoteStateChanged();
   return newIndex;
 }
@@ -235,7 +237,7 @@ function selectMixerChannel(channelIndex) {
       try {
         state.renderer.compile(shaderCode);
       } catch (err) {
-        console.warn('Failed to compile shader for param UI:', err.message);
+        log.warn('Mixer', 'Failed to compile shader for param UI:', err.message);
       }
     }
 
@@ -255,6 +257,7 @@ function selectMixerChannel(channelIndex) {
 }
 
 export function assignShaderToMixer(channelIndex, slotIndex) {
+  log.debug('Mixer', 'Assign shader to channel', channelIndex, 'from slot', slotIndex);
   const ch = state.mixerChannels[channelIndex];
 
   // Dispose only if we own the renderer (from a recalled mix preset)
@@ -313,6 +316,7 @@ export function assignShaderToMixer(channelIndex, slotIndex) {
 }
 
 export function assignAssetToMixer(channelIndex, slotIndex) {
+  log.debug('Mixer', 'Assign asset to channel', channelIndex, 'from slot', slotIndex);
   const ch = state.mixerChannels[channelIndex];
 
   // Dispose only if we own the renderer
@@ -469,6 +473,7 @@ export function isMixerActive() {
 }
 
 export function resetMixer() {
+  log.info('Mixer', 'Resetting mixer, disposing', state.mixerChannels.length, 'channels');
   // Dispose all channel renderers
   for (const ch of state.mixerChannels) {
     if (ch.renderer && ch._ownsRenderer && ch.renderer.dispose) {
@@ -579,7 +584,7 @@ export function renderMixerComposite() {
     try {
       renderer.renderDirect(ctx, 0, 0, canvasWidth, canvasHeight);
     } catch (err) {
-      console.error('Mixer render error for slot', ch.slotIndex, err);
+      log.error('Mixer', 'Render error for slot', ch.slotIndex, err);
     }
   }
 
@@ -612,6 +617,7 @@ export function captureMixerThumbnail() {
 
 // Recall a complete mixer state from a mix preset
 export function recallMixState(preset) {
+  log.info('Mixer', 'Recalling mix preset:', preset.name, 'channels:', (preset.channels || []).length);
   // Dispose all existing channels
   for (const ch of state.mixerChannels) {
     if (ch.renderer && ch._ownsRenderer && ch.renderer.dispose) {
@@ -703,7 +709,7 @@ export function recallMixState(preset) {
             }
           }
         } catch (err) {
-          console.warn(`Failed to load asset for mix preset channel ${i + 1}:`, err.message);
+          log.error('Mixer', `Failed to load asset for mix preset channel ${i + 1}:`, err.message);
         }
       })();
 
@@ -733,7 +739,7 @@ export function recallMixState(preset) {
       ch.renderer = renderer;
       ch._ownsRenderer = true;
     } catch (err) {
-      console.warn(`Failed to compile mix preset channel ${i + 1}:`, err.message);
+      log.error('Mixer', `Failed to compile mix preset channel ${i + 1}:`, err.message);
       continue;
     }
 

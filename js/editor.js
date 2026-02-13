@@ -5,8 +5,10 @@ import { saveActiveSlotShader } from './shader-grid.js';
 import { generateCustomParamUI } from './params.js';
 import { initTabs, markTabSaved, getActiveTab } from './tabs.js';
 import { toggleConsolePanel } from './console-panel.js';
+import { log } from './logger.js';
 
 export async function initEditor() {
+  log.debug('Editor', 'Initializing editor');
   state.editor = ace.edit('editor');
   state.editor.setTheme('ace/theme/monokai');
   state.editor.session.setMode('ace/mode/glsl');
@@ -108,6 +110,7 @@ export async function compileShader() {
     state.renderer.compile(source);
 
     const modeLabel = state.renderMode === 'scene' ? 'Scene' : 'Shader';
+    log.info('Editor', modeLabel, 'compiled successfully');
     setStatus(`${modeLabel} compiled successfully`, 'success');
 
     // Generate dynamic UI for custom parameters
@@ -138,14 +141,16 @@ export async function compileShader() {
           if (result.success) {
             await state.renderer.loadTexture(channel, result.dataUrl);
             state.channelState[channel] = { type: 'file-texture', name: textureName };
-            updateChannelSlot(channel, 'builtin', `texture:${textureName}`,
-              state.renderer.channelResolutions[channel][0],
-              state.renderer.channelResolutions[channel][1]);
+            const w = state.renderer.channelResolutions[channel][0];
+            const h = state.renderer.channelResolutions[channel][1];
+            log.debug('Editor', 'Loaded file texture', textureName, 'ch' + channel, w + 'x' + h);
+            updateChannelSlot(channel, 'builtin', `texture:${textureName}`, w, h);
           } else {
+            log.warn('Editor', 'Texture not found:', textureName);
             setStatus(`Texture "${textureName}" not found in data/textures/`, 'error');
           }
         } catch (texErr) {
-          console.error(`Failed to load file texture "${textureName}":`, texErr);
+          log.error('Editor', 'Failed to load file texture', textureName, texErr);
           setStatus(`Failed to load texture "${textureName}"`, 'error');
         }
       }
@@ -158,6 +163,7 @@ export async function compileShader() {
     });
   } catch (err) {
     const message = err.message || err.raw || String(err);
+    log.error('Editor', 'Compile error:', message);
     setStatus(`Compile error: ${message}`, 'error');
 
     // Add error annotation to editor

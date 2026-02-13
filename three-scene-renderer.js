@@ -7,6 +7,15 @@
 // JSX files are automatically compiled using Babel
 // =============================================================================
 
+// Logger for three-scene-renderer (non-module script)
+const _tsrLog = {
+  _level: 2, // default WARN, set higher by renderer module if --dev
+  debug(msg, ...a) { if (this._level >= 4) console.debug('[Scene]', msg, ...a); },
+  info(msg, ...a)  { if (this._level >= 3) console.info('[Scene]', msg, ...a); },
+  warn(msg, ...a)  { if (this._level >= 2) console.warn('[Scene]', msg, ...a); },
+  error(msg, ...a) { if (this._level >= 1) console.error('[Scene]', msg, ...a); },
+};
+
 // THREE and Babel are loaded via script tags in HTML
 // const THREE = window.THREE;
 // const Babel = window.Babel;
@@ -194,6 +203,7 @@ class ThreeSceneRenderer {
   }
 
   initThreeRenderer() {
+    _tsrLog.debug('Initializing Three.js renderer');
     const THREE = this.THREE;
 
     this.renderer = new THREE.WebGLRenderer({
@@ -269,6 +279,7 @@ class ThreeSceneRenderer {
   // Supports both plain JS and JSX (automatically compiled via Babel)
   compile(sceneSource, isJSX = false) {
     const THREE = this.THREE;
+    _tsrLog.info('Compiling scene', sceneSource.length, 'chars');
 
     // Store source for reference
     this.sceneSource = sceneSource;
@@ -336,12 +347,14 @@ class ThreeSceneRenderer {
         this.camera.updateProjectionMatrix();
       }
 
+      _tsrLog.debug('Compiled', sceneSource.length, 'chars,', this.customParams.length, 'params');
       return { success: true };
     } catch (err) {
       // Try to extract line number from error
       const lineMatch = err.stack?.match(/<anonymous>:(\d+)/);
       const line = lineMatch ? parseInt(lineMatch[1], 10) - 6 : null; // Adjust for wrapper
 
+      _tsrLog.error('Compile failed:', err.message);
       throw {
         message: err.message,
         line: line,
@@ -394,7 +407,7 @@ class ThreeSceneRenderer {
     const Babel = window.Babel;
 
     if (!Babel) {
-      console.warn('Babel not loaded, JSX compilation skipped');
+      _tsrLog.warn('Babel not loaded, JSX compilation skipped');
       return source;
     }
 
@@ -416,7 +429,7 @@ class ThreeSceneRenderer {
       try {
         this.sceneModule.cleanup(this.sceneObjects);
       } catch (e) {
-        console.warn('Scene cleanup error:', e);
+        _tsrLog.error('Scene cleanup error:', e);
         window.dispatchEvent(new CustomEvent('scene-runtime-error', {
           detail: { message: e.message || String(e), source: 'cleanup' }
         }));
@@ -874,6 +887,7 @@ class ThreeSceneRenderer {
   // stale and rendering silently fails (black screen). Disposing and recreating
   // the WebGLRenderer forces Three.js to re-query and re-initialize all state.
   reinitialize() {
+    _tsrLog.debug('Reinitializing renderer');
     if (this.renderer) {
       this.renderer.dispose();
     }
@@ -888,6 +902,7 @@ class ThreeSceneRenderer {
 
   // Dispose of all resources
   dispose() {
+    _tsrLog.debug('Disposing scene renderer');
     this.cleanup();
 
     for (let i = 0; i < 4; i++) {

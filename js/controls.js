@@ -8,6 +8,7 @@ import { showTileConfigDialog, initToolbarPresetsPanel, togglePresetsPanel } fro
 import { toggleRecording } from './recording.js';
 import { showAIAssistantDialog, initAIShortcut } from './claude-ai.js';
 import { runBenchmark } from './benchmark.js';
+import { log } from './logger.js';
 
 export function initControls() {
   // New File button - show dialog
@@ -280,6 +281,7 @@ export function resetTime() {
 
 export function togglePreview() {
   state.previewEnabled = !state.previewEnabled;
+  log.debug('Controls', 'Preview:', state.previewEnabled ? 'shown' : 'hidden');
   const btnPreview = document.getElementById('btn-preview');
   const previewPanel = document.getElementById('preview-panel');
 
@@ -299,6 +301,7 @@ export function togglePreview() {
 
 export function toggleGrid() {
   state.gridEnabled = !state.gridEnabled;
+  log.debug('Controls', 'Grid:', state.gridEnabled ? 'shown' : 'hidden');
   const btnGrid = document.getElementById('btn-grid');
   const gridPanel = document.getElementById('grid-panel');
 
@@ -320,6 +323,7 @@ export function toggleGrid() {
 
 export function toggleEditor() {
   state.editorEnabled = !state.editorEnabled;
+  log.debug('Controls', 'Editor:', state.editorEnabled ? 'shown' : 'hidden');
   const btnEditor = document.getElementById('btn-editor');
   const editorPanel = document.getElementById('editor-panel');
 
@@ -339,6 +343,7 @@ export function toggleEditor() {
 
 export function toggleParams() {
   state.paramsEnabled = !state.paramsEnabled;
+  log.debug('Controls', 'Params:', state.paramsEnabled ? 'shown' : 'hidden');
   const btnParams = document.getElementById('btn-params');
   const paramsPanel = document.getElementById('params-panel');
 
@@ -423,6 +428,7 @@ export function updatePanelVisibility() {
 }
 
 export function toggleNDI() {
+  log.info('Controls', 'Toggling NDI output');
   window.electronAPI.toggleNDI();
 }
 
@@ -456,6 +462,7 @@ export function resetFullscreenSelect() {
 
 export function toggleBlackout() {
   state.blackoutEnabled = !state.blackoutEnabled;
+  log.debug('Controls', 'Blackout:', state.blackoutEnabled ? 'enabled' : 'disabled');
   const btnBlackout = document.getElementById('btn-blackout');
 
   if (state.blackoutEnabled) {
@@ -471,6 +478,7 @@ export function toggleBlackout() {
 
 export function toggleTiledPreview() {
   state.tiledPreviewEnabled = !state.tiledPreviewEnabled;
+  log.info('Controls', 'Tiled preview:', state.tiledPreviewEnabled ? 'enabled' : 'disabled');
   const btnTiled = document.getElementById('btn-tiled');
 
   if (state.tiledPreviewEnabled) {

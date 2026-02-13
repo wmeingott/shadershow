@@ -2,6 +2,7 @@
 import { state } from './state.js';
 import { startGridAnimation, rebuildVisualPresetsDOM } from './shader-grid.js';
 import { getConsolePanelState, restoreConsolePanelState } from './console-panel.js';
+import { log } from './logger.js';
 
 export function saveViewState() {
   const editorPanel = document.getElementById('editor-panel');
@@ -29,12 +30,15 @@ export function saveViewState() {
     visualPresetsEnabled: state.visualPresetsEnabled
   };
 
+  log.debug('ViewState', 'Saving view state');
   window.electronAPI.saveViewState(viewState);
 }
 
 export async function restoreViewState() {
   const viewState = await window.electronAPI.loadViewState();
   if (!viewState) return;
+
+  log.info('ViewState', 'Restoring view state — editor:', viewState.editorEnabled, 'preview:', viewState.previewEnabled, 'grid:', viewState.gridEnabled, 'params:', viewState.paramsEnabled);
 
   const editorPanel = document.getElementById('editor-panel');
   const resizer = document.getElementById('resizer');

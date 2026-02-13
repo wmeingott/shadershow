@@ -17,24 +17,25 @@ import { updateLocalPresetsUI } from './presets.js';
 import { initMixer, isMixerActive, renderMixerComposite, hideMixerOverlay } from './mixer.js';
 import { initSettingsOnLoad } from './settings.js';
 import { initConsolePanel } from './console-panel.js';
+import { log } from './logger.js';
 
 // Initialize application
 document.addEventListener('DOMContentLoaded', async () => {
   try {
-    console.log('Starting initialization...');
+    log.info('Renderer', 'Starting initialization...');
 
     // Initialize console panel before editor so compile messages are captured
     initConsolePanel();
 
     // Initialize editor first (creates initial tab with default shader)
     await initEditor();
-    console.log('Editor initialized');
+    log.debug('Renderer', 'Editor initialized');
 
     initRenderer();
-    console.log('Renderer initialized');
+    log.debug('Renderer', 'Renderer initialized');
 
     initControls();
-    console.log('Controls initialized');
+    log.debug('Renderer', 'Controls initialized');
 
     await initSettingsOnLoad();
     initParams();
@@ -48,7 +49,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Compile the initial shader BEFORE loading grid slots to ensure main renderer
     // has its WebGL context established first (grid slots create many WebGL contexts)
     compileShader();
-    console.log('Initial shader compiled');
+    log.debug('Renderer', 'Initial shader compiled');
 
     // Now load grid slots (each creates a MiniShaderRenderer with its own context)
     await initShaderGrid();
@@ -59,9 +60,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Cache DOM elements and start render loop
     cacheRenderLoopElements();
     renderLoop();
-    console.log('Initialization complete');
+    log.info('Renderer', 'Initialization complete');
   } catch (err) {
-    console.error('Initialization error:', err);
+    log.error('Renderer', 'Initialization error:', err);
   }
 });
 
@@ -130,11 +131,11 @@ export async function ensureSceneRenderer() {
       state.sceneRenderer.setResolution(canvas.width, canvas.height);
       return state.sceneRenderer;
     } else {
-      console.error('THREE.js not available for scene rendering');
+      log.error('Renderer', 'THREE.js not available for scene rendering');
       return null;
     }
   } catch (err) {
-    console.error('Failed to initialize ThreeSceneRenderer:', err.message);
+    log.error('Renderer', 'Failed to initialize ThreeSceneRenderer:', err.message);
     return null;
   }
 }
@@ -150,11 +151,12 @@ export async function setRenderMode(mode) {
   if (mode === state.renderMode) return;
 
   state.renderMode = mode;
+  log.info('Renderer', 'Render mode switched to:', mode);
 
   if (mode === 'scene') {
     const sceneRenderer = await ensureSceneRenderer();
     if (!sceneRenderer) {
-      console.error('Cannot switch to scene mode - ThreeSceneRenderer not available');
+      log.error('Renderer', 'Cannot switch to scene mode - ThreeSceneRenderer not available');
       state.renderMode = 'shader';
       return;
     }
@@ -255,7 +257,7 @@ function renderLoop(currentTime) {
       hideMixerOverlay();
     }
   } catch (err) {
-    console.error('Render error:', err);
+    log.error('Renderer', 'Render error:', err);
   }
 
   if (stats && state.previewEnabled) {
@@ -425,7 +427,7 @@ function renderTiledPreview() {
 
       // Debug: log tile info once
       if (!window._previewTileDbg) {
-        console.log(`[Preview] Canvas: ${canvasWidth}x${canvasHeight}, Tile ${i}: bound=(${bound.x},${bound.y},${bound.width},${bound.height}), draw=(${drawX},${drawY})`);
+        log.debug('Renderer', `Preview tile ${i}: canvas=${canvasWidth}x${canvasHeight}, bound=(${bound.x},${bound.y},${bound.width},${bound.height}), draw=(${drawX},${drawY})`);
       }
 
       // OPTIMIZED: Use renderDirect to avoid canvas resizing per tile
@@ -433,7 +435,7 @@ function renderTiledPreview() {
       miniRenderer.renderDirect(ctx, drawX, drawY, bound.width, bound.height);
 
     } catch (err) {
-      console.error(`Tile ${i} render error:`, err);
+      log.error('Renderer', `Tile ${i} render error:`, err);
       ctx.fillStyle = '#3a1a1a';
       ctx.fillRect(drawX, drawY, bound.width, bound.height);
       ctx.fillStyle = '#ff6666';
@@ -530,7 +532,7 @@ export function selectTile(tileIndex) {
         try {
           state.renderer.compile(slotData.shaderCode);
         } catch (err) {
-          console.warn('Failed to compile shader for param UI:', err.message);
+          log.warn('Renderer', 'Failed to compile shader for param UI:', err.message);
         }
       }
 

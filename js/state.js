@@ -62,6 +62,10 @@ export const state = {
   mixerSelectedChannel: null,  // channel index or null — which channel's params are in the UI
   mixerBlendMode: 'lighter',   // canvas globalCompositeOperation
 
+  // Visual presets state
+  visualPresets: [],
+  visualPresetsEnabled: false,
+
   // Tiled preview state
   tiledPreviewEnabled: false,
   tileRenderers: [],  // Array of MiniShaderRenderer for tiled preview

@@ -1,6 +1,6 @@
 // Controls module
 import { state } from './state.js';
-import { saveActiveSlotShader, startGridAnimation, stopGridAnimation } from './shader-grid.js';
+import { saveActiveSlotShader, startGridAnimation, stopGridAnimation, toggleVisualPresetsPanel, initVisualPresetsPanel } from './shader-grid.js';
 import { saveViewState } from './view-state.js';
 import { showSettingsDialog } from './settings.js';
 import { tileState, calculateTileBounds } from './tile-state.js';
@@ -111,6 +111,13 @@ export function initControls() {
 
   // Initialize the toolbar presets panel buttons
   initToolbarPresetsPanel();
+
+  // Visual presets panel toggle button
+  const btnVisualPresets = document.getElementById('btn-visual-presets');
+  btnVisualPresets.addEventListener('click', toggleVisualPresetsPanel);
+
+  // Initialize visual presets panel
+  initVisualPresetsPanel();
 
   // Benchmark button
   const btnBenchmark = document.getElementById('btn-benchmark');

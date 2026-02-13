@@ -1,6 +1,6 @@
 // View State module
 import { state } from './state.js';
-import { startGridAnimation } from './shader-grid.js';
+import { startGridAnimation, rebuildVisualPresetsDOM } from './shader-grid.js';
 import { getConsolePanelState, restoreConsolePanelState } from './console-panel.js';
 
 export function saveViewState() {
@@ -25,7 +25,8 @@ export function saveViewState() {
     customWidth: customWidth.value,
     customHeight: customHeight.value,
     consolePanelHeight: consoleState.height,
-    consolePanelCollapsed: consoleState.collapsed
+    consolePanelCollapsed: consoleState.collapsed,
+    visualPresetsEnabled: state.visualPresetsEnabled
   };
 
   window.electronAPI.saveViewState(viewState);
@@ -123,6 +124,15 @@ export async function restoreViewState() {
         state.renderer.setResolution(w, h);
       }
     }
+  }
+
+  // Restore visual presets panel visibility
+  if (viewState.visualPresetsEnabled) {
+    state.visualPresetsEnabled = true;
+    const vpPanel = document.getElementById('visual-presets-panel');
+    if (vpPanel) vpPanel.classList.remove('hidden');
+    document.getElementById('btn-visual-presets')?.classList.add('active');
+    rebuildVisualPresetsDOM();
   }
 
   // Restore console panel state

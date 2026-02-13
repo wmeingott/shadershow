@@ -1875,7 +1875,9 @@ ipcMain.on('save-grid-state', async (event, gridState) => {
       const saveData = {
         version: 2,
         activeTab: gridState.activeTab,
-        tabs
+        activeSection: gridState.activeSection || 'shaders',
+        tabs,
+        visualPresets: gridState.visualPresets || []
       };
       await fsPromises.writeFile(gridStateFile, JSON.stringify(saveData, null, 2), 'utf-8');
     } else {
@@ -2441,6 +2443,16 @@ ipcMain.handle('delete-shader-from-slot', async (event, slotIndex) => {
   } catch (err) {
     if (err.code === 'ENOENT') return { success: true }; // Already deleted
     console.error(`Failed to delete shader from slot ${slotIndex}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Read file content by path (for recovering grid slots with filePath but no embedded code)
+ipcMain.handle('read-file-content', async (event, filePath) => {
+  try {
+    const content = await fsPromises.readFile(filePath, 'utf-8');
+    return { success: true, content };
+  } catch (err) {
     return { success: false, error: err.message };
   }
 });

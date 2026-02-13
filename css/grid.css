@@ -389,6 +389,126 @@
   color: var(--accent-color);
 }
 
+/* =============================================================================
+   Visual Presets Panel
+   ============================================================================= */
+
+.visual-preset-btn {
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  font-size: 13px;
+  color: var(--text-primary);
+  transition: border-color 0.15s, transform 0.1s;
+  text-align: center;
+  overflow: hidden;
+}
+
+.visual-preset-btn:hover {
+  border-color: var(--accent-color);
+  transform: scale(1.02);
+}
+
+.visual-preset-btn.active {
+  border-color: var(--warning-color);
+  box-shadow: 0 0 8px var(--warning-color);
+}
+
+.visual-preset-thumb {
+  aspect-ratio: 16 / 9;
+  background-size: cover;
+  background-position: center;
+  background-color: var(--bg-tertiary);
+}
+
+.visual-preset-label {
+  padding: 4px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.visual-preset-btn.visual-add-btn {
+  aspect-ratio: 16 / 9;
+  border-style: dashed;
+  border-color: var(--border-color);
+  background: transparent;
+  font-size: 36px;
+  font-weight: 300;
+  color: var(--text-secondary);
+  justify-content: center;
+  align-items: center;
+}
+
+.visual-preset-btn.visual-add-btn:hover {
+  border-color: var(--accent-color);
+  background: rgba(0, 120, 212, 0.1);
+  color: var(--accent-color);
+}
+
+/* =============================================================================
+   Visual Presets Top-Level Panel (between main-content and status-bar)
+   ============================================================================= */
+
+#visual-presets-panel {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+  max-height: 200px;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.visual-presets-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.visual-presets-action {
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.visual-presets-action:hover {
+  background: var(--accent-color);
+  border-color: var(--accent-color);
+}
+
+.visual-presets-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+  align-items: flex-start;
+}
+
+.visual-presets-container .visual-preset-btn {
+  width: 160px;
+  flex-shrink: 0;
+}
 
 /* Shader Presets Section (between preview and bottom row) */
 .grid-presets-section {

@@ -10,6 +10,7 @@ import { openInTab } from './tabs.js';
 import { tileState, assignTile } from './tile-state.js';
 import { updateTileRenderer, refreshTileRenderers } from './controls.js';
 import { assignShaderToMixer, assignAssetToMixer, addMixerChannel, recallMixState, resetMixer, isMixerActive, captureMixerThumbnail } from './mixer.js';
+import { saveViewState } from './view-state.js';
 import { AssetRenderer } from './asset-renderer.js';
 
 // Cache for file texture data URLs (avoids re-reading from disk for each grid slot)
@@ -166,7 +167,6 @@ function buildTabBar() {
     // Only show tabs belonging to the current section
     if (activeSection === 'mix' && tabType !== 'mix') return;
     if (activeSection === 'assets' && tabType !== 'assets') return;
-    if (activeSection === 'shaders' && tabType !== 'shaders' && tabType !== undefined && tabType !== 'shaders') return;
     if (activeSection === 'shaders' && (tabType === 'mix' || tabType === 'assets')) return;
 
     const tabEl = document.createElement('div');
@@ -324,7 +324,7 @@ async function deleteShaderTab(tabIndex) {
 
   const tab = state.shaderTabs[tabIndex];
   const isMix = tab.type === 'mix';
-  const itemCount = isMix ? (tab.mixPresets || []).length : tab.slots.filter(s => s).length;
+  const itemCount = isMix ? (tab.mixPresets || []).length : (tab.slots || []).filter(s => s).length;
   const itemLabel = isMix ? 'mix preset(s)' : 'shader(s)';
 
   if (itemCount > 0) {
@@ -333,8 +333,8 @@ async function deleteShaderTab(tabIndex) {
     }
   }
 
-  // Dispose renderers in this tab (only for shader tabs)
-  if (!isMix) {
+  // Dispose renderers in this tab (only for shader/asset tabs)
+  if (!isMix && tab.slots) {
     for (const slot of tab.slots) {
       if (slot && slot.renderer && slot.renderer.dispose) {
         slot.renderer.dispose();
@@ -346,25 +346,26 @@ async function deleteShaderTab(tabIndex) {
   state.shaderTabs.splice(tabIndex, 1);
 
   // Try to find another tab in the same section
-  const sameSection = state.shaderTabs.findIndex(t =>
-    isMix ? t.type === 'mix' : t.type !== 'mix'
-  );
+  const tabType = tab.type || 'shaders';
+  const sameSection = state.shaderTabs.findIndex(t => t.type === tabType);
 
   if (sameSection >= 0) {
     state.activeShaderTab = sameSection;
   } else {
-    // No tabs left in this section — switch to the other section
-    state.activeSection = isMix ? 'shaders' : 'mix';
+    // No tabs left in this section — switch to shaders
+    state.activeSection = 'shaders';
     state.activeShaderTab = 0;
   }
 
   // Update gridSlots reference
   const newActiveTab = state.shaderTabs[state.activeShaderTab];
-  state.gridSlots = newActiveTab.type === 'mix' ? [] : newActiveTab.slots;
+  state.gridSlots = newActiveTab.type === 'mix' ? [] : (newActiveTab.slots || []);
 
   // Rebuild UI
   if (newActiveTab.type === 'mix') {
     rebuildMixPanelDOM();
+  } else if (newActiveTab.type === 'assets') {
+    rebuildAssetGridDOM();
   } else {
     rebuildGridDOM();
   }
@@ -830,6 +831,384 @@ function deleteMixPreset(presetIndex) {
   saveGridState();
 
   setStatus(`Deleted mix preset "${preset.name}"`, 'success');
+}
+
+// =============================================================================
+// Visual Presets (full scene snapshots)
+// =============================================================================
+
+export function rebuildVisualPresetsDOM() {
+  const container = document.getElementById('visual-presets-container');
+  if (!container) return;
+
+  container.innerHTML = '';
+
+  const presets = state.visualPresets || [];
+  for (let i = 0; i < presets.length; i++) {
+    const preset = presets[i];
+    const btn = document.createElement('div');
+    btn.className = 'visual-preset-btn';
+    btn.dataset.presetIndex = i;
+    btn.title = buildVisualPresetTooltip(preset);
+
+    const thumb = document.createElement('div');
+    thumb.className = 'visual-preset-thumb';
+    if (preset.thumbnail) {
+      thumb.style.backgroundImage = `url(${preset.thumbnail})`;
+    }
+    btn.appendChild(thumb);
+
+    const label = document.createElement('span');
+    label.className = 'visual-preset-label';
+    label.textContent = preset.name || `Preset ${i + 1}`;
+    btn.appendChild(label);
+
+    btn.addEventListener('click', () => {
+      recallVisualPreset(i);
+    });
+    btn.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      showVisualPresetContextMenu(e.clientX, e.clientY, i);
+    });
+
+    container.appendChild(btn);
+  }
+}
+
+export function toggleVisualPresetsPanel() {
+  state.visualPresetsEnabled = !state.visualPresetsEnabled;
+  const panel = document.getElementById('visual-presets-panel');
+  const btn = document.getElementById('btn-visual-presets');
+
+  if (state.visualPresetsEnabled) {
+    panel.classList.remove('hidden');
+    btn.classList.add('active');
+    rebuildVisualPresetsDOM();
+  } else {
+    panel.classList.add('hidden');
+    btn.classList.remove('active');
+  }
+
+  saveViewState();
+}
+
+export function initVisualPresetsPanel() {
+  const saveBtn = document.getElementById('visual-presets-save-btn');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', () => {
+      saveVisualPreset();
+    });
+  }
+}
+
+function buildVisualPresetTooltip(preset) {
+  const parts = [preset.name || 'Preset'];
+  if (preset.renderMode) parts.push(`Mode: ${preset.renderMode}`);
+  if (preset.mixerEnabled) parts.push('Mixer: ON');
+  return parts.join('\n');
+}
+
+function captureVisualPresetThumbnail() {
+  // If mixer is active, capture the composite
+  if (isMixerActive()) {
+    return captureMixerThumbnail();
+  }
+  // Otherwise capture the main shader canvas
+  const canvas = document.getElementById('shader-canvas');
+  if (!canvas || canvas.width === 0) return null;
+  const thumbW = 240;
+  const thumbH = Math.round(thumbW * canvas.height / canvas.width) || 135;
+  const tmp = document.createElement('canvas');
+  tmp.width = thumbW;
+  tmp.height = thumbH;
+  const ctx = tmp.getContext('2d');
+  ctx.drawImage(canvas, 0, 0, thumbW, thumbH);
+  return tmp.toDataURL('image/jpeg', 0.7);
+}
+
+function serializeMixerChannels() {
+  return state.mixerChannels.map(ch => {
+    if (ch.slotIndex === null && ch.tabIndex === null && !ch.renderer) return null;
+
+    let slotData = null;
+    if (ch.slotIndex !== null && ch.tabIndex !== null) {
+      const srcTab = state.shaderTabs[ch.tabIndex];
+      slotData = srcTab?.slots?.[ch.slotIndex] || null;
+    }
+
+    const isAsset = ch.assetType || slotData?.type?.startsWith('asset-');
+    if (isAsset) {
+      return {
+        assetType: ch.assetType || slotData?.type,
+        mediaPath: slotData?.mediaPath || ch.mediaPath,
+        alpha: ch.alpha,
+        params: { ...ch.params },
+        customParams: { ...ch.customParams }
+      };
+    }
+
+    let shaderCode = ch.shaderCode;
+    if (!shaderCode && slotData) {
+      shaderCode = slotData.shaderCode;
+    }
+    if (!shaderCode) return null;
+
+    return {
+      shaderCode,
+      alpha: ch.alpha,
+      params: { ...ch.params },
+      customParams: { ...ch.customParams }
+    };
+  });
+}
+
+function saveVisualPreset() {
+  // Capture current editor content
+  const shaderCode = state.editor ? state.editor.getValue() : '';
+  if (!shaderCode) {
+    setStatus('No shader loaded to save as preset', 'error');
+    return;
+  }
+
+  // Get speed param from slider
+  const speedSlider = document.getElementById('param-speed');
+  const speed = speedSlider ? parseFloat(speedSlider.value) : 1.0;
+
+  // Get custom params from main renderer
+  const customParams = state.renderer?.getCustomParamValues?.() || {};
+
+  const mixerActive = isMixerActive();
+  const preset = {
+    name: `Preset ${(state.visualPresets || []).length + 1}`,
+    thumbnail: captureVisualPresetThumbnail(),
+    renderMode: state.renderMode || 'shader',
+    shaderCode,
+    params: { speed },
+    customParams: { ...customParams },
+    mixerEnabled: mixerActive,
+    mixerBlendMode: mixerActive ? state.mixerBlendMode : undefined,
+    mixerChannels: mixerActive ? serializeMixerChannels() : undefined
+  };
+
+  state.visualPresets.push(preset);
+
+  rebuildVisualPresetsDOM();
+  saveGridState();
+
+  setStatus(`Saved visual preset "${preset.name}"`, 'success');
+}
+
+async function recallVisualPreset(presetIndex) {
+  const preset = state.visualPresets?.[presetIndex];
+  if (!preset) return;
+  try {
+
+  // 1. Switch render mode
+  await setRenderMode(preset.renderMode || 'shader');
+
+  // 2. Load shader code into editor
+  if (state.editor && preset.shaderCode) {
+    state.editor.setValue(preset.shaderCode, -1);
+    // Cancel any debounced compile
+    if (state.compileTimeout) clearTimeout(state.compileTimeout);
+    // Compile immediately
+    try {
+      state.renderer.compile(preset.shaderCode);
+    } catch (err) {
+      console.warn('Failed to compile visual preset shader:', err.message);
+    }
+  }
+
+  // 3. Restore params (speed etc.)
+  if (preset.params) {
+    loadParamsToSliders(preset.params, { skipMixerSync: true });
+  }
+
+  // 4. Restore custom params
+  if (preset.customParams && state.renderer?.setCustomParamValues) {
+    state.renderer.setCustomParamValues(preset.customParams);
+  }
+
+  // 5. Regenerate custom param UI
+  generateCustomParamUI();
+
+  // 6. Restore mixer state or reset
+  if (preset.mixerEnabled && preset.mixerChannels) {
+    recallMixState({
+      name: preset.name,
+      blendMode: preset.mixerBlendMode,
+      channels: preset.mixerChannels
+    });
+  } else {
+    resetMixer();
+  }
+
+  // 7. Sync to fullscreen
+  const allParams = {
+    ...(preset.params || {}),
+    ...(preset.customParams || {})
+  };
+  window.electronAPI.sendShaderUpdate({
+    shaderCode: preset.shaderCode,
+    renderMode: preset.renderMode || 'shader',
+    params: allParams
+  });
+  if (window.electronAPI.sendBatchParamUpdate) {
+    window.electronAPI.sendBatchParamUpdate(allParams);
+  }
+
+  // Update active highlight
+  const vpContainer = document.getElementById('visual-presets-container');
+  if (vpContainer) {
+    vpContainer.querySelectorAll('.visual-preset-btn').forEach(btn => {
+      btn.classList.remove('active');
+    });
+    const activeBtn = vpContainer.querySelector(`[data-preset-index="${presetIndex}"]`);
+    if (activeBtn) activeBtn.classList.add('active');
+  }
+
+  setStatus(`Recalled visual preset "${preset.name}"`, 'success');
+  notifyRemoteStateChanged();
+  } catch (err) {
+    console.error('[VP] Error recalling preset:', err);
+    setStatus(`Failed to recall preset: ${err.message}`, 'error');
+  }
+}
+
+function showVisualPresetContextMenu(x, y, presetIndex) {
+  hideContextMenu();
+  hideTabContextMenu();
+
+  const menu = document.createElement('div');
+  menu.className = 'context-menu';
+  menu.id = 'tab-context-menu';
+
+  // Update preset
+  const updateItem = document.createElement('div');
+  updateItem.className = 'context-menu-item';
+  updateItem.textContent = 'Update with Current State';
+  updateItem.addEventListener('click', () => {
+    hideTabContextMenu();
+    updateVisualPreset(presetIndex);
+  });
+  menu.appendChild(updateItem);
+
+  // Rename
+  const renameItem = document.createElement('div');
+  renameItem.className = 'context-menu-item';
+  renameItem.textContent = 'Rename';
+  renameItem.addEventListener('click', () => {
+    hideTabContextMenu();
+    renameVisualPreset(presetIndex);
+  });
+  menu.appendChild(renameItem);
+
+  // Delete
+  const deleteItem = document.createElement('div');
+  deleteItem.className = 'context-menu-item';
+  deleteItem.textContent = 'Delete';
+  deleteItem.addEventListener('click', () => {
+    hideTabContextMenu();
+    deleteVisualPreset(presetIndex);
+  });
+  menu.appendChild(deleteItem);
+
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+  document.body.appendChild(menu);
+
+  const rect = menu.getBoundingClientRect();
+  if (rect.right > window.innerWidth) {
+    menu.style.left = `${window.innerWidth - rect.width - 5}px`;
+  }
+  if (rect.bottom > window.innerHeight) {
+    menu.style.top = `${window.innerHeight - rect.height - 5}px`;
+  }
+
+  tabContextMenuHandler = (e) => {
+    if (!menu.contains(e.target)) {
+      hideTabContextMenu();
+    }
+  };
+  setTimeout(() => document.addEventListener('click', tabContextMenuHandler), 0);
+}
+
+function updateVisualPreset(presetIndex) {
+  const preset = state.visualPresets?.[presetIndex];
+  if (!preset) return;
+
+  const shaderCode = state.editor ? state.editor.getValue() : '';
+  if (!shaderCode) {
+    setStatus('No shader loaded to update preset', 'error');
+    return;
+  }
+
+  const speedSlider = document.getElementById('param-speed');
+  const speed = speedSlider ? parseFloat(speedSlider.value) : 1.0;
+  const customParams = state.renderer?.getCustomParamValues?.() || {};
+  const mixerActive = isMixerActive();
+
+  preset.thumbnail = captureVisualPresetThumbnail();
+  preset.renderMode = state.renderMode || 'shader';
+  preset.shaderCode = shaderCode;
+  preset.params = { speed };
+  preset.customParams = { ...customParams };
+  preset.mixerEnabled = mixerActive;
+  preset.mixerBlendMode = mixerActive ? state.mixerBlendMode : undefined;
+  preset.mixerChannels = mixerActive ? serializeMixerChannels() : undefined;
+
+  rebuildVisualPresetsDOM();
+  saveGridState();
+  setStatus(`Updated visual preset "${preset.name}"`, 'success');
+}
+
+function renameVisualPreset(presetIndex) {
+  const preset = state.visualPresets?.[presetIndex];
+  if (!preset) return;
+
+  const vpContainer = document.getElementById('visual-presets-container');
+  const btn = vpContainer?.querySelector(`[data-preset-index="${presetIndex}"]`);
+  if (!btn) return;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'shader-tab-rename-input';
+  input.value = preset.name;
+  input.style.width = '90%';
+
+  const finishRename = () => {
+    const newName = input.value.trim() || preset.name;
+    preset.name = newName;
+    rebuildVisualPresetsDOM();
+    saveGridState();
+  };
+
+  input.addEventListener('blur', finishRename);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      input.blur();
+    } else if (e.key === 'Escape') {
+      input.value = preset.name;
+      input.blur();
+    }
+  });
+
+  btn.innerHTML = '';
+  btn.appendChild(input);
+  input.focus();
+  input.select();
+}
+
+function deleteVisualPreset(presetIndex) {
+  const preset = state.visualPresets?.[presetIndex];
+  if (!preset) return;
+
+  state.visualPresets.splice(presetIndex, 1);
+  rebuildVisualPresetsDOM();
+  saveGridState();
+
+  setStatus(`Deleted visual preset "${preset.name}"`, 'success');
 }
 
 // Move a shader to another tab
@@ -1476,7 +1855,7 @@ function createGridSlotElement(index) {
 function createAddButton() {
   const btn = document.createElement('div');
   btn.className = 'grid-slot grid-add-btn';
-  btn.title = 'Add shader to grid';
+  btn.title = 'Add shader to grid (right-click for options)';
 
   const plusSign = document.createElement('span');
   plusSign.className = 'grid-add-plus';
@@ -1485,6 +1864,74 @@ function createAddButton() {
 
   btn.addEventListener('click', async () => {
     await addNewGridSlot();
+  });
+
+  btn.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    hideContextMenu();
+
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.id = 'grid-context-menu';
+
+    // Open file option
+    const openItem = document.createElement('div');
+    openItem.className = 'context-menu-item';
+    openItem.textContent = 'Open File...';
+    openItem.addEventListener('click', async () => {
+      hideContextMenu();
+      await addNewGridSlot();
+    });
+    menu.appendChild(openItem);
+
+    // Add current shader option
+    const addCurrentItem = document.createElement('div');
+    addCurrentItem.className = 'context-menu-item';
+    const code = state.editor.getValue();
+    const hasCode = code && code.trim();
+    if (!hasCode) addCurrentItem.classList.add('disabled');
+    addCurrentItem.textContent = 'Add Current Shader';
+    addCurrentItem.addEventListener('click', () => {
+      hideContextMenu();
+      if (!hasCode) return;
+
+      const newIndex = state.gridSlots.length;
+      state.gridSlots.push(null);
+
+      const container = document.getElementById('shader-grid-container');
+      const slotEl = createGridSlotElement(newIndex);
+      container.insertBefore(slotEl, btn);
+
+      if (gridIntersectionObserver) {
+        gridIntersectionObserver.observe(slotEl);
+      }
+
+      assignCurrentShaderToSlot(newIndex);
+
+      if (!state.gridSlots[newIndex]) {
+        removeGridSlotElement(newIndex);
+      }
+    });
+    menu.appendChild(addCurrentItem);
+
+    // Position menu
+    menu.style.left = `${e.clientX}px`;
+    menu.style.top = `${e.clientY}px`;
+    document.body.appendChild(menu);
+
+    const rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth) menu.style.left = `${window.innerWidth - rect.width - 5}px`;
+    if (rect.bottom > window.innerHeight) menu.style.top = `${window.innerHeight - rect.height - 5}px`;
+
+    setTimeout(() => {
+      const handler = (ev) => {
+        if (!menu.contains(ev.target)) {
+          hideContextMenu();
+          document.removeEventListener('click', handler);
+        }
+      };
+      document.addEventListener('click', handler);
+    }, 0);
   });
 
   return btn;
@@ -2559,11 +3006,44 @@ export function saveGridState() {
     };
   });
 
+  // Serialize visual presets at top level
+  const serializedVisualPresets = (state.visualPresets || []).map(preset => {
+    const saved = {
+      name: preset.name,
+      thumbnail: preset.thumbnail || null,
+      renderMode: preset.renderMode,
+      shaderCode: preset.shaderCode,
+      params: preset.params,
+      customParams: preset.customParams || {},
+      mixerEnabled: preset.mixerEnabled || false
+    };
+    if (preset.mixerEnabled) {
+      saved.mixerBlendMode = preset.mixerBlendMode;
+      saved.mixerChannels = (preset.mixerChannels || []).map(ch => {
+        if (!ch) return null;
+        const chSaved = {
+          alpha: ch.alpha,
+          params: ch.params,
+          customParams: ch.customParams || {}
+        };
+        if (ch.assetType) {
+          chSaved.assetType = ch.assetType;
+          chSaved.mediaPath = ch.mediaPath;
+        } else {
+          chSaved.shaderCode = ch.shaderCode;
+        }
+        return chSaved;
+      });
+    }
+    return saved;
+  });
+
   const gridState = {
     version: 2,
     activeTab: state.activeShaderTab,
     activeSection: state.activeSection || 'shaders',
-    tabs: tabsState
+    tabs: tabsState,
+    visualPresets: serializedVisualPresets
   };
 
   window.electronAPI.saveGridState(gridState);
@@ -2603,6 +3083,7 @@ export async function loadGridState() {
 // Load new tabbed format
 async function loadTabbedGridState(savedState) {
   state.shaderTabs = [];
+  state.visualPresets = [];
   let totalLoaded = 0;
   const allFailedSlots = [];
 
@@ -2618,6 +3099,14 @@ async function loadTabbedGridState(savedState) {
       };
       state.shaderTabs.push(tab);
       totalLoaded += tab.mixPresets.length;
+      continue;
+    }
+
+    // Migrate legacy presets tabs — merge into top-level state.visualPresets
+    if (tabData.type === 'presets') {
+      const legacyPresets = tabData.visualPresets || [];
+      state.visualPresets.push(...legacyPresets);
+      totalLoaded += legacyPresets.length;
       continue;
     }
 
@@ -2673,8 +3162,8 @@ async function loadTabbedGridState(savedState) {
 
     const tab = { name: tabData.name || `Tab ${tabIndex + 1}`, type: tabData.type || 'shaders', slots: [] };
 
-    // Compact: only keep slots with shader data
-    const compactSlots = (tabData.slots || []).filter(s => s && s.shaderCode);
+    // Compact: only keep slots with shader data or a file path to load from
+    const compactSlots = (tabData.slots || []).filter(s => s && (s.shaderCode || s.filePath));
 
     // Initialize slots array
     tab.slots = new Array(compactSlots.length).fill(null);
@@ -2691,13 +3180,28 @@ async function loadTabbedGridState(savedState) {
     for (let i = 0; i < compactSlots.length; i++) {
       const slotData = compactSlots[i];
       try {
+        // If shaderCode is missing but filePath exists, try to read the file
+        let code = slotData.shaderCode;
+        if (!code && slotData.filePath) {
+          const result = await window.electronAPI.readFileContent(slotData.filePath);
+          if (result && result.success) {
+            code = result.content;
+          } else {
+            console.warn(`Could not read file for ${tab.name} slot ${i + 1}: ${slotData.filePath}`);
+          }
+        }
+        if (!code) {
+          allFailedSlots.push(`${tab.name}:${i + 1}`);
+          continue;
+        }
+
         // Detect type from content if not explicitly set (handles legacy data)
-        const detectedType = detectRenderMode(slotData.filePath, slotData.shaderCode);
+        const detectedType = detectRenderMode(slotData.filePath, code);
         const isScene = slotData.type === 'scene' || detectedType === 'scene';
         if (isScene) {
-          await assignSceneToSlot(i, slotData.shaderCode, slotData.filePath, true, slotData.params, slotData.presets);
+          await assignSceneToSlot(i, code, slotData.filePath, true, slotData.params, slotData.presets);
         } else {
-          await assignShaderToSlot(i, slotData.shaderCode, slotData.filePath, true, slotData.params, slotData.presets, slotData.customParams);
+          await assignShaderToSlot(i, code, slotData.filePath, true, slotData.params, slotData.presets, slotData.customParams);
         }
         // Restore custom label if saved
         if (slotData.label && state.gridSlots[i]) {
@@ -2717,15 +3221,23 @@ async function loadTabbedGridState(savedState) {
     state.shaderTabs = [{ name: 'My Shaders', slots: [] }];
   }
 
+  // Load top-level visual presets (merge with any migrated from legacy tabs)
+  if (savedState.visualPresets && savedState.visualPresets.length > 0) {
+    state.visualPresets.push(...savedState.visualPresets);
+  }
+
   // Restore active section and tab
-  state.activeSection = savedState.activeSection || 'shaders';
+  let activeSection = savedState.activeSection || 'shaders';
+  // If section was 'presets' (legacy), fall back to 'shaders'
+  if (activeSection === 'presets') activeSection = 'shaders';
+  state.activeSection = activeSection;
   state.activeShaderTab = Math.min(savedState.activeTab || 0, state.shaderTabs.length - 1);
   const restoredTab = state.shaderTabs[state.activeShaderTab];
   // Sync section with actual tab type
   if (restoredTab.type === 'mix') state.activeSection = 'mix';
   else if (restoredTab.type === 'assets') state.activeSection = 'assets';
   else state.activeSection = 'shaders';
-  state.gridSlots = restoredTab.type === 'mix' ? [] : restoredTab.slots;
+  state.gridSlots = restoredTab.type === 'mix' ? [] : (restoredTab.slots || []);
 
   // Rebuild DOM for active tab
   if (restoredTab.type === 'mix') {
@@ -2734,6 +3246,11 @@ async function loadTabbedGridState(savedState) {
     rebuildAssetGridDOM();
   } else {
     rebuildGridDOM();
+  }
+
+  // Rebuild visual presets panel if enabled
+  if (state.visualPresetsEnabled) {
+    rebuildVisualPresetsDOM();
   }
 
   if (allFailedSlots.length > 0) {
@@ -2745,10 +3262,10 @@ async function loadTabbedGridState(savedState) {
 
 // Load old array format and migrate to tabs
 async function loadLegacyGridState(gridState) {
-  // Only load slots that have actual shader data (compact the array)
+  // Only load slots that have actual shader data or a file path (compact the array)
   const compactState = [];
   for (let i = 0; i < gridState.length; i++) {
-    if (gridState[i] && gridState[i].shaderCode) {
+    if (gridState[i] && (gridState[i].shaderCode || gridState[i].filePath)) {
       compactState.push(gridState[i]);
     }
   }
@@ -2767,12 +3284,20 @@ async function loadLegacyGridState(gridState) {
   for (let i = 0; i < compactState.length; i++) {
     const slotData = compactState[i];
     try {
-      const detectedType = detectRenderMode(slotData.filePath, slotData.shaderCode);
+      // If shaderCode is missing but filePath exists, try to read the file
+      let code = slotData.shaderCode;
+      if (!code && slotData.filePath) {
+        const result = await window.electronAPI.readFileContent(slotData.filePath);
+        if (result && result.success) code = result.content;
+      }
+      if (!code) { failedSlots.push(i + 1); continue; }
+
+      const detectedType = detectRenderMode(slotData.filePath, code);
       const isScene = slotData.type === 'scene' || detectedType === 'scene';
       if (isScene) {
-        await assignSceneToSlot(i, slotData.shaderCode, slotData.filePath, true, slotData.params, slotData.presets);
+        await assignSceneToSlot(i, code, slotData.filePath, true, slotData.params, slotData.presets);
       } else {
-        await assignShaderToSlot(i, slotData.shaderCode, slotData.filePath, true, slotData.params, slotData.presets, slotData.customParams);
+        await assignShaderToSlot(i, code, slotData.filePath, true, slotData.params, slotData.presets, slotData.customParams);
       }
       loadedCount++;
     } catch (err) {

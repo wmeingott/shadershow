@@ -1,12 +1,15 @@
 {
-  "editorEnabled": true,
+  "editorEnabled": false,
   "previewEnabled": true,
   "gridEnabled": true,
   "paramsEnabled": true,
-  "editorWidth": "52%",
+  "editorWidth": "50%",
   "previewHeight": "",
-  "gridWidth": "",
+  "gridWidth": "742.083px",
   "resolution": "1536x864",
   "customWidth": "1280",
-  "customHeight": "720"
+  "customHeight": "720",
+  "consolePanelHeight": 196.66670989990234,
+  "consolePanelCollapsed": false,
+  "visualPresetsEnabled": true
 }

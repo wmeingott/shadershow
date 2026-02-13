@@ -457,11 +457,13 @@ function createParamControl(param, index = null, arrayName = null) {
 }
 
 // Create slider control for int/float
-function createSliderControl(row, param, value, paramName, arrayIndex) {
+// onValueChange(paramName, value, arrayIndex) — callback for value updates
+function createSliderControl(row, param, value, paramName, arrayIndex, onValueChange) {
   const isInt = param.type === 'int';
   const min = param.min !== null ? param.min : (isInt ? 0 : 0);
   const max = param.max !== null ? param.max : (isInt ? 10 : 1);
   const step = isInt ? 1 : 0.01;
+  const update = onValueChange || ((name, val, idx) => updateCustomParamValue(name, val, idx));
 
   const slider = document.createElement('input');
   slider.type = 'range';
@@ -477,7 +479,7 @@ function createSliderControl(row, param, value, paramName, arrayIndex) {
   slider.addEventListener('input', () => {
     const newValue = isInt ? parseInt(slider.value, 10) : parseFloat(slider.value);
     valueDisplay.textContent = isInt ? newValue.toString() : newValue.toFixed(2);
-    updateCustomParamValue(paramName, newValue, arrayIndex);
+    update(paramName, newValue, arrayIndex);
   });
 
   // Double-click to reset
@@ -485,7 +487,7 @@ function createSliderControl(row, param, value, paramName, arrayIndex) {
     const defaultVal = arrayIndex !== null ? param.default[arrayIndex] : param.default;
     slider.value = defaultVal;
     valueDisplay.textContent = isInt ? Math.round(defaultVal).toString() : defaultVal.toFixed(2);
-    updateCustomParamValue(paramName, defaultVal, arrayIndex);
+    update(paramName, defaultVal, arrayIndex);
   });
 
   // Click value display to type exact value
@@ -493,7 +495,7 @@ function createSliderControl(row, param, value, paramName, arrayIndex) {
     isInt,
     onCommit(newValue) {
       valueDisplay.textContent = isInt ? newValue.toString() : newValue.toFixed(2);
-      updateCustomParamValue(paramName, newValue, arrayIndex);
+      update(paramName, newValue, arrayIndex);
     }
   });
 
@@ -502,9 +504,16 @@ function createSliderControl(row, param, value, paramName, arrayIndex) {
 }
 
 // Create vec2 control (two sliders)
-function createVec2Control(row, param, value, paramName, arrayIndex) {
+// getFullValue(): returns a copy of the current vec value for in-place component updates
+// onValueChange(paramName, value, arrayIndex) — callback for value updates
+function createVec2Control(row, param, value, paramName, arrayIndex, onValueChange, getFullValue) {
   const min = param.min !== null ? param.min : 0;
   const max = param.max !== null ? param.max : 1;
+  const update = onValueChange || ((name, val, idx) => updateCustomParamValue(name, val, idx));
+  const getVal = getFullValue || (() => {
+    const values = state.renderer.getCustomParamValues();
+    return arrayIndex !== null ? [...values[paramName][arrayIndex]] : [...values[paramName]];
+  });
 
   ['X', 'Y'].forEach((axis, i) => {
     const subLabel = document.createElement('label');
@@ -527,24 +536,18 @@ function createVec2Control(row, param, value, paramName, arrayIndex) {
     slider.addEventListener('input', () => {
       const newValue = parseFloat(slider.value);
       valueDisplay.textContent = newValue.toFixed(2);
-      const values = state.renderer.getCustomParamValues();
-      const fullValue = arrayIndex !== null
-        ? [...values[paramName][arrayIndex]]
-        : [...values[paramName]];
+      const fullValue = getVal();
       fullValue[i] = newValue;
-      updateCustomParamValue(paramName, fullValue, arrayIndex);
+      update(paramName, fullValue, arrayIndex);
     });
 
     makeValueEditable(valueDisplay, slider, {
       isInt: false,
       onCommit(newValue) {
         valueDisplay.textContent = newValue.toFixed(2);
-        const values = state.renderer.getCustomParamValues();
-        const fullValue = arrayIndex !== null
-          ? [...values[paramName][arrayIndex]]
-          : [...values[paramName]];
+        const fullValue = getVal();
         fullValue[i] = newValue;
-        updateCustomParamValue(paramName, fullValue, arrayIndex);
+        update(paramName, fullValue, arrayIndex);
       }
     });
 
@@ -576,8 +579,15 @@ function hexToRgb(hex) {
 }
 
 // Create color control with color picker and RGB sliders
-function createColorControl(row, param, value, paramName, arrayIndex) {
+// getFullValue(): returns a copy of the current vec3 value
+// onValueChange(paramName, value, arrayIndex) — callback for value updates
+function createColorControl(row, param, value, paramName, arrayIndex, onValueChange, getFullValue) {
   row.className = 'color-row color-picker-row';
+  const update = onValueChange || ((name, val, idx) => updateCustomParamValue(name, val, idx));
+  const getVal = getFullValue || (() => {
+    const values = state.renderer.getCustomParamValues();
+    return arrayIndex !== null ? [...values[paramName][arrayIndex]] : [...values[paramName]];
+  });
 
   // Color picker input
   const colorPicker = document.createElement('input');
@@ -612,25 +622,17 @@ function createColorControl(row, param, value, paramName, arrayIndex) {
     sliders.push(slider);
 
     slider.addEventListener('input', () => {
-      const newValue = parseFloat(slider.value);
-      // Get current full value
-      const values = state.renderer.getCustomParamValues();
-      const fullValue = arrayIndex !== null
-        ? [...values[paramName][arrayIndex]]
-        : [...values[paramName]];
-      fullValue[i] = newValue;
-
-      // Update color picker
+      const fullValue = getVal();
+      fullValue[i] = parseFloat(slider.value);
       colorPicker.value = rgbToHex(fullValue[0], fullValue[1], fullValue[2]);
-
-      updateCustomParamValue(paramName, fullValue, arrayIndex);
+      update(paramName, fullValue, arrayIndex);
     });
 
     sliderWrapper.appendChild(slider);
     slidersDiv.appendChild(sliderWrapper);
   });
 
-  // Ctrl+click to toggle multi-select, normal click on selected opens picker for all
+  // Ctrl+click to toggle multi-select
   colorPicker.addEventListener('click', (e) => {
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
@@ -648,11 +650,8 @@ function createColorControl(row, param, value, paramName, arrayIndex) {
   // Color picker change handler — propagate to all selected pickers
   colorPicker.addEventListener('input', () => {
     const rgb = hexToRgb(colorPicker.value);
-    // Update own sliders
-    sliders.forEach((slider, i) => {
-      slider.value = rgb[i];
-    });
-    updateCustomParamValue(paramName, rgb, arrayIndex);
+    sliders.forEach((slider, i) => { slider.value = rgb[i]; });
+    update(paramName, rgb, arrayIndex);
 
     // Apply to all other selected pickers
     if (selectedColorPickers.has(colorPicker)) {
@@ -667,7 +666,7 @@ function createColorControl(row, param, value, paramName, arrayIndex) {
   colorPicker._colorSwapApply = (rgb) => {
     colorPicker.value = rgbToHex(rgb[0], rgb[1], rgb[2]);
     sliders.forEach((slider, i) => { slider.value = rgb[i]; });
-    updateCustomParamValue(paramName, rgb, arrayIndex);
+    update(paramName, rgb, arrayIndex);
   };
 
   // Right-click drag to swap colors
@@ -679,18 +678,15 @@ function createColorControl(row, param, value, paramName, arrayIndex) {
   colorPicker.addEventListener('mousedown', (e) => {
     if (e.button !== 2) return;
     e.preventDefault();
-    const values = state.renderer.getCustomParamValues();
-    const rgb = arrayIndex !== null ? [...values[paramName][arrayIndex]] : [...values[paramName]];
-    rightDragState = { rgb, paramName, arrayIndex, sourcePicker: colorPicker };
+    const rgb = getVal();
+    rightDragState = { rgb: [...rgb], paramName, arrayIndex, sourcePicker: colorPicker };
     colorPicker.classList.add('color-dragging');
   });
 
   // Left-click drag-and-drop: copy color from one picker to another
   colorPicker.draggable = true;
   colorPicker.addEventListener('dragstart', (e) => {
-    const values = state.renderer.getCustomParamValues();
-    const rgb = arrayIndex !== null ? [...values[paramName][arrayIndex]] : [...values[paramName]];
-    draggedColor = rgb;
+    draggedColor = [...getVal()];
     e.dataTransfer.effectAllowed = 'copy';
     colorPicker.classList.add('color-dragging');
   });
@@ -715,7 +711,7 @@ function createColorControl(row, param, value, paramName, arrayIndex) {
     const rgb = [...draggedColor];
     colorPicker.value = rgbToHex(rgb[0], rgb[1], rgb[2]);
     sliders.forEach((slider, i) => { slider.value = rgb[i]; });
-    updateCustomParamValue(paramName, rgb, arrayIndex);
+    update(paramName, rgb, arrayIndex);
   });
 
   row.appendChild(colorPicker);
@@ -723,11 +719,18 @@ function createColorControl(row, param, value, paramName, arrayIndex) {
 }
 
 // Create vec3 control (three sliders, styled as RGB for colors)
-function createVec3Control(row, param, value, paramName, arrayIndex) {
+// onValueChange(paramName, value, arrayIndex) — callback for value updates
+// getFullValue(): returns a copy of the current vec3 value
+function createVec3Control(row, param, value, paramName, arrayIndex, onValueChange, getFullValue) {
   row.className = 'color-row';
 
   const min = param.min !== null ? param.min : 0;
   const max = param.max !== null ? param.max : 1;
+  const update = onValueChange || ((name, val, idx) => updateCustomParamValue(name, val, idx));
+  const getVal = getFullValue || (() => {
+    const values = state.renderer.getCustomParamValues();
+    return arrayIndex !== null ? [...values[paramName][arrayIndex]] : [...values[paramName]];
+  });
 
   const channels = ['R', 'G', 'B'];
   const classes = ['color-red', 'color-green', 'color-blue'];
@@ -746,14 +749,9 @@ function createVec3Control(row, param, value, paramName, arrayIndex) {
     slider.value = value[i];
 
     slider.addEventListener('input', () => {
-      const newValue = parseFloat(slider.value);
-      // Get current full value
-      const values = state.renderer.getCustomParamValues();
-      const fullValue = arrayIndex !== null
-        ? [...values[paramName][arrayIndex]]
-        : [...values[paramName]];
-      fullValue[i] = newValue;
-      updateCustomParamValue(paramName, fullValue, arrayIndex);
+      const fullValue = getVal();
+      fullValue[i] = parseFloat(slider.value);
+      update(paramName, fullValue, arrayIndex);
     });
 
     row.appendChild(slider);
@@ -761,11 +759,18 @@ function createVec3Control(row, param, value, paramName, arrayIndex) {
 }
 
 // Create vec4 control (four sliders, styled as RGBA)
-function createVec4Control(row, param, value, paramName, arrayIndex) {
+// onValueChange(paramName, value, arrayIndex) — callback for value updates
+// getFullValue(): returns a copy of the current vec4 value
+function createVec4Control(row, param, value, paramName, arrayIndex, onValueChange, getFullValue) {
   row.className = 'color-row';
 
   const min = param.min !== null ? param.min : 0;
   const max = param.max !== null ? param.max : 1;
+  const update = onValueChange || ((name, val, idx) => updateCustomParamValue(name, val, idx));
+  const getVal = getFullValue || (() => {
+    const values = state.renderer.getCustomParamValues();
+    return arrayIndex !== null ? [...values[paramName][arrayIndex]] : [...values[paramName]];
+  });
 
   const channels = ['R', 'G', 'B', 'A'];
   const classes = ['color-red', 'color-green', 'color-blue', ''];
@@ -785,13 +790,9 @@ function createVec4Control(row, param, value, paramName, arrayIndex) {
     slider.style.width = '50px';
 
     slider.addEventListener('input', () => {
-      const newValue = parseFloat(slider.value);
-      const values = state.renderer.getCustomParamValues();
-      const fullValue = arrayIndex !== null
-        ? [...values[paramName][arrayIndex]]
-        : [...values[paramName]];
-      fullValue[i] = newValue;
-      updateCustomParamValue(paramName, fullValue, arrayIndex);
+      const fullValue = getVal();
+      fullValue[i] = parseFloat(slider.value);
+      update(paramName, fullValue, arrayIndex);
     });
 
     row.appendChild(slider);
@@ -930,21 +931,26 @@ function generateAssetParamUI(container, slotData) {
     valueDisplay.className = 'param-value';
     valueDisplay.textContent = isInt ? Math.round(currentValue).toString() : Number(currentValue).toFixed(2);
 
+    const updateParam = (name, value) => {
+      renderer.setParam(name, value);
+      if (slotData.customParams) slotData.customParams[name] = value;
+      // Sync to fullscreen when in standalone asset mode
+      if (state.renderMode === 'asset') {
+        window.electronAPI.sendParamUpdate({ name, value });
+      }
+      debouncedSaveGridState();
+    };
+
     slider.addEventListener('input', () => {
       const newValue = isInt ? parseInt(slider.value, 10) : parseFloat(slider.value);
       valueDisplay.textContent = isInt ? newValue.toString() : newValue.toFixed(2);
-      // Update the renderer and slot data
-      renderer.setParam(param.name, newValue);
-      if (slotData.customParams) slotData.customParams[param.name] = newValue;
-      debouncedSaveGridState();
+      updateParam(param.name, newValue);
     });
 
     slider.addEventListener('dblclick', () => {
       slider.value = param.default;
       valueDisplay.textContent = isInt ? Math.round(param.default).toString() : Number(param.default).toFixed(2);
-      renderer.setParam(param.name, param.default);
-      if (slotData.customParams) slotData.customParams[param.name] = param.default;
-      debouncedSaveGridState();
+      updateParam(param.name, param.default);
     });
 
     row.appendChild(slider);
@@ -1092,306 +1098,31 @@ function createMixerParamControl(param, channelIndex, ch, arrayIndex, arrayName)
       : param.default;
   }
 
-  // Create appropriate control based on type
+  // Mixer-specific callbacks
+  const onValueChange = (name, val, idx) => updateMixerChannelParamDirect(channelIndex, name, val, idx);
+  const getFullValue = () => getMixerParamValue(ch, paramName, arrayIndex);
+
+  // Create appropriate control based on type (reuse unified control creators)
   switch (param.type) {
     case 'int':
     case 'float':
-      createMixerSliderControl(row, param, currentValue, paramName, arrayIndex, channelIndex, ch);
+      createSliderControl(row, param, currentValue, paramName, arrayIndex, onValueChange);
       break;
     case 'vec2':
-      createMixerVec2Control(row, param, currentValue, paramName, arrayIndex, channelIndex, ch);
+      createVec2Control(row, param, currentValue, paramName, arrayIndex, onValueChange, getFullValue);
       break;
     case 'color':
-      createMixerColorControl(row, param, currentValue, paramName, arrayIndex, channelIndex, ch);
+      createColorControl(row, param, currentValue, paramName, arrayIndex, onValueChange, getFullValue);
       break;
     case 'vec3':
-      createMixerVec3Control(row, param, currentValue, paramName, arrayIndex, channelIndex, ch);
+      createVec3Control(row, param, currentValue, paramName, arrayIndex, onValueChange, getFullValue);
       break;
     case 'vec4':
-      createMixerVec4Control(row, param, currentValue, paramName, arrayIndex, channelIndex, ch);
+      createVec4Control(row, param, currentValue, paramName, arrayIndex, onValueChange, getFullValue);
       break;
   }
 
   return row;
-}
-
-// Mixer-specific slider control
-function createMixerSliderControl(row, param, value, paramName, arrayIndex, channelIndex, ch) {
-  const isInt = param.type === 'int';
-  const min = param.min !== null ? param.min : (isInt ? 0 : 0);
-  const max = param.max !== null ? param.max : (isInt ? 10 : 1);
-  const step = isInt ? 1 : 0.01;
-
-  const slider = document.createElement('input');
-  slider.type = 'range';
-  slider.min = min;
-  slider.max = max;
-  slider.step = step;
-  slider.value = value;
-
-  const valueDisplay = document.createElement('span');
-  valueDisplay.className = 'param-value';
-  valueDisplay.textContent = isInt ? Math.round(value).toString() : value.toFixed(2);
-
-  slider.addEventListener('input', () => {
-    const newValue = isInt ? parseInt(slider.value, 10) : parseFloat(slider.value);
-    valueDisplay.textContent = isInt ? newValue.toString() : newValue.toFixed(2);
-    updateMixerChannelParamDirect(channelIndex, paramName, newValue, arrayIndex);
-  });
-
-  slider.addEventListener('dblclick', () => {
-    const defaultVal = arrayIndex !== null ? param.default[arrayIndex] : param.default;
-    slider.value = defaultVal;
-    valueDisplay.textContent = isInt ? Math.round(defaultVal).toString() : defaultVal.toFixed(2);
-    updateMixerChannelParamDirect(channelIndex, paramName, defaultVal, arrayIndex);
-  });
-
-  makeValueEditable(valueDisplay, slider, {
-    isInt,
-    onCommit(newValue) {
-      valueDisplay.textContent = isInt ? newValue.toString() : newValue.toFixed(2);
-      updateMixerChannelParamDirect(channelIndex, paramName, newValue, arrayIndex);
-    }
-  });
-
-  row.appendChild(slider);
-  row.appendChild(valueDisplay);
-}
-
-// Mixer-specific vec2 control
-function createMixerVec2Control(row, param, value, paramName, arrayIndex, channelIndex, ch) {
-  const min = param.min !== null ? param.min : 0;
-  const max = param.max !== null ? param.max : 1;
-
-  ['X', 'Y'].forEach((axis, i) => {
-    const subLabel = document.createElement('label');
-    subLabel.textContent = axis;
-    subLabel.style.minWidth = '12px';
-    row.appendChild(subLabel);
-
-    const slider = document.createElement('input');
-    slider.type = 'range';
-    slider.min = min;
-    slider.max = max;
-    slider.step = 0.01;
-    slider.value = value[i];
-    slider.style.width = '60px';
-
-    const valueDisplay = document.createElement('span');
-    valueDisplay.className = 'param-value';
-    valueDisplay.textContent = value[i].toFixed(2);
-
-    slider.addEventListener('input', () => {
-      const newValue = parseFloat(slider.value);
-      valueDisplay.textContent = newValue.toFixed(2);
-      const fullValue = getMixerParamValue(ch, paramName, arrayIndex);
-      fullValue[i] = newValue;
-      updateMixerChannelParamDirect(channelIndex, paramName, fullValue, arrayIndex);
-    });
-
-    makeValueEditable(valueDisplay, slider, {
-      isInt: false,
-      onCommit(newValue) {
-        valueDisplay.textContent = newValue.toFixed(2);
-        const fullValue = getMixerParamValue(ch, paramName, arrayIndex);
-        fullValue[i] = newValue;
-        updateMixerChannelParamDirect(channelIndex, paramName, fullValue, arrayIndex);
-      }
-    });
-
-    row.appendChild(slider);
-    row.appendChild(valueDisplay);
-  });
-}
-
-// Mixer-specific color control
-function createMixerColorControl(row, param, value, paramName, arrayIndex, channelIndex, ch) {
-  row.className = 'color-row color-picker-row';
-
-  const colorPicker = document.createElement('input');
-  colorPicker.type = 'color';
-  colorPicker.className = 'color-picker-input';
-  colorPicker.value = rgbToHex(value[0], value[1], value[2]);
-  colorPicker.title = 'Click to pick color';
-
-  const slidersDiv = document.createElement('div');
-  slidersDiv.className = 'color-sliders';
-
-  const channels = ['R', 'G', 'B'];
-  const classes = ['color-red', 'color-green', 'color-blue'];
-  const sliders = [];
-
-  channels.forEach((channel, i) => {
-    const sliderWrapper = document.createElement('div');
-    sliderWrapper.className = 'color-slider-wrapper';
-
-    const subLabel = document.createElement('label');
-    subLabel.textContent = channel;
-    subLabel.className = classes[i];
-    sliderWrapper.appendChild(subLabel);
-
-    const slider = document.createElement('input');
-    slider.type = 'range';
-    slider.min = 0;
-    slider.max = 1;
-    slider.step = 0.01;
-    slider.value = value[i];
-    sliders.push(slider);
-
-    slider.addEventListener('input', () => {
-      const fullValue = getMixerParamValue(ch, paramName, arrayIndex);
-      fullValue[i] = parseFloat(slider.value);
-      colorPicker.value = rgbToHex(fullValue[0], fullValue[1], fullValue[2]);
-      updateMixerChannelParamDirect(channelIndex, paramName, fullValue, arrayIndex);
-    });
-
-    sliderWrapper.appendChild(slider);
-    slidersDiv.appendChild(sliderWrapper);
-  });
-
-  colorPicker.addEventListener('input', () => {
-    const rgb = hexToRgb(colorPicker.value);
-    sliders.forEach((slider, i) => { slider.value = rgb[i]; });
-    updateMixerChannelParamDirect(channelIndex, paramName, rgb, arrayIndex);
-  });
-
-  // Swap apply callback for drag-and-drop / multi-select
-  colorPicker._colorSwapApply = (rgb) => {
-    colorPicker.value = rgbToHex(rgb[0], rgb[1], rgb[2]);
-    sliders.forEach((slider, i) => { slider.value = rgb[i]; });
-    updateMixerChannelParamDirect(channelIndex, paramName, rgb, arrayIndex);
-  };
-
-  // Ctrl+click to toggle multi-select
-  colorPicker.addEventListener('click', (e) => {
-    if (e.ctrlKey || e.metaKey) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (selectedColorPickers.has(colorPicker)) {
-        selectedColorPickers.delete(colorPicker);
-        colorPicker.classList.remove('color-selected');
-      } else {
-        selectedColorPickers.add(colorPicker);
-        colorPicker.classList.add('color-selected');
-      }
-    }
-  });
-
-  // Right-click drag swap
-  if (!rightDragListenersInit) {
-    initRightDragListeners();
-    rightDragListenersInit = true;
-  }
-  colorPicker.addEventListener('contextmenu', (e) => e.preventDefault());
-  colorPicker.addEventListener('mousedown', (e) => {
-    if (e.button !== 2) return;
-    e.preventDefault();
-    const rgb = getMixerParamValue(ch, paramName, arrayIndex);
-    rightDragState = { rgb: [...rgb], paramName, arrayIndex, sourcePicker: colorPicker };
-    colorPicker.classList.add('color-dragging');
-  });
-
-  // Left-click drag-and-drop
-  colorPicker.draggable = true;
-  colorPicker.addEventListener('dragstart', (e) => {
-    const rgb = getMixerParamValue(ch, paramName, arrayIndex);
-    draggedColor = [...rgb];
-    e.dataTransfer.effectAllowed = 'copy';
-    colorPicker.classList.add('color-dragging');
-  });
-  colorPicker.addEventListener('dragend', () => {
-    draggedColor = null;
-    colorPicker.classList.remove('color-dragging');
-  });
-  colorPicker.addEventListener('dragover', (e) => {
-    if (draggedColor) {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
-      colorPicker.classList.add('color-drop-target');
-    }
-  });
-  colorPicker.addEventListener('dragleave', () => {
-    colorPicker.classList.remove('color-drop-target');
-  });
-  colorPicker.addEventListener('drop', (e) => {
-    e.preventDefault();
-    colorPicker.classList.remove('color-drop-target');
-    if (!draggedColor) return;
-    const rgb = [...draggedColor];
-    colorPicker.value = rgbToHex(rgb[0], rgb[1], rgb[2]);
-    sliders.forEach((slider, i) => { slider.value = rgb[i]; });
-    updateMixerChannelParamDirect(channelIndex, paramName, rgb, arrayIndex);
-  });
-
-  row.appendChild(colorPicker);
-  row.appendChild(slidersDiv);
-}
-
-// Mixer-specific vec3 control
-function createMixerVec3Control(row, param, value, paramName, arrayIndex, channelIndex, ch) {
-  row.className = 'color-row';
-
-  const min = param.min !== null ? param.min : 0;
-  const max = param.max !== null ? param.max : 1;
-
-  const channels = ['R', 'G', 'B'];
-  const classes = ['color-red', 'color-green', 'color-blue'];
-
-  channels.forEach((channel, i) => {
-    const subLabel = document.createElement('label');
-    subLabel.textContent = channel;
-    subLabel.className = classes[i];
-    row.appendChild(subLabel);
-
-    const slider = document.createElement('input');
-    slider.type = 'range';
-    slider.min = min;
-    slider.max = max;
-    slider.step = 0.01;
-    slider.value = value[i];
-
-    slider.addEventListener('input', () => {
-      const fullValue = getMixerParamValue(ch, paramName, arrayIndex);
-      fullValue[i] = parseFloat(slider.value);
-      updateMixerChannelParamDirect(channelIndex, paramName, fullValue, arrayIndex);
-    });
-
-    row.appendChild(slider);
-  });
-}
-
-// Mixer-specific vec4 control
-function createMixerVec4Control(row, param, value, paramName, arrayIndex, channelIndex, ch) {
-  row.className = 'color-row';
-
-  const min = param.min !== null ? param.min : 0;
-  const max = param.max !== null ? param.max : 1;
-
-  const channels = ['R', 'G', 'B', 'A'];
-  const classes = ['color-red', 'color-green', 'color-blue', ''];
-
-  channels.forEach((channel, i) => {
-    const subLabel = document.createElement('label');
-    subLabel.textContent = channel;
-    if (classes[i]) subLabel.className = classes[i];
-    row.appendChild(subLabel);
-
-    const slider = document.createElement('input');
-    slider.type = 'range';
-    slider.min = min;
-    slider.max = max;
-    slider.step = 0.01;
-    slider.value = value[i];
-    slider.style.width = '50px';
-
-    slider.addEventListener('input', () => {
-      const fullValue = getMixerParamValue(ch, paramName, arrayIndex);
-      fullValue[i] = parseFloat(slider.value);
-      updateMixerChannelParamDirect(channelIndex, paramName, fullValue, arrayIndex);
-    });
-
-    row.appendChild(slider);
-  });
 }
 
 // Helper: get a copy of the current param value from a mixer channel's customParams

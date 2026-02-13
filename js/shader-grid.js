@@ -4,7 +4,7 @@ import { log } from './logger.js';
 import { setStatus } from './utils.js';
 import { loadParamsToSliders, generateCustomParamUI } from './params.js';
 import { updateLocalPresetsUI } from './presets.js';
-import { setRenderMode, ensureSceneRenderer, detectRenderMode } from './renderer.js';
+import { setRenderMode, ensureSceneRenderer, detectRenderMode, hideAssetOverlay } from './renderer.js';
 import { setEditorMode, compileShader } from './editor.js';
 import { parseShaderParams, generateUniformDeclarations, parseTextureDirectives } from './param-parser.js';
 import { openInTab } from './tabs.js';
@@ -13,6 +13,7 @@ import { updateTileRenderer, refreshTileRenderers } from './controls.js';
 import { assignShaderToMixer, assignAssetToMixer, addMixerChannel, recallMixState, resetMixer, isMixerActive, captureMixerThumbnail } from './mixer.js';
 import { saveViewState } from './view-state.js';
 import { AssetRenderer } from './asset-renderer.js';
+import { showContextMenu as showContextMenuHelper, hideContextMenu as hideContextMenuHelper } from './context-menu.js';
 
 // Cache for file texture data URLs (avoids re-reading from disk for each grid slot)
 const fileTextureCache = new Map();
@@ -383,119 +384,31 @@ async function deleteShaderTab(tabIndex) {
 // Show tab context menu
 function showTabContextMenu(x, y, tabIndex) {
   hideContextMenu();
-  hideTabContextMenu();
-
-  const menu = document.createElement('div');
-  menu.className = 'context-menu';
-  menu.id = 'tab-context-menu';
-
-  // Rename option
-  const renameItem = document.createElement('div');
-  renameItem.className = 'context-menu-item';
-  renameItem.textContent = 'Rename Tab';
-  renameItem.addEventListener('click', () => {
-    hideTabContextMenu();
-    renameShaderTab(tabIndex);
-  });
-  menu.appendChild(renameItem);
-
-  // Delete option (disabled if only one tab)
-  const deleteItem = document.createElement('div');
-  deleteItem.className = `context-menu-item${state.shaderTabs.length <= 1 ? ' disabled' : ''}`;
-  deleteItem.textContent = 'Delete Tab';
-  if (state.shaderTabs.length > 1) {
-    deleteItem.addEventListener('click', () => {
-      hideTabContextMenu();
-      deleteShaderTab(tabIndex);
-    });
-  }
-  menu.appendChild(deleteItem);
-
-  // Export/Import separator
-  const exportSep = document.createElement('div');
-  exportSep.className = 'context-menu-separator';
-  menu.appendChild(exportSep);
 
   const tab = state.shaderTabs[tabIndex];
   const tabType = tab?.type || 'shaders';
 
+  const items = [
+    { label: 'Rename Tab', action: () => renameShaderTab(tabIndex) },
+    { label: 'Delete Tab', action: () => deleteShaderTab(tabIndex), disabled: state.shaderTabs.length <= 1 },
+    { separator: true }
+  ];
+
   if (tabType === 'mix') {
-    // Mix tab: export/import compositions
     const hasPresets = (tab.mixPresets || []).length > 0;
-
-    const exportTabItem = document.createElement('div');
-    exportTabItem.className = `context-menu-item${hasPresets ? '' : ' disabled'}`;
-    exportTabItem.textContent = 'Export All Compositions...';
-    if (hasPresets) {
-      exportTabItem.addEventListener('click', () => {
-        hideTabContextMenu();
-        exportTabMixPresets(tabIndex);
-      });
-    }
-    menu.appendChild(exportTabItem);
-
-    const importTabItem = document.createElement('div');
-    importTabItem.className = 'context-menu-item';
-    importTabItem.textContent = 'Import Compositions...';
-    importTabItem.addEventListener('click', () => {
-      hideTabContextMenu();
-      importTabMixPresets(tabIndex);
-    });
-    menu.appendChild(importTabItem);
+    items.push({ label: 'Export All Compositions...', action: () => exportTabMixPresets(tabIndex), disabled: !hasPresets });
+    items.push({ label: 'Import Compositions...', action: () => importTabMixPresets(tabIndex) });
   } else if (tabType !== 'assets') {
-    // Shader tab: export/import shaders
     const hasSlots = (tab.slots || []).some(s => s !== null);
-
-    const exportTabItem = document.createElement('div');
-    exportTabItem.className = `context-menu-item${hasSlots ? '' : ' disabled'}`;
-    exportTabItem.textContent = 'Export All Shaders...';
-    if (hasSlots) {
-      exportTabItem.addEventListener('click', () => {
-        hideTabContextMenu();
-        exportTabShaders(tabIndex);
-      });
-    }
-    menu.appendChild(exportTabItem);
-
-    const importTabItem = document.createElement('div');
-    importTabItem.className = 'context-menu-item';
-    importTabItem.textContent = 'Import Shaders...';
-    importTabItem.addEventListener('click', () => {
-      hideTabContextMenu();
-      importTabShaders(tabIndex);
-    });
-    menu.appendChild(importTabItem);
+    items.push({ label: 'Export All Shaders...', action: () => exportTabShaders(tabIndex), disabled: !hasSlots });
+    items.push({ label: 'Import Shaders...', action: () => importTabShaders(tabIndex) });
   }
 
-  menu.style.left = `${x}px`;
-  menu.style.top = `${y}px`;
-  document.body.appendChild(menu);
-
-  // Adjust position if off screen
-  const rect = menu.getBoundingClientRect();
-  if (rect.right > window.innerWidth) {
-    menu.style.left = `${window.innerWidth - rect.width - 5}px`;
-  }
-  if (rect.bottom > window.innerHeight) {
-    menu.style.top = `${window.innerHeight - rect.height - 5}px`;
-  }
-
-  // Close on click outside
-  tabContextMenuHandler = (e) => {
-    if (!menu.contains(e.target)) {
-      hideTabContextMenu();
-    }
-  };
-  setTimeout(() => document.addEventListener('click', tabContextMenuHandler), 0);
+  showContextMenuHelper(x, y, items);
 }
 
 function hideTabContextMenu() {
-  const menu = document.getElementById('tab-context-menu');
-  if (menu) menu.remove();
-  if (tabContextMenuHandler) {
-    document.removeEventListener('click', tabContextMenuHandler);
-    tabContextMenuHandler = null;
-  }
+  hideContextMenuHelper();
 }
 
 // Tab-level bulk export/import functions
@@ -612,7 +525,7 @@ async function importTabShaders(tabIndex) {
 
     try {
       if (data.type === 'scene' || isSceneCode(data.shaderCode)) {
-        await assignSceneToSlot(slotIndex, data.shaderCode, null, false, data.params, data.presets);
+        await assignSceneToSlot(slotIndex, data.shaderCode, null, false, data.params, data.presets, data.customParams);
       } else {
         await assignShaderToSlot(slotIndex, data.shaderCode, null, false, data.params, data.presets, data.customParams);
       }
@@ -711,49 +624,10 @@ async function importTabMixPresets(tabIndex) {
 // Show context menu when right-clicking the "+" tab button
 function showAddTabContextMenu(x, y) {
   hideContextMenu();
-  hideTabContextMenu();
-
-  const menu = document.createElement('div');
-  menu.className = 'context-menu';
-  menu.id = 'tab-context-menu';
-
-  const shaderItem = document.createElement('div');
-  shaderItem.className = 'context-menu-item';
-  shaderItem.textContent = 'Add Shader Panel';
-  shaderItem.addEventListener('click', () => {
-    hideTabContextMenu();
-    addNewShaderTab();
-  });
-  menu.appendChild(shaderItem);
-
-  const mixItem = document.createElement('div');
-  mixItem.className = 'context-menu-item';
-  mixItem.textContent = 'Add Mix Panel';
-  mixItem.addEventListener('click', () => {
-    hideTabContextMenu();
-    addNewMixTab();
-  });
-  menu.appendChild(mixItem);
-
-  menu.style.left = `${x}px`;
-  menu.style.top = `${y}px`;
-  document.body.appendChild(menu);
-
-  // Adjust position if off screen
-  const rect = menu.getBoundingClientRect();
-  if (rect.right > window.innerWidth) {
-    menu.style.left = `${window.innerWidth - rect.width - 5}px`;
-  }
-  if (rect.bottom > window.innerHeight) {
-    menu.style.top = `${window.innerHeight - rect.height - 5}px`;
-  }
-
-  tabContextMenuHandler = (e) => {
-    if (!menu.contains(e.target)) {
-      hideTabContextMenu();
-    }
-  };
-  setTimeout(() => document.addEventListener('click', tabContextMenuHandler), 0);
+  showContextMenuHelper(x, y, [
+    { label: 'Add Shader Panel', action: () => addNewShaderTab() },
+    { label: 'Add Mix Panel', action: () => addNewMixTab() }
+  ]);
 }
 
 // Add a new mix tab
@@ -947,86 +821,18 @@ function recallMixPresetFromTab(presetIndex) {
 // Show context menu for a mix preset button
 function showMixPresetContextMenu(x, y, presetIndex) {
   hideContextMenu();
-  hideTabContextMenu();
 
   const tab = state.shaderTabs[state.activeShaderTab];
   if (!tab || tab.type !== 'mix') return;
 
-  const menu = document.createElement('div');
-  menu.className = 'context-menu';
-  menu.id = 'tab-context-menu';
-
-  // Update preset with current mixer state
-  const updateItem = document.createElement('div');
-  updateItem.className = 'context-menu-item';
-  updateItem.textContent = 'Update with Current Mix';
-  updateItem.addEventListener('click', () => {
-    hideTabContextMenu();
-    updateMixPreset(presetIndex);
-  });
-  menu.appendChild(updateItem);
-
-  // Rename preset
-  const renameItem = document.createElement('div');
-  renameItem.className = 'context-menu-item';
-  renameItem.textContent = 'Rename';
-  renameItem.addEventListener('click', () => {
-    hideTabContextMenu();
-    renameMixPreset(presetIndex);
-  });
-  menu.appendChild(renameItem);
-
-  // Delete preset
-  const deleteItem = document.createElement('div');
-  deleteItem.className = 'context-menu-item';
-  deleteItem.textContent = 'Delete';
-  deleteItem.addEventListener('click', () => {
-    hideTabContextMenu();
-    deleteMixPreset(presetIndex);
-  });
-  menu.appendChild(deleteItem);
-
-  // Export/Import separator
-  const exportSep = document.createElement('div');
-  exportSep.className = 'context-menu-separator';
-  menu.appendChild(exportSep);
-
-  const exportItem = document.createElement('div');
-  exportItem.className = 'context-menu-item';
-  exportItem.textContent = 'Export Composition...';
-  exportItem.addEventListener('click', () => {
-    hideTabContextMenu();
-    exportMixPreset(presetIndex);
-  });
-  menu.appendChild(exportItem);
-
-  const importItem = document.createElement('div');
-  importItem.className = 'context-menu-item';
-  importItem.textContent = 'Import Composition...';
-  importItem.addEventListener('click', () => {
-    hideTabContextMenu();
-    importMixPreset(presetIndex);
-  });
-  menu.appendChild(importItem);
-
-  menu.style.left = `${x}px`;
-  menu.style.top = `${y}px`;
-  document.body.appendChild(menu);
-
-  const rect = menu.getBoundingClientRect();
-  if (rect.right > window.innerWidth) {
-    menu.style.left = `${window.innerWidth - rect.width - 5}px`;
-  }
-  if (rect.bottom > window.innerHeight) {
-    menu.style.top = `${window.innerHeight - rect.height - 5}px`;
-  }
-
-  tabContextMenuHandler = (e) => {
-    if (!menu.contains(e.target)) {
-      hideTabContextMenu();
-    }
-  };
-  setTimeout(() => document.addEventListener('click', tabContextMenuHandler), 0);
+  showContextMenuHelper(x, y, [
+    { label: 'Update with Current Mix', action: () => updateMixPreset(presetIndex) },
+    { label: 'Rename', action: () => renameMixPreset(presetIndex) },
+    { label: 'Delete', action: () => deleteMixPreset(presetIndex) },
+    { separator: true },
+    { label: 'Export Composition...', action: () => exportMixPreset(presetIndex) },
+    { label: 'Import Composition...', action: () => importMixPreset(presetIndex) }
+  ]);
 }
 
 async function exportMixPreset(presetIndex) {
@@ -1437,83 +1243,15 @@ async function recallVisualPreset(presetIndex) {
 
 function showVisualPresetContextMenu(x, y, presetIndex) {
   hideContextMenu();
-  hideTabContextMenu();
 
-  const menu = document.createElement('div');
-  menu.className = 'context-menu';
-  menu.id = 'tab-context-menu';
-
-  // Update preset
-  const updateItem = document.createElement('div');
-  updateItem.className = 'context-menu-item';
-  updateItem.textContent = 'Update with Current State';
-  updateItem.addEventListener('click', () => {
-    hideTabContextMenu();
-    updateVisualPreset(presetIndex);
-  });
-  menu.appendChild(updateItem);
-
-  // Rename
-  const renameItem = document.createElement('div');
-  renameItem.className = 'context-menu-item';
-  renameItem.textContent = 'Rename';
-  renameItem.addEventListener('click', () => {
-    hideTabContextMenu();
-    renameVisualPreset(presetIndex);
-  });
-  menu.appendChild(renameItem);
-
-  // Delete
-  const deleteItem = document.createElement('div');
-  deleteItem.className = 'context-menu-item';
-  deleteItem.textContent = 'Delete';
-  deleteItem.addEventListener('click', () => {
-    hideTabContextMenu();
-    deleteVisualPreset(presetIndex);
-  });
-  menu.appendChild(deleteItem);
-
-  // Export/Import separator
-  const exportSep = document.createElement('div');
-  exportSep.className = 'context-menu-separator';
-  menu.appendChild(exportSep);
-
-  const exportItem = document.createElement('div');
-  exportItem.className = 'context-menu-item';
-  exportItem.textContent = 'Export Visual Preset...';
-  exportItem.addEventListener('click', () => {
-    hideTabContextMenu();
-    exportVisualPreset(presetIndex);
-  });
-  menu.appendChild(exportItem);
-
-  const importItem = document.createElement('div');
-  importItem.className = 'context-menu-item';
-  importItem.textContent = 'Import Visual Preset...';
-  importItem.addEventListener('click', () => {
-    hideTabContextMenu();
-    importVisualPreset(presetIndex);
-  });
-  menu.appendChild(importItem);
-
-  menu.style.left = `${x}px`;
-  menu.style.top = `${y}px`;
-  document.body.appendChild(menu);
-
-  const rect = menu.getBoundingClientRect();
-  if (rect.right > window.innerWidth) {
-    menu.style.left = `${window.innerWidth - rect.width - 5}px`;
-  }
-  if (rect.bottom > window.innerHeight) {
-    menu.style.top = `${window.innerHeight - rect.height - 5}px`;
-  }
-
-  tabContextMenuHandler = (e) => {
-    if (!menu.contains(e.target)) {
-      hideTabContextMenu();
-    }
-  };
-  setTimeout(() => document.addEventListener('click', tabContextMenuHandler), 0);
+  showContextMenuHelper(x, y, [
+    { label: 'Update with Current State', action: () => updateVisualPreset(presetIndex) },
+    { label: 'Rename', action: () => renameVisualPreset(presetIndex) },
+    { label: 'Delete', action: () => deleteVisualPreset(presetIndex) },
+    { separator: true },
+    { label: 'Export Visual Preset...', action: () => exportVisualPreset(presetIndex) },
+    { label: 'Import Visual Preset...', action: () => importVisualPreset(presetIndex) }
+  ]);
 }
 
 async function exportVisualPreset(presetIndex) {
@@ -2001,8 +1739,8 @@ async function assignAssetToSlot(slotIndex, filePath, assetType, dataUrl, savedP
   setStatus(`Loaded ${assetType}: ${fileName}`, 'success');
 }
 
-// Select an asset slot for parameter editing
-function selectAssetSlot(index) {
+// Select an asset slot: display on preview + fullscreen and show param UI
+async function selectAssetSlot(index) {
   const slotData = state.gridSlots[index];
   if (!slotData) return;
 
@@ -2016,10 +1754,51 @@ function selectAssetSlot(index) {
   const slot = document.querySelector(`.grid-slot[data-slot="${index}"]`);
   if (slot) slot.classList.add('active');
 
+  // Switch to asset render mode
+  state.renderMode = 'asset';
+  state.activeAsset = {
+    renderer: slotData.renderer,
+    type: slotData.type,
+    mediaPath: slotData.mediaPath
+  };
+
   // Generate asset param UI
   generateCustomParamUI();
 
-  setStatus(`Selected asset ${index + 1}: ${slotData.label || slotData.mediaPath}`, 'success');
+  // Send asset to fullscreen
+  const assetUpdate = {
+    assetType: slotData.type,
+    params: slotData.renderer?.getCustomParamValues?.() || {}
+  };
+
+  if (slotData.type === 'asset-image') {
+    // Get dataUrl from the renderer's loaded image
+    const img = slotData.renderer?.image;
+    if (img) {
+      assetUpdate.dataUrl = img.src;
+    } else if (slotData.mediaPath) {
+      try {
+        const loaded = await window.electronAPI.loadMediaDataUrl(slotData.mediaPath);
+        if (loaded.success) assetUpdate.dataUrl = loaded.dataUrl;
+      } catch (err) {
+        log.warn('Grid', 'Failed to load asset dataUrl for fullscreen:', err.message);
+      }
+    }
+  } else if (slotData.type === 'asset-video') {
+    // Get absolute file path for video
+    if (slotData.mediaPath) {
+      try {
+        const absPath = await window.electronAPI.getMediaAbsolutePath(slotData.mediaPath);
+        if (absPath) assetUpdate.filePath = absPath;
+      } catch (err) {
+        log.warn('Grid', 'Failed to get video path for fullscreen:', err.message);
+      }
+    }
+  }
+
+  window.electronAPI.sendAssetUpdate(assetUpdate);
+
+  setStatus(`Playing asset ${index + 1}: ${slotData.label || slotData.mediaPath}`, 'success');
 }
 
 // Context menu for asset slots
@@ -2358,6 +2137,33 @@ function createAddButton() {
       }
     });
     menu.appendChild(addCurrentItem);
+
+    // Import shader option
+    const importItem = document.createElement('div');
+    importItem.className = 'context-menu-item';
+    importItem.textContent = 'Import Shader...';
+    importItem.addEventListener('click', async () => {
+      hideContextMenu();
+
+      const newIndex = state.gridSlots.length;
+      state.gridSlots.push(null);
+
+      const container = document.getElementById('shader-grid-container');
+      const slotEl = createGridSlotElement(newIndex);
+      container.insertBefore(slotEl, btn);
+
+      if (gridIntersectionObserver) {
+        gridIntersectionObserver.observe(slotEl);
+      }
+
+      await importShaderSlot(newIndex);
+
+      // Remove slot if import was canceled or failed
+      if (!state.gridSlots[newIndex]) {
+        removeGridSlotElement(newIndex);
+      }
+    });
+    menu.appendChild(importItem);
 
     // Position menu
     menu.style.left = `${e.clientX}px`;
@@ -2924,20 +2730,20 @@ async function swapGridSlots(fromIndex, toIndex) {
   if (state.gridSlots[fromIndex]) {
     const data = state.gridSlots[fromIndex];
     if (data.type === 'scene') {
-      // Re-render scene snapshot to new canvas position
-      try {
-        const sceneRenderer = await ensureSceneRenderer();
-        if (sceneRenderer) {
-          sceneRenderer.reinitialize();
-          sceneRenderer.compile(data.shaderCode);
-          sceneRenderer.resetTime();
-          sceneRenderer.render();
-          const mainCanvas = document.getElementById('shader-canvas');
-          const ctx = fromCanvas.getContext('2d');
-          ctx.drawImage(mainCanvas, 0, 0, mainCanvas.width, mainCanvas.height, 0, 0, fromCanvas.width, fromCanvas.height);
-        }
-      } catch (err) {
-        console.warn(`Failed to re-render scene for slot ${fromIndex + 1}:`, err);
+      // Redraw scene thumbnail from stored dataUrl
+      const ctx = fromCanvas.getContext('2d');
+      if (data.thumbnail) {
+        drawThumbnailFromDataUrl(ctx, fromCanvas, data.thumbnail);
+      } else {
+        drawScenePlaceholder(ctx, fromCanvas.width, fromCanvas.height);
+      }
+    } else if (data.type === 'asset-image' || data.type === 'asset-video') {
+      // Asset renderers need their canvas reference updated
+      // Re-render with the existing renderer
+      if (data.renderer) {
+        data.renderer.canvas = fromCanvas;
+        data.renderer.ctx2d = fromCanvas.getContext('2d');
+        data.renderer.render();
       }
     } else {
       // Dispose old renderer before creating new one
@@ -2947,6 +2753,11 @@ async function swapGridSlots(fromIndex, toIndex) {
       const newRenderer = new MiniShaderRenderer(fromCanvas);
       try {
         newRenderer.compile(data.shaderCode);
+        loadFileTexturesForRenderer(newRenderer);
+        // Restore custom param values on the new renderer
+        if (data.customParams && Object.keys(data.customParams).length > 0) {
+          newRenderer.setParams(data.customParams);
+        }
         data.renderer = newRenderer;
       } catch (err) {
         console.warn(`Failed to recompile shader for slot ${fromIndex + 1}:`, err);
@@ -2957,20 +2768,18 @@ async function swapGridSlots(fromIndex, toIndex) {
   if (state.gridSlots[toIndex]) {
     const data = state.gridSlots[toIndex];
     if (data.type === 'scene') {
-      // Re-render scene snapshot to new canvas position
-      try {
-        const sceneRenderer = await ensureSceneRenderer();
-        if (sceneRenderer) {
-          sceneRenderer.reinitialize();
-          sceneRenderer.compile(data.shaderCode);
-          sceneRenderer.resetTime();
-          sceneRenderer.render();
-          const mainCanvas = document.getElementById('shader-canvas');
-          const ctx = toCanvas.getContext('2d');
-          ctx.drawImage(mainCanvas, 0, 0, mainCanvas.width, mainCanvas.height, 0, 0, toCanvas.width, toCanvas.height);
-        }
-      } catch (err) {
-        console.warn(`Failed to re-render scene for slot ${toIndex + 1}:`, err);
+      // Redraw scene thumbnail from stored dataUrl
+      const ctx = toCanvas.getContext('2d');
+      if (data.thumbnail) {
+        drawThumbnailFromDataUrl(ctx, toCanvas, data.thumbnail);
+      } else {
+        drawScenePlaceholder(ctx, toCanvas.width, toCanvas.height);
+      }
+    } else if (data.type === 'asset-image' || data.type === 'asset-video') {
+      if (data.renderer) {
+        data.renderer.canvas = toCanvas;
+        data.renderer.ctx2d = toCanvas.getContext('2d');
+        data.renderer.render();
       }
     } else {
       // Dispose old renderer before creating new one
@@ -2980,6 +2789,11 @@ async function swapGridSlots(fromIndex, toIndex) {
       const newRenderer = new MiniShaderRenderer(toCanvas);
       try {
         newRenderer.compile(data.shaderCode);
+        loadFileTexturesForRenderer(newRenderer);
+        // Restore custom param values on the new renderer
+        if (data.customParams && Object.keys(data.customParams).length > 0) {
+          newRenderer.setParams(data.customParams);
+        }
         data.renderer = newRenderer;
       } catch (err) {
         console.warn(`Failed to recompile shader for slot ${toIndex + 1}:`, err);
@@ -3080,7 +2894,7 @@ async function importShaderSlot(slotIndex) {
   const data = result.data;
   try {
     if (data.type === 'scene' || isSceneCode(data.shaderCode)) {
-      await assignSceneToSlot(slotIndex, data.shaderCode, null, false, data.params, data.presets);
+      await assignSceneToSlot(slotIndex, data.shaderCode, null, false, data.params, data.presets, data.customParams);
     } else {
       await assignShaderToSlot(slotIndex, data.shaderCode, null, false, data.params, data.presets, data.customParams);
     }
@@ -3204,6 +3018,19 @@ export async function assignShaderToSlot(slotIndex, shaderCode, filePath, skipSa
   }
 }
 
+// Draw a saved thumbnail dataUrl onto a mini canvas
+function drawThumbnailFromDataUrl(ctx, canvas, dataUrl) {
+  const img = new Image();
+  img.onload = () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  };
+  img.onerror = () => {
+    drawScenePlaceholder(ctx, canvas.width, canvas.height);
+  };
+  img.src = dataUrl;
+}
+
 // Draw a static scene placeholder on a mini canvas
 function drawScenePlaceholder(ctx, width, height) {
   ctx.fillStyle = '#0a0a1a';
@@ -3216,7 +3043,7 @@ function drawScenePlaceholder(ctx, width, height) {
 }
 
 // Assign a Three.js scene to a grid slot with a static snapshot
-async function assignSceneToSlot(slotIndex, sceneCode, filePath, skipSave = false, params = null, presets = null) {
+async function assignSceneToSlot(slotIndex, sceneCode, filePath, skipSave = false, params = null, presets = null, customParams = null, thumbnail = null) {
   const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`);
   const canvas = slot.querySelector('canvas');
   const ctx = canvas.getContext('2d');
@@ -3228,13 +3055,17 @@ async function assignSceneToSlot(slotIndex, sceneCode, filePath, skipSave = fals
 
   // Use provided params or capture current params
   const slotParams = params || { speed: 1 };
+  let savedThumbnail = thumbnail || null;
 
   if (skipSave) {
-    // During initial load, don't render snapshots on the main canvas —
-    // it would create a competing WebGL context and break ShaderRenderer
-    drawScenePlaceholder(ctx, canvas.width, canvas.height);
+    // During load: restore saved thumbnail or show placeholder
+    if (savedThumbnail) {
+      drawThumbnailFromDataUrl(ctx, canvas, savedThumbnail);
+    } else {
+      drawScenePlaceholder(ctx, canvas.width, canvas.height);
+    }
   } else {
-    // Interactive assignment: try to render a snapshot
+    // Interactive assignment: try to render a snapshot and capture it
     const sceneRenderer = await ensureSceneRenderer();
     if (sceneRenderer) {
       try {
@@ -3245,6 +3076,8 @@ async function assignSceneToSlot(slotIndex, sceneCode, filePath, skipSave = fals
 
         const mainCanvas = document.getElementById('shader-canvas');
         ctx.drawImage(mainCanvas, 0, 0, mainCanvas.width, mainCanvas.height, 0, 0, canvas.width, canvas.height);
+        // Capture thumbnail as dataUrl for persistence
+        savedThumbnail = canvas.toDataURL('image/jpeg', 0.7);
       } catch (err) {
         console.warn(`Scene snapshot failed for slot ${slotIndex + 1}:`, err.message);
         drawScenePlaceholder(ctx, canvas.width, canvas.height);
@@ -3261,7 +3094,9 @@ async function assignSceneToSlot(slotIndex, sceneCode, filePath, skipSave = fals
     renderer: null,
     type: 'scene',
     params: { ...slotParams },
-    presets: presets || []
+    customParams: customParams || {},
+    presets: presets || [],
+    thumbnail: savedThumbnail
   };
 
   slot.classList.add('has-shader');
@@ -3527,6 +3362,7 @@ export function saveGridState() {
           type: slot.type || 'shader'
         };
         if (slot.label) saved.label = slot.label;
+        if (slot.thumbnail) saved.thumbnail = slot.thumbnail;
         return saved;
       })
     };
@@ -3726,7 +3562,7 @@ async function loadTabbedGridState(savedState) {
         const detectedType = detectRenderMode(slotData.filePath, code);
         const isScene = slotData.type === 'scene' || detectedType === 'scene';
         if (isScene) {
-          await assignSceneToSlot(i, code, slotData.filePath, true, slotData.params, slotData.presets);
+          await assignSceneToSlot(i, code, slotData.filePath, true, slotData.params, slotData.presets, slotData.customParams, slotData.thumbnail);
         } else {
           await assignShaderToSlot(i, code, slotData.filePath, true, slotData.params, slotData.presets, slotData.customParams);
         }
@@ -3825,7 +3661,7 @@ async function loadLegacyGridState(gridState) {
       const detectedType = detectRenderMode(slotData.filePath, code);
       const isScene = slotData.type === 'scene' || detectedType === 'scene';
       if (isScene) {
-        await assignSceneToSlot(i, code, slotData.filePath, true, slotData.params, slotData.presets);
+        await assignSceneToSlot(i, code, slotData.filePath, true, slotData.params, slotData.presets, slotData.customParams);
       } else {
         await assignShaderToSlot(i, code, slotData.filePath, true, slotData.params, slotData.presets, slotData.customParams);
       }
@@ -3879,7 +3715,7 @@ export async function loadGridPresetsFromData(gridState, filePath) {
       const detectedType = detectRenderMode(slotData.filePath, slotData.shaderCode);
       const isScene = slotData.type === 'scene' || detectedType === 'scene';
       if (isScene) {
-        await assignSceneToSlot(i, slotData.shaderCode, slotData.filePath, true, slotData.params, slotData.presets);
+        await assignSceneToSlot(i, slotData.shaderCode, slotData.filePath, true, slotData.params, slotData.presets, slotData.customParams);
       } else {
         await assignShaderToSlot(i, slotData.shaderCode, slotData.filePath, true, slotData.params, slotData.presets, slotData.customParams);
       }
@@ -3959,7 +3795,21 @@ export async function loadGridShaderToEditor(slotIndex) {
 export async function selectGridSlot(slotIndex) {
   const slotData = state.gridSlots[slotIndex];
   if (!slotData) return;
+
+  // If this is an asset slot, delegate to selectAssetSlot
+  if (slotData.type === 'asset-image' || slotData.type === 'asset-video') {
+    selectAssetSlot(slotIndex);
+    return;
+  }
+
   log.debug('Grid', `selectGridSlot: slot=${slotIndex}, type=${slotData.type || 'shader'}`);
+
+  // Clear asset mode if previously active
+  if (state.renderMode === 'asset') {
+    state.activeAsset = null;
+    hideAssetOverlay();
+    window.electronAPI.sendAssetUpdate({ clear: true });
+  }
 
   // If this slot is assigned to a mixer channel, select that channel instead of clearing
   const mixerBtns = document.querySelectorAll('#mixer-channels .mixer-btn');
@@ -4293,15 +4143,7 @@ function getSharedGL() {
     }
 
     // Setup shared geometry (full-screen quad)
-    const vertices = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
-    const vbo = sharedGL.createBuffer();
-    sharedGL.bindBuffer(sharedGL.ARRAY_BUFFER, vbo);
-    sharedGL.bufferData(sharedGL.ARRAY_BUFFER, vertices, sharedGL.STATIC_DRAW);
-
-    sharedVAO = sharedGL.createVertexArray();
-    sharedGL.bindVertexArray(sharedVAO);
-    sharedGL.enableVertexAttribArray(0);
-    sharedGL.vertexAttribPointer(0, 2, sharedGL.FLOAT, false, 0, 0);
+    sharedVAO = GLUtils.setupFullscreenQuad(sharedGL);
 
     // Handle context loss on shared canvas
     sharedGLCanvas.addEventListener('webglcontextlost', (e) => {
@@ -4311,59 +4153,14 @@ function getSharedGL() {
 
     sharedGLCanvas.addEventListener('webglcontextrestored', () => {
       console.log('Shared WebGL context restored');
-      // Reinitialize geometry
-      const vertices = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
-      const vbo = sharedGL.createBuffer();
-      sharedGL.bindBuffer(sharedGL.ARRAY_BUFFER, vbo);
-      sharedGL.bufferData(sharedGL.ARRAY_BUFFER, vertices, sharedGL.STATIC_DRAW);
-      sharedVAO = sharedGL.createVertexArray();
-      sharedGL.bindVertexArray(sharedVAO);
-      sharedGL.enableVertexAttribArray(0);
-      sharedGL.vertexAttribPointer(0, 2, sharedGL.FLOAT, false, 0, 0);
+      sharedVAO = GLUtils.setupFullscreenQuad(sharedGL);
     });
   }
   return sharedGL;
 }
 
-// Built-in noise texture specs for @texture directives
-const MINI_BUILTIN_TEXTURES = {
-  RGBANoise:      { width: 256, height: 256, gray: false },
-  RGBANoiseSmall: { width: 64,  height: 64,  gray: false },
-  GrayNoise:      { width: 256, height: 256, gray: true },
-  GrayNoiseSmall: { width: 64,  height: 64,  gray: true }
-};
-
-// Create a new GL texture with unique random noise data (each shader gets its own)
-function createMiniBuiltinTexture(gl, name) {
-  const spec = MINI_BUILTIN_TEXTURES[name];
-  if (!spec) return null;
-
-  const { width, height, gray } = spec;
-  const data = new Uint8Array(width * height * 4);
-  for (let i = 0; i < width * height; i++) {
-    const off = i * 4;
-    if (gray) {
-      const v = Math.floor(Math.random() * 256);
-      data[off] = data[off + 1] = data[off + 2] = v;
-    } else {
-      data[off]     = Math.floor(Math.random() * 256);
-      data[off + 1] = Math.floor(Math.random() * 256);
-      data[off + 2] = Math.floor(Math.random() * 256);
-    }
-    data[off + 3] = 255;
-  }
-
-  const texture = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, texture);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
-  gl.generateMipmap(gl.TEXTURE_2D);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
-
-  return { texture, width, height };
-}
+// createMiniBuiltinTexture -> now uses GLUtils.createBuiltinTexture (gl-utils.js loaded as <script>)
+function createMiniBuiltinTexture(gl, name) { return GLUtils.createBuiltinTexture(gl, name); }
 
 // Mini shader renderer for grid previews - uses shared WebGL context
 export class MiniShaderRenderer {
@@ -4479,101 +4276,33 @@ export class MiniShaderRenderer {
     const customParams = parseShaderParams(fragmentSource);
     const customUniformDecls = generateUniformDeclarations(customParams);
 
-    const vertexSource = `#version 300 es
-      layout(location = 0) in vec2 position;
-      void main() { gl_Position = vec4(position, 0.0, 1.0); }
-    `;
+    // MiniShaderRenderer uses a slightly different wrapper with legacy uniforms
+    const wrappedFragment = GLUtils.buildFragmentWrapper(fragmentSource, customUniformDecls, {
+      extraUniforms: 'uniform vec3 iColorRGB[10];\nuniform float iParams[5];\nuniform float iSpeed;'
+    });
 
-    const wrappedFragment = `#version 300 es
-      precision highp float;
-      uniform vec3 iResolution;
-      uniform float iTime;
-      uniform vec4 iMouse;
-      uniform sampler2D iChannel0, iChannel1, iChannel2, iChannel3;
-      uniform vec3 iChannelResolution[4];
-      uniform float iTimeDelta;
-      uniform int iFrame;
-      uniform vec4 iDate;
-      uniform vec3 iColorRGB[10];
-      uniform float iParams[5];
-      uniform float iSpeed;
-      ${customUniformDecls}
-      out vec4 outColor;
-      ${fragmentSource}
-      void main() { mainImage(outColor, gl_FragCoord.xy); }
-    `;
-
-    const vertexShader = gl.createShader(gl.VERTEX_SHADER);
-    if (!vertexShader) {
-      throw new Error('Failed to create vertex shader - WebGL context may be lost');
-    }
-    gl.shaderSource(vertexShader, vertexSource);
-    gl.compileShader(vertexShader);
-
-    if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
-      const error = gl.getShaderInfoLog(vertexShader);
-      gl.deleteShader(vertexShader);
-      throw new Error(error);
-    }
-
-    const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
-    if (!fragmentShader) {
-      gl.deleteShader(vertexShader);
-      throw new Error('Failed to create fragment shader - WebGL context may be lost');
-    }
-    gl.shaderSource(fragmentShader, wrappedFragment);
-    gl.compileShader(fragmentShader);
-
-    if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
-      const error = gl.getShaderInfoLog(fragmentShader);
-      gl.deleteShader(vertexShader);
-      gl.deleteShader(fragmentShader);
-      throw new Error(error);
-    }
-
-    const program = gl.createProgram();
-    gl.attachShader(program, vertexShader);
-    gl.attachShader(program, fragmentShader);
-    gl.linkProgram(program);
-
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      const err = gl.getProgramInfoLog(program);
-      gl.deleteProgram(program);
-      throw new Error(err);
+    // Compile and link using GLUtils
+    let program;
+    try {
+      program = GLUtils.compileProgram(gl, GLUtils.VERTEX_SHADER_SOURCE, wrappedFragment);
+    } catch (err) {
+      if (err._isCompileError) {
+        throw new Error(err.message);
+      }
+      throw err;
     }
 
     if (this.program) gl.deleteProgram(this.program);
     this.program = program;
 
-    this.uniforms = {
-      iResolution: gl.getUniformLocation(program, 'iResolution'),
-      iTime: gl.getUniformLocation(program, 'iTime'),
-      iColorRGB: gl.getUniformLocation(program, 'iColorRGB'),
-      iParams: gl.getUniformLocation(program, 'iParams'),
-      iSpeed: gl.getUniformLocation(program, 'iSpeed'),
-      iChannel0: gl.getUniformLocation(program, 'iChannel0'),
-      iChannel1: gl.getUniformLocation(program, 'iChannel1'),
-      iChannel2: gl.getUniformLocation(program, 'iChannel2'),
-      iChannel3: gl.getUniformLocation(program, 'iChannel3'),
-      iChannelResolution: gl.getUniformLocation(program, 'iChannelResolution')
-    };
+    this.uniforms = GLUtils.cacheStandardUniforms(gl, program);
+    this.uniforms.iColorRGB = gl.getUniformLocation(program, 'iColorRGB');
+    this.uniforms.iParams = gl.getUniformLocation(program, 'iParams');
+    this.uniforms.iSpeed = gl.getUniformLocation(program, 'iSpeed');
 
     // Store custom params and their uniform locations
     this.customParams = customParams;
-    this.customUniformLocations = {};
-    for (const param of customParams) {
-      if (param.isArray) {
-        this.customUniformLocations[param.name] = [];
-        for (let i = 0; i < param.arraySize; i++) {
-          this.customUniformLocations[param.name][i] = gl.getUniformLocation(program, `${param.name}[${i}]`);
-        }
-      } else {
-        this.customUniformLocations[param.name] = gl.getUniformLocation(program, param.name);
-      }
-    }
-
-    gl.deleteShader(vertexShader);
-    gl.deleteShader(fragmentShader);
+    this.customUniformLocations = GLUtils.cacheCustomParamUniforms(gl, program, customParams);
 
     // Clean up old builtin textures before creating new ones
     for (let i = 0; i < 4; i++) {
@@ -4601,32 +4330,18 @@ export class MiniShaderRenderer {
 
   // Load a file texture into a channel from a data URL
   loadFileTexture(channel, dataUrl) {
-    return new Promise((resolve, reject) => {
-      const gl = this.gl;
-      if (!gl || !this.contextValid) {
-        reject(new Error('WebGL context not available'));
-        return;
-      }
-      const img = new Image();
-      img.onload = () => {
-        // Delete old texture for this channel
-        if (this.channelTextures[channel]) {
-          gl.deleteTexture(this.channelTextures[channel]);
-        }
-        const texture = gl.createTexture();
-        gl.bindTexture(gl.TEXTURE_2D, texture);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
-        gl.generateMipmap(gl.TEXTURE_2D);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
-        this.channelTextures[channel] = texture;
-        this.channelResolutions[channel] = [img.width, img.height, 1];
-        resolve({ width: img.width, height: img.height });
-      };
-      img.onerror = () => reject(new Error('Failed to load texture image'));
-      img.src = dataUrl;
+    const gl = this.gl;
+    if (!gl || !this.contextValid) {
+      return Promise.reject(new Error('WebGL context not available'));
+    }
+    // Delete old texture for this channel
+    if (this.channelTextures[channel]) {
+      gl.deleteTexture(this.channelTextures[channel]);
+    }
+    return GLUtils.loadTextureFromDataUrl(gl, dataUrl).then(({ texture, width, height }) => {
+      this.channelTextures[channel] = texture;
+      this.channelResolutions[channel] = [width, height, 1];
+      return { width, height };
     });
   }
 

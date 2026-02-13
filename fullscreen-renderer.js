@@ -36,8 +36,49 @@ let mixerOverlayCtx = null;
 // mixerAssets[i] = { source: HTMLImageElement|HTMLVideoElement, type: 'asset-image'|'asset-video', params: {...} } or null
 let mixerAssets = [];
 
+// Standalone asset state (asset displayed like a shader, not via mixer)
+let standaloneAsset = null; // { source: Image|Video, type, params }
+let standaloneOverlayCanvas = null;
+let standaloneOverlayCtx = null;
+
 // Reused Date object to avoid allocation per frame
 const reusedDate = new Date();
+// Pre-allocated resolutions array for shared state (avoid per-frame allocation)
+const _sharedResolutions = new Float32Array(12);
+
+// Prepare shared render state from shaderRenderer (used by tiled + mixer modes)
+function prepareSharedState() {
+  const now = performance.now();
+  const time = (now - shaderRenderer.startTime) / 1000;
+  const timeDelta = (now - shaderRenderer.lastFrameTime) / 1000;
+  shaderRenderer.lastFrameTime = now;
+
+  reusedDate.setTime(Date.now());
+  const dateValues = new Float32Array([
+    reusedDate.getFullYear(),
+    reusedDate.getMonth(),
+    reusedDate.getDate(),
+    reusedDate.getHours() * 3600 + reusedDate.getMinutes() * 60 + reusedDate.getSeconds() + reusedDate.getMilliseconds() / 1000
+  ]);
+
+  shaderRenderer.updateVideoTextures();
+
+  for (let i = 0; i < 4; i++) {
+    _sharedResolutions[i * 3] = shaderRenderer.channelResolutions[i][0];
+    _sharedResolutions[i * 3 + 1] = shaderRenderer.channelResolutions[i][1];
+    _sharedResolutions[i * 3 + 2] = shaderRenderer.channelResolutions[i][2];
+  }
+
+  return {
+    time,
+    timeDelta,
+    frame: shaderRenderer.frameCount,
+    mouse: shaderRenderer.mouse,
+    date: dateValues,
+    channelTextures: shaderRenderer.channelTextures,
+    channelResolutions: _sharedResolutions
+  };
+}
 
 // Load file textures for a renderer after compile (reads from data/textures/ via IPC)
 async function loadFileTexturesForRenderer(targetRenderer) {
@@ -221,9 +262,12 @@ function renderLoop(currentTime) {
   } else if (tiledMode) {
     // Render tiled display
     renderTiledFrame();
+  } else if (renderMode === 'asset' && standaloneAsset) {
+    renderStandaloneAsset();
   } else {
     renderer.render();
     if (mixerOverlayCanvas) mixerOverlayCanvas.style.display = 'none';
+    if (standaloneOverlayCanvas) standaloneOverlayCanvas.style.display = 'none';
   }
 }
 
@@ -303,6 +347,11 @@ window.electronAPI.onInitFullscreen(async (state) => {
 
 // Handle shader/scene updates from main window
 window.electronAPI.onShaderUpdate(async (data) => {
+  // Clear standalone asset when switching to shader/scene
+  if (standaloneAsset) {
+    clearStandaloneAsset();
+  }
+
   // Switch renderer if mode changed
   if (data.renderMode && data.renderMode !== renderMode) {
     renderMode = data.renderMode;
@@ -341,6 +390,11 @@ window.electronAPI.onTimeSync((data) => {
 // Handle param updates from main window
 window.electronAPI.onParamUpdate((data) => {
   if (data.name && data.value !== undefined) {
+    // Route to standalone asset when in asset mode
+    if (renderMode === 'asset' && standaloneAsset) {
+      standaloneAsset.params[data.name] = data.value;
+      return;
+    }
     renderer.setParam(data.name, data.value);
     // Also route to the active mixer channel when in mixer mode
     if (mixerMode && mixerSelectedChannel >= 0 && mixerRenderers[mixerSelectedChannel]) {
@@ -419,6 +473,110 @@ async function loadChannel(index, channel) {
     console.error(`Failed to load channel ${index}:`, err);
   }
 }
+
+// =============================================================================
+// Shared Asset Drawing (crop + keep aspect ratio)
+// =============================================================================
+
+function drawAssetWithCrop(ctx, source, params, canvasW, canvasH) {
+  const natW = source.naturalWidth || source.videoWidth || source.width;
+  const natH = source.naturalHeight || source.videoHeight || source.height;
+  const crop = AssetUtils.computeCropDraw(natW, natH, params, canvasW, canvasH);
+  if (!crop) return;
+  const { x = 0, y = 0 } = params;
+  ctx.drawImage(source, crop.sx, crop.sy, crop.sw, crop.sh, x, y, crop.drawW, crop.drawH);
+}
+
+// =============================================================================
+// Standalone Asset Functions
+// =============================================================================
+
+function renderStandaloneAsset() {
+  const canvas = document.getElementById('shader-canvas');
+
+  if (!standaloneOverlayCanvas) {
+    standaloneOverlayCanvas = document.createElement('canvas');
+    standaloneOverlayCanvas.id = 'standalone-asset-canvas';
+    standaloneOverlayCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:1';
+    canvas.parentElement.style.position = 'relative';
+    canvas.parentElement.appendChild(standaloneOverlayCanvas);
+  }
+
+  if (standaloneOverlayCanvas.width !== canvas.width || standaloneOverlayCanvas.height !== canvas.height) {
+    standaloneOverlayCanvas.width = canvas.width;
+    standaloneOverlayCanvas.height = canvas.height;
+    standaloneOverlayCtx = null;
+  }
+
+  if (!standaloneOverlayCtx) {
+    standaloneOverlayCtx = standaloneOverlayCanvas.getContext('2d');
+  }
+
+  const ctx = standaloneOverlayCtx;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const asset = standaloneAsset;
+  if (asset && asset.source) {
+    if (asset.type === 'asset-video') AssetUtils.updateVideoLoop(asset.source, asset.params);
+    try {
+      drawAssetWithCrop(ctx, asset.source, asset.params, canvas.width, canvas.height);
+    } catch (err) {
+      // Source may not be loaded yet
+    }
+  }
+
+  standaloneOverlayCanvas.style.display = 'block';
+  if (mixerOverlayCanvas) mixerOverlayCanvas.style.display = 'none';
+}
+
+function clearStandaloneAsset() {
+  if (standaloneAsset?.source instanceof HTMLVideoElement) {
+    standaloneAsset.source.pause();
+    standaloneAsset.source.removeAttribute('src');
+    standaloneAsset.source.load();
+  }
+  standaloneAsset = null;
+  if (standaloneOverlayCanvas) standaloneOverlayCanvas.style.display = 'none';
+}
+
+// IPC handler for standalone asset display
+window.electronAPI.onAssetUpdate?.((data) => {
+  const { assetType, dataUrl, filePath, params, clear } = data;
+
+  if (clear) {
+    clearStandaloneAsset();
+    renderMode = 'shader';
+    return;
+  }
+
+  const assetParams = params || {};
+
+  if (assetType === 'asset-image' && dataUrl) {
+    const img = new Image();
+    img.onload = () => {
+      clearStandaloneAsset();
+      standaloneAsset = { source: img, type: assetType, params: assetParams };
+      renderMode = 'asset';
+    };
+    img.src = dataUrl;
+  } else if (assetType === 'asset-video' && filePath) {
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.loop = true;
+    const fileUrl = filePath.startsWith('file://') ? filePath
+      : filePath.startsWith('/') ? `file://${filePath}`
+      : `file:///${filePath.replace(/\\/g, '/')}`;
+    video.onloadedmetadata = () => {
+      clearStandaloneAsset();
+      standaloneAsset = { source: video, type: assetType, params: assetParams };
+      renderMode = 'asset';
+      video.play().catch(() => {});
+    };
+    video.src = fileUrl;
+  }
+});
 
 // =============================================================================
 // Tiled Mode Functions
@@ -664,40 +822,7 @@ function renderTiledFrame() {
   gl.clear(gl.COLOR_BUFFER_BIT);
 
   // Prepare shared state for all tiles
-  const now = performance.now();
-  const time = (now - shaderRenderer.startTime) / 1000;
-  const timeDelta = (now - shaderRenderer.lastFrameTime) / 1000;
-  shaderRenderer.lastFrameTime = now;
-
-  // Reuse Date object to avoid allocation per frame
-  reusedDate.setTime(Date.now());
-  const dateValues = new Float32Array([
-    reusedDate.getFullYear(),
-    reusedDate.getMonth(),
-    reusedDate.getDate(),
-    reusedDate.getHours() * 3600 + reusedDate.getMinutes() * 60 + reusedDate.getSeconds() + reusedDate.getMilliseconds() / 1000
-  ]);
-
-  // Update video/camera/audio textures
-  shaderRenderer.updateVideoTextures();
-
-  // Prepare channel resolutions array
-  const resolutions = new Float32Array(12);
-  for (let i = 0; i < 4; i++) {
-    resolutions[i * 3] = shaderRenderer.channelResolutions[i][0];
-    resolutions[i * 3 + 1] = shaderRenderer.channelResolutions[i][1];
-    resolutions[i * 3 + 2] = shaderRenderer.channelResolutions[i][2];
-  }
-
-  const sharedState = {
-    time,
-    timeDelta,
-    frame: shaderRenderer.frameCount,
-    mouse: shaderRenderer.mouse,
-    date: dateValues,
-    channelTextures: shaderRenderer.channelTextures,
-    channelResolutions: resolutions
-  };
+  const sharedState = prepareSharedState();
 
   // Render each visible tile
   let renderedCount = 0;
@@ -807,37 +932,7 @@ function renderMixerFrame() {
   const gl = sharedGL;
 
   // Prepare shared state (same as tiled mode)
-  const now = performance.now();
-  const time = (now - shaderRenderer.startTime) / 1000;
-  const timeDelta = (now - shaderRenderer.lastFrameTime) / 1000;
-  shaderRenderer.lastFrameTime = now;
-
-  reusedDate.setTime(Date.now());
-  const dateValues = new Float32Array([
-    reusedDate.getFullYear(),
-    reusedDate.getMonth(),
-    reusedDate.getDate(),
-    reusedDate.getHours() * 3600 + reusedDate.getMinutes() * 60 + reusedDate.getSeconds() + reusedDate.getMilliseconds() / 1000
-  ]);
-
-  shaderRenderer.updateVideoTextures();
-
-  const resolutions = new Float32Array(12);
-  for (let i = 0; i < 4; i++) {
-    resolutions[i * 3] = shaderRenderer.channelResolutions[i][0];
-    resolutions[i * 3 + 1] = shaderRenderer.channelResolutions[i][1];
-    resolutions[i * 3 + 2] = shaderRenderer.channelResolutions[i][2];
-  }
-
-  const sharedState = {
-    time,
-    timeDelta,
-    frame: shaderRenderer.frameCount,
-    mouse: shaderRenderer.mouse,
-    date: dateValues,
-    channelTextures: shaderRenderer.channelTextures,
-    channelResolutions: resolutions
-  };
+  const sharedState = prepareSharedState();
 
   // Clear 2D overlay to opaque black
   ctx.globalCompositeOperation = 'source-over';
@@ -861,22 +956,10 @@ function renderMixerFrame() {
     // Check for asset channel first
     const asset = i < mixerAssets.length ? mixerAssets[i] : null;
     if (asset && asset.source) {
-      // Handle video loop logic
-      if (asset.type === 'asset-video' && asset.source instanceof HTMLVideoElement) {
-        const { loop, start, end } = asset.params;
-        if (loop && end > start && start >= 0) {
-          if (asset.source.currentTime >= end || asset.source.currentTime < start) {
-            asset.source.currentTime = start;
-          }
-        }
-      }
-
+      if (asset.type === 'asset-video') AssetUtils.updateVideoLoop(asset.source, asset.params);
       ctx.globalAlpha = alpha;
-      const { x = 0, y = 0, width = 0, height = 0, scale = 1 } = asset.params;
-      const drawW = (width || canvas.width) * scale;
-      const drawH = (height || canvas.height) * scale;
       try {
-        ctx.drawImage(asset.source, x, y, drawW, drawH);
+        drawAssetWithCrop(ctx, asset.source, asset.params, canvas.width, canvas.height);
       } catch (err) {
         // Image may not be loaded yet
       }

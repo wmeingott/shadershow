@@ -25,49 +25,9 @@ const _srLog = {
 // Pre-compiled regex for shader error parsing (avoid recompiling on each error)
 const SHADER_ERROR_REGEX = /ERROR:\s*\d+:(\d+):\s*(.+)/;
 
-const BUILTIN_TEXTURES = {
-  RGBANoise:      { width: 256, height: 256, gray: false },
-  RGBANoiseSmall: { width: 64,  height: 64,  gray: false },
-  GrayNoise:      { width: 256, height: 256, gray: true },
-  GrayNoiseSmall: { width: 64,  height: 64,  gray: true }
-};
-
-function generateNoiseData(width, height, gray) {
-  const data = new Uint8Array(width * height * 4);
-  for (let i = 0; i < width * height; i++) {
-    const off = i * 4;
-    if (gray) {
-      const v = Math.floor(Math.random() * 256);
-      data[off] = data[off + 1] = data[off + 2] = v;
-    } else {
-      data[off]     = Math.floor(Math.random() * 256);
-      data[off + 1] = Math.floor(Math.random() * 256);
-      data[off + 2] = Math.floor(Math.random() * 256);
-    }
-    data[off + 3] = 255;
-  }
-  return data;
-}
-
-// Create a new GL texture with unique random noise data
-function createBuiltinTexture(gl, name) {
-  const spec = BUILTIN_TEXTURES[name];
-  if (!spec) return null;
-
-  const { width, height, gray } = spec;
-  const data = generateNoiseData(width, height, gray);
-
-  const texture = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, texture);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
-  gl.generateMipmap(gl.TEXTURE_2D);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
-
-  return { texture, width, height };
-}
+// BUILTIN_TEXTURES, generateNoiseData, createBuiltinTexture -> now in GLUtils (gl-utils.js)
+const BUILTIN_TEXTURES = GLUtils.BUILTIN_TEXTURES;
+function createBuiltinTexture(gl, name) { return GLUtils.createBuiltinTexture(gl, name); }
 
 const TEXTURE_DIRECTIVE_REGEX = /^\s*\/\/\s*@texture\s+(iChannel[0-3])\s+(texture:(\w+)|(\w+))/;
 const FILE_TEXTURE_NAME_REGEX = /^[\w-]+$/;
@@ -366,24 +326,7 @@ class ShaderRenderer {
   }
 
   setupGeometry() {
-    const gl = this.gl;
-
-    // Full-screen quad
-    const vertices = new Float32Array([
-      -1, -1,
-       1, -1,
-      -1,  1,
-       1,  1
-    ]);
-
-    const vbo = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
-
-    this.vao = gl.createVertexArray();
-    gl.bindVertexArray(this.vao);
-    gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    this.vao = GLUtils.setupFullscreenQuad(this.gl);
   }
 
   // Reinitialize after context restore or after another renderer (e.g. Three.js)
@@ -497,38 +440,21 @@ class ShaderRenderer {
   }
 
   loadTexture(channel, dataUrl) {
-    return new Promise((resolve, reject) => {
-      const gl = this.gl;
-      const img = new Image();
+    // Clean up any existing video source for this channel
+    this.cleanupChannel(channel);
 
-      img.onload = () => {
-        // Clean up any existing video source for this channel
-        this.cleanupChannel(channel);
+    // Delete old texture if exists
+    if (this.channelTextures[channel]) {
+      this.gl.deleteTexture(this.channelTextures[channel]);
+    }
 
-        // Delete old texture if exists
-        if (this.channelTextures[channel]) {
-          gl.deleteTexture(this.channelTextures[channel]);
-        }
+    return GLUtils.loadTextureFromDataUrl(this.gl, dataUrl).then(({ texture, width, height }) => {
+      this.channelTextures[channel] = texture;
+      this.channelResolutions[channel] = [width, height, 1];
+      this.channelTypes[channel] = 'image';
 
-        const texture = gl.createTexture();
-        gl.bindTexture(gl.TEXTURE_2D, texture);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
-        gl.generateMipmap(gl.TEXTURE_2D);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
-
-        this.channelTextures[channel] = texture;
-        this.channelResolutions[channel] = [img.width, img.height, 1];
-        this.channelTypes[channel] = 'image';
-
-        _srLog.debug('Texture loaded ch' + channel, img.width + 'x' + img.height);
-        resolve({ width: img.width, height: img.height });
-      };
-
-      img.onerror = () => reject(new Error('Failed to load image'));
-      img.src = dataUrl;
+      _srLog.debug('Texture loaded ch' + channel, width + 'x' + height);
+      return { width, height };
     });
   }
 
@@ -910,49 +836,7 @@ class ShaderRenderer {
 
   // Set all custom uniform values to the GPU
   setCustomUniforms() {
-    const gl = this.gl;
-
-    for (const param of this.customParams) {
-      const value = this.customParamValues[param.name];
-      const location = this.customParamUniforms[param.name];
-
-      if (location === null || location === undefined) continue;
-
-      if (param.isArray) {
-        // Handle arrays
-        for (let i = 0; i < param.arraySize; i++) {
-          const elemLocation = location[i];
-          if (elemLocation === null) continue;
-
-          const elemValue = value[i];
-          this.setUniformValue(gl, param.type, elemLocation, elemValue);
-        }
-      } else {
-        this.setUniformValue(gl, param.type, location, value);
-      }
-    }
-  }
-
-  // Helper to set a single uniform value based on type
-  setUniformValue(gl, type, location, value) {
-    switch (type) {
-      case 'int':
-        gl.uniform1i(location, value);
-        break;
-      case 'float':
-        gl.uniform1f(location, value);
-        break;
-      case 'vec2':
-        gl.uniform2f(location, value[0], value[1]);
-        break;
-      case 'color':
-      case 'vec3':
-        gl.uniform3f(location, value[0], value[1], value[2]);
-        break;
-      case 'vec4':
-        gl.uniform4f(location, value[0], value[1], value[2], value[3]);
-        break;
-    }
+    GLUtils.setCustomUniforms(this.gl, this.customParams, this.customParamValues, this.customParamUniforms);
   }
 
   applyTextureDirectives(directives) {
@@ -999,91 +883,21 @@ class ShaderRenderer {
     // Generate uniform declarations for custom params
     const customUniformDecls = ShaderParamParser.generateUniformDeclarations(this.customParams);
 
-    // Vertex shader (simple pass-through)
-    const vertexSource = `#version 300 es
-      layout(location = 0) in vec2 position;
-      void main() {
-        gl_Position = vec4(position, 0.0, 1.0);
+    // Build wrapped fragment shader
+    const wrappedFragment = GLUtils.buildFragmentWrapper(fragmentSource, customUniformDecls);
+
+    // Compile and link
+    let program;
+    try {
+      program = GLUtils.compileProgram(gl, GLUtils.VERTEX_SHADER_SOURCE, wrappedFragment);
+    } catch (err) {
+      if (err._isCompileError) {
+        // Parse error to extract line number (adjust for wrapper lines)
+        const parsed = this.parseShaderError(err.raw);
+        _srLog.error('Compile failed at line', parsed.line, parsed.message);
+        throw { message: parsed.message, line: parsed.line, raw: err.raw };
       }
-    `;
-
-    // Wrap fragment shader with Shadertoy compatibility + custom params
-    const wrappedFragment = `#version 300 es
-      precision highp float;
-      precision highp int;
-
-      // Shadertoy standard uniforms
-      uniform vec3 iResolution;
-      uniform float iTime;
-      uniform float iTimeDelta;
-      uniform int iFrame;
-      uniform vec4 iMouse;
-      uniform vec4 iDate;
-      uniform sampler2D iChannel0;
-      uniform sampler2D iChannel1;
-      uniform sampler2D iChannel2;
-      uniform sampler2D iChannel3;
-      uniform vec3 iChannelResolution[4];
-      uniform float iBPM;
-
-      // Custom shader parameters (parsed from @param comments)
-      ${customUniformDecls}
-
-      out vec4 outColor;
-
-      ${fragmentSource}
-
-      void main() {
-        mainImage(outColor, gl_FragCoord.xy);
-      }
-    `;
-
-    // Compile vertex shader
-    const vertexShader = gl.createShader(gl.VERTEX_SHADER);
-    if (!vertexShader) {
-      throw new Error('Failed to create vertex shader - WebGL context may be lost');
-    }
-    gl.shaderSource(vertexShader, vertexSource);
-    gl.compileShader(vertexShader);
-
-    if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
-      const error = gl.getShaderInfoLog(vertexShader);
-      gl.deleteShader(vertexShader);
-      throw new Error(`Vertex shader error: ${error}`);
-    }
-
-    // Compile fragment shader
-    const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
-    if (!fragmentShader) {
-      gl.deleteShader(vertexShader);
-      throw new Error('Failed to create fragment shader - WebGL context may be lost');
-    }
-    gl.shaderSource(fragmentShader, wrappedFragment);
-    gl.compileShader(fragmentShader);
-
-    if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
-      const error = gl.getShaderInfoLog(fragmentShader);
-      gl.deleteShader(vertexShader);
-      gl.deleteShader(fragmentShader);
-
-      // Parse error to extract line number (adjust for wrapper lines)
-      const parsed = this.parseShaderError(error);
-      _srLog.error('Compile failed at line', parsed.line, parsed.message);
-      throw { message: parsed.message, line: parsed.line, raw: error };
-    }
-
-    // Link program
-    const program = gl.createProgram();
-    gl.attachShader(program, vertexShader);
-    gl.attachShader(program, fragmentShader);
-    gl.linkProgram(program);
-
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      const error = gl.getProgramInfoLog(program);
-      gl.deleteProgram(program);
-      gl.deleteShader(vertexShader);
-      gl.deleteShader(fragmentShader);
-      throw new Error(`Link error: ${error}`);
+      throw err;
     }
 
     // Clean up old program
@@ -1093,39 +907,9 @@ class ShaderRenderer {
 
     this.program = program;
 
-    // Cache uniform locations for Shadertoy standard uniforms
-    this.uniforms = {
-      iResolution: gl.getUniformLocation(program, 'iResolution'),
-      iTime: gl.getUniformLocation(program, 'iTime'),
-      iTimeDelta: gl.getUniformLocation(program, 'iTimeDelta'),
-      iFrame: gl.getUniformLocation(program, 'iFrame'),
-      iMouse: gl.getUniformLocation(program, 'iMouse'),
-      iDate: gl.getUniformLocation(program, 'iDate'),
-      iChannel0: gl.getUniformLocation(program, 'iChannel0'),
-      iChannel1: gl.getUniformLocation(program, 'iChannel1'),
-      iChannel2: gl.getUniformLocation(program, 'iChannel2'),
-      iChannel3: gl.getUniformLocation(program, 'iChannel3'),
-      iChannelResolution: gl.getUniformLocation(program, 'iChannelResolution'),
-      iBPM: gl.getUniformLocation(program, 'iBPM')
-    };
-
-    // Cache uniform locations for custom parameters
-    this.customParamUniforms = {};
-    for (const param of this.customParams) {
-      if (param.isArray) {
-        // For arrays, get location for each element
-        this.customParamUniforms[param.name] = [];
-        for (let i = 0; i < param.arraySize; i++) {
-          this.customParamUniforms[param.name][i] = gl.getUniformLocation(program, `${param.name}[${i}]`);
-        }
-      } else {
-        this.customParamUniforms[param.name] = gl.getUniformLocation(program, param.name);
-      }
-    }
-
-    // Clean up shaders (they're now part of program)
-    gl.deleteShader(vertexShader);
-    gl.deleteShader(fragmentShader);
+    // Cache uniform locations
+    this.uniforms = GLUtils.cacheStandardUniforms(gl, program);
+    this.customParamUniforms = GLUtils.cacheCustomParamUniforms(gl, program, this.customParams);
 
     // Parse @texture directives and separate builtin vs file vs audio
     const allDirectives = ShaderParamParser.parseTextureDirectives(fragmentSource);

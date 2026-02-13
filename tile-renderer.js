@@ -4,6 +4,7 @@
 // Uses viewport scissoring to render to a specific region of a shared canvas
 //
 // Reuses the same shader param parsing logic as ShaderRenderer
+// Uses GLUtils (gl-utils.js) for shared WebGL utilities
 // =============================================================================
 
 class TileRenderer {
@@ -33,28 +34,7 @@ class TileRenderer {
     this._resArray = new Float32Array(12);  // Pre-allocated for render loop
 
     // Setup geometry (shared quad vertices)
-    this.setupGeometry();
-  }
-
-  setupGeometry() {
-    const gl = this.gl;
-
-    // Full-screen quad vertices
-    const vertices = new Float32Array([
-      -1, -1,
-       1, -1,
-      -1,  1,
-       1,  1
-    ]);
-
-    const vbo = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
-
-    this.vao = gl.createVertexArray();
-    gl.bindVertexArray(this.vao);
-    gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    this.vao = GLUtils.setupFullscreenQuad(gl);
   }
 
   // Update bounds (when layout changes)
@@ -89,94 +69,22 @@ class TileRenderer {
       customUniformDecls = ShaderParamParser.generateUniformDeclarations(this.customParams);
     }
 
-    // Vertex shader (simple pass-through)
-    const vertexSource = `#version 300 es
-      layout(location = 0) in vec2 position;
-      void main() {
-        gl_Position = vec4(position, 0.0, 1.0);
+    // Build wrapped fragment shader with tile offset support
+    const wrappedFragment = GLUtils.buildFragmentWrapper(fragmentSource, customUniformDecls, {
+      extraUniforms: '// Tile offset for coordinate adjustment\nuniform vec2 iTileOffset;',
+      mainBody: '// Adjust gl_FragCoord to be relative to tile, not window\nvec2 fragCoord = gl_FragCoord.xy - iTileOffset;\nmainImage(outColor, fragCoord);'
+    });
+
+    // Compile and link
+    let program;
+    try {
+      program = GLUtils.compileProgram(gl, GLUtils.VERTEX_SHADER_SOURCE, wrappedFragment);
+    } catch (err) {
+      if (err._isCompileError) {
+        const parsed = this.parseShaderError(err.raw);
+        throw { message: parsed.message, line: parsed.line, raw: err.raw };
       }
-    `;
-
-    // Wrap fragment shader with Shadertoy compatibility + custom params
-    const wrappedFragment = `#version 300 es
-      precision highp float;
-      precision highp int;
-
-      // Shadertoy standard uniforms
-      uniform vec3 iResolution;
-      uniform float iTime;
-      uniform float iTimeDelta;
-      uniform int iFrame;
-      uniform vec4 iMouse;
-      uniform vec4 iDate;
-      uniform sampler2D iChannel0;
-      uniform sampler2D iChannel1;
-      uniform sampler2D iChannel2;
-      uniform sampler2D iChannel3;
-      uniform vec3 iChannelResolution[4];
-
-      // Tile offset for coordinate adjustment
-      uniform vec2 iTileOffset;
-
-      // Custom shader parameters (parsed from @param comments)
-      ${customUniformDecls}
-
-      out vec4 outColor;
-
-      ${fragmentSource}
-
-      void main() {
-        // Adjust gl_FragCoord to be relative to tile, not window
-        vec2 fragCoord = gl_FragCoord.xy - iTileOffset;
-        mainImage(outColor, fragCoord);
-      }
-    `;
-
-    // Compile vertex shader
-    const vertexShader = gl.createShader(gl.VERTEX_SHADER);
-    if (!vertexShader) {
-      throw new Error('Failed to create vertex shader - WebGL context may be lost');
-    }
-    gl.shaderSource(vertexShader, vertexSource);
-    gl.compileShader(vertexShader);
-
-    if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
-      const error = gl.getShaderInfoLog(vertexShader);
-      gl.deleteShader(vertexShader);
-      throw new Error(`Vertex shader error: ${error}`);
-    }
-
-    // Compile fragment shader
-    const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
-    if (!fragmentShader) {
-      gl.deleteShader(vertexShader);
-      throw new Error('Failed to create fragment shader - WebGL context may be lost');
-    }
-    gl.shaderSource(fragmentShader, wrappedFragment);
-    gl.compileShader(fragmentShader);
-
-    if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
-      const error = gl.getShaderInfoLog(fragmentShader);
-      gl.deleteShader(vertexShader);
-      gl.deleteShader(fragmentShader);
-
-      // Parse error to extract line number
-      const parsed = this.parseShaderError(error);
-      throw { message: parsed.message, line: parsed.line, raw: error };
-    }
-
-    // Link program
-    const program = gl.createProgram();
-    gl.attachShader(program, vertexShader);
-    gl.attachShader(program, fragmentShader);
-    gl.linkProgram(program);
-
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      const error = gl.getProgramInfoLog(program);
-      gl.deleteProgram(program);
-      gl.deleteShader(vertexShader);
-      gl.deleteShader(fragmentShader);
-      throw new Error(`Link error: ${error}`);
+      throw err;
     }
 
     // Clean up old program
@@ -187,37 +95,11 @@ class TileRenderer {
     this.program = program;
 
     // Cache uniform locations
-    this.uniforms = {
-      iResolution: gl.getUniformLocation(program, 'iResolution'),
-      iTime: gl.getUniformLocation(program, 'iTime'),
-      iTimeDelta: gl.getUniformLocation(program, 'iTimeDelta'),
-      iFrame: gl.getUniformLocation(program, 'iFrame'),
-      iMouse: gl.getUniformLocation(program, 'iMouse'),
-      iDate: gl.getUniformLocation(program, 'iDate'),
-      iChannel0: gl.getUniformLocation(program, 'iChannel0'),
-      iChannel1: gl.getUniformLocation(program, 'iChannel1'),
-      iChannel2: gl.getUniformLocation(program, 'iChannel2'),
-      iChannel3: gl.getUniformLocation(program, 'iChannel3'),
-      iChannelResolution: gl.getUniformLocation(program, 'iChannelResolution'),
-      iTileOffset: gl.getUniformLocation(program, 'iTileOffset')
-    };
+    this.uniforms = GLUtils.cacheStandardUniforms(gl, program);
+    this.uniforms.iTileOffset = gl.getUniformLocation(program, 'iTileOffset');
 
     // Cache uniform locations for custom parameters
-    this.customParamUniforms = {};
-    for (const param of this.customParams) {
-      if (param.isArray) {
-        this.customParamUniforms[param.name] = [];
-        for (let i = 0; i < param.arraySize; i++) {
-          this.customParamUniforms[param.name][i] = gl.getUniformLocation(program, `${param.name}[${i}]`);
-        }
-      } else {
-        this.customParamUniforms[param.name] = gl.getUniformLocation(program, param.name);
-      }
-    }
-
-    // Clean up shaders (they're now part of program)
-    gl.deleteShader(vertexShader);
-    gl.deleteShader(fragmentShader);
+    this.customParamUniforms = GLUtils.cacheCustomParamUniforms(gl, program, this.customParams);
 
     // Parse @texture directives for file textures
     this.fileTextureDirectives = [];
@@ -230,15 +112,10 @@ class TileRenderer {
   }
 
   parseShaderError(error) {
-    const match = error.match(/ERROR:\s*\d+:(\d+):\s*(.+)/);
-    if (match) {
-      const baseWrapperLines = 17;
-      const customUniformLines = this.customParams ? this.customParams.length : 0;
-      const wrapperLines = baseWrapperLines + customUniformLines + 3;
-      const line = Math.max(1, parseInt(match[1]) - wrapperLines);
-      return { line, message: match[2] };
-    }
-    return { line: null, message: error };
+    const baseWrapperLines = 17;
+    const customUniformLines = this.customParams ? this.customParams.length : 0;
+    const wrapperLines = baseWrapperLines + customUniformLines + 3;
+    return GLUtils.parseShaderError(error, wrapperLines);
   }
 
   // Set a parameter value
@@ -265,71 +142,18 @@ class TileRenderer {
 
   // Set custom uniforms to GPU
   setCustomUniforms() {
-    const gl = this.gl;
-
-    for (const param of this.customParams) {
-      const value = this.customParamValues[param.name];
-      const location = this.customParamUniforms[param.name];
-
-      if (location === null || location === undefined) continue;
-
-      if (param.isArray) {
-        for (let i = 0; i < param.arraySize; i++) {
-          const elemLocation = location[i];
-          if (elemLocation === null) continue;
-          const elemValue = value[i];
-          this.setUniformValue(gl, param.type, elemLocation, elemValue);
-        }
-      } else {
-        this.setUniformValue(gl, param.type, location, value);
-      }
-    }
-  }
-
-  setUniformValue(gl, type, location, value) {
-    switch (type) {
-      case 'int':
-        gl.uniform1i(location, value);
-        break;
-      case 'float':
-        gl.uniform1f(location, value);
-        break;
-      case 'vec2':
-        gl.uniform2f(location, value[0], value[1]);
-        break;
-      case 'color':
-      case 'vec3':
-        gl.uniform3f(location, value[0], value[1], value[2]);
-        break;
-      case 'vec4':
-        gl.uniform4f(location, value[0], value[1], value[2], value[3]);
-        break;
-    }
+    GLUtils.setCustomUniforms(this.gl, this.customParams, this.customParamValues, this.customParamUniforms);
   }
 
   // Load a texture into a per-tile channel from a data URL
   loadTexture(channel, dataUrl) {
-    return new Promise((resolve, reject) => {
-      const gl = this.gl;
-      const img = new Image();
-      img.onload = () => {
-        if (this.channelTextures[channel]) {
-          gl.deleteTexture(this.channelTextures[channel]);
-        }
-        const texture = gl.createTexture();
-        gl.bindTexture(gl.TEXTURE_2D, texture);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
-        gl.generateMipmap(gl.TEXTURE_2D);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
-        this.channelTextures[channel] = texture;
-        this.channelResolutions[channel] = [img.width, img.height, 1];
-        resolve({ width: img.width, height: img.height });
-      };
-      img.onerror = () => reject(new Error('Failed to load texture image'));
-      img.src = dataUrl;
+    if (this.channelTextures[channel]) {
+      this.gl.deleteTexture(this.channelTextures[channel]);
+    }
+    return GLUtils.loadTextureFromDataUrl(this.gl, dataUrl).then(({ texture, width, height }) => {
+      this.channelTextures[channel] = texture;
+      this.channelResolutions[channel] = [width, height, 1];
+      return { width, height };
     });
   }
 
@@ -373,7 +197,6 @@ class TileRenderer {
     gl.uniform4f(this.uniforms.iDate, date[0], date[1], date[2], date[3]);
 
     // Mouse coords scaled to tile (relative to tile bounds)
-    // For simplicity, we can pass normalized mouse or tile-relative coords
     const mouseZ = mouse.isDown ? mouse.clickX : -mouse.clickX;
     const mouseW = mouse.isDown ? mouse.clickY : -mouse.clickY;
     gl.uniform4f(this.uniforms.iMouse, mouse.x, mouse.y, mouseZ, mouseW);

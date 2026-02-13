@@ -8,6 +8,11 @@ const ASSET_PARAM_DEFS = [
   { name: 'width',  type: 'float', default: 0,   min: 0,     max: 8192, step: 1, description: 'Width (px, 0=canvas)' },
   { name: 'height', type: 'float', default: 0,   min: 0,     max: 8192, step: 1, description: 'Height (px, 0=canvas)' },
   { name: 'scale',  type: 'float', default: 1.0, min: 0.01,  max: 10,   step: 0.01, description: 'Scale factor' },
+  { name: 'keepAR', type: 'int',   default: 1,   min: 0,     max: 1,    step: 1,    description: 'Keep aspect ratio (0/1)' },
+  { name: 'cropL',  type: 'float', default: 0,   min: 0,     max: 1,    step: 0.001, description: 'Crop left (0-1)' },
+  { name: 'cropT',  type: 'float', default: 0,   min: 0,     max: 1,    step: 0.001, description: 'Crop top (0-1)' },
+  { name: 'cropR',  type: 'float', default: 1,   min: 0,     max: 1,    step: 0.001, description: 'Crop right (0-1)' },
+  { name: 'cropB',  type: 'float', default: 1,   min: 0,     max: 1,    step: 0.001, description: 'Crop bottom (0-1)' },
 ];
 
 const VIDEO_PARAM_DEFS = [
@@ -24,7 +29,7 @@ export class AssetRenderer {
     this.image = null;
     this.video = null;
     this.mediaPath = null;   // relative path inside data/media/
-    this.customParamValues = { x: 0, y: 0, width: 0, height: 0, scale: 1.0 };
+    this.customParamValues = { x: 0, y: 0, width: 0, height: 0, scale: 1.0, keepAR: 1, cropL: 0, cropT: 0, cropR: 1, cropB: 1 };
     this.naturalWidth = 0;
     this.naturalHeight = 0;
   }
@@ -95,12 +100,7 @@ export class AssetRenderer {
   // Handle video loop logic: seek to start if currentTime >= end
   _updateVideoLoop() {
     if (this.assetType !== 'video' || !this.video) return;
-    const { loop, start, end } = this.customParamValues;
-    if (loop && end > start && start >= 0) {
-      if (this.video.currentTime >= end || this.video.currentTime < start) {
-        this.video.currentTime = start;
-      }
-    }
+    AssetUtils.updateVideoLoop(this.video, this.customParamValues);
   }
 
   // Render directly to an external 2D context at the given destination.
@@ -111,11 +111,10 @@ export class AssetRenderer {
 
     this._updateVideoLoop();
 
-    const { x, y, width, height, scale } = this.customParamValues;
-    const drawW = (width || dw) * scale;
-    const drawH = (height || dh) * scale;
-
-    ctx.drawImage(source, x + dx, y + dy, drawW, drawH);
+    const crop = AssetUtils.computeCropDraw(this.naturalWidth, this.naturalHeight, this.customParamValues, dw, dh);
+    if (!crop) return;
+    const { x = 0, y = 0 } = this.customParamValues;
+    ctx.drawImage(source, crop.sx, crop.sy, crop.sw, crop.sh, x + dx, y + dy, crop.drawW, crop.drawH);
   }
 
   // Render to own canvas (for grid thumbnail)
@@ -129,8 +128,18 @@ export class AssetRenderer {
     const ch = this.canvas.height;
     this.ctx2d.clearRect(0, 0, cw, ch);
 
-    // For thumbnails, scale to fit the canvas
-    this.ctx2d.drawImage(source, 0, 0, cw, ch);
+    // Apply crop for thumbnail
+    const { cropL, cropT, cropR, cropB } = this.customParamValues;
+    const srcW = this.naturalWidth;
+    const srcH = this.naturalHeight;
+    const sx = (cropL || 0) * srcW;
+    const sy = (cropT || 0) * srcH;
+    const sw = ((cropR ?? 1) - (cropL || 0)) * srcW;
+    const sh = ((cropB ?? 1) - (cropT || 0)) * srcH;
+
+    if (sw > 0 && sh > 0) {
+      this.ctx2d.drawImage(source, sx, sy, sw, sh, 0, 0, cw, ch);
+    }
   }
 
   // Set a single parameter value

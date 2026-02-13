@@ -226,6 +226,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getMediaAbsolutePath: (mediaPath) => ipcRenderer.invoke('get-media-absolute-path', mediaPath),
   loadMediaDataUrl: (mediaPath) => ipcRenderer.invoke('load-media-data-url', mediaPath),
 
+  // Per-button export/import
+  exportButtonData: (format, data, defaultName) => ipcRenderer.invoke('export-button-data', format, data, defaultName),
+  importButtonData: (format) => ipcRenderer.invoke('import-button-data', format),
+  exportButtonDataBulk: (format, items) => ipcRenderer.invoke('export-button-data-bulk', format, items),
+  importButtonDataBulk: (format) => ipcRenderer.invoke('import-button-data-bulk', format),
+  exportTexturesToFolder: (folder, textureNames) => ipcRenderer.invoke('export-textures-to-folder', folder, textureNames),
+  importTexturesFromFolder: (sourceFolder) => ipcRenderer.invoke('import-textures-from-folder', sourceFolder),
+
   // Claude AI
   sendClaudePrompt: (data) => ipcRenderer.send('claude-prompt', data),
   onClaudeStreamChunk: (callback) => onIPC('claude-stream-chunk', (event, data) => callback(data)),

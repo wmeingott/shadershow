@@ -2682,6 +2682,177 @@ ipcMain.handle('load-media-data-url', async (event, mediaPath) => {
   }
 });
 
+// Per-button export/import handlers
+const buttonDataFormats = {
+  'shadershow-shader': { ext: 'shader', label: 'ShaderShow Shader' },
+  'shadershow-comp':   { ext: 'comp',   label: 'ShaderShow Composition' },
+  'shadershow-vis':    { ext: 'vis',    label: 'ShaderShow Visual Preset' }
+};
+
+ipcMain.handle('export-button-data', async (event, format, data, defaultName) => {
+  const fmt = buttonDataFormats[format];
+  if (!fmt) return { error: 'Unknown format' };
+
+  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+    title: `Export ${fmt.label}`,
+    defaultPath: defaultName ? `${defaultName}.${fmt.ext}` : `export.${fmt.ext}`,
+    filters: [{ name: fmt.label, extensions: [fmt.ext] }]
+  });
+  if (canceled || !filePath) return { canceled: true };
+
+  try {
+    await fsPromises.writeFile(filePath, JSON.stringify(data, null, 2), 'utf8');
+    return { success: true, filePath };
+  } catch (err) {
+    mlog.error('File', 'Failed to export button data:', err);
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('import-button-data', async (event, format) => {
+  const fmt = buttonDataFormats[format];
+  if (!fmt) return { error: 'Unknown format' };
+
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    title: `Import ${fmt.label}`,
+    filters: [{ name: fmt.label, extensions: [fmt.ext] }],
+    properties: ['openFile']
+  });
+  if (canceled || !filePaths || filePaths.length === 0) return { canceled: true };
+
+  try {
+    const raw = await fsPromises.readFile(filePaths[0], 'utf8');
+    const data = JSON.parse(raw);
+    if (data.format !== format) {
+      return { error: `Invalid file format: expected ${format}, got ${data.format || 'unknown'}` };
+    }
+    return { success: true, data };
+  } catch (err) {
+    mlog.error('File', 'Failed to import button data:', err);
+    return { error: err.message };
+  }
+});
+
+// Bulk export: write multiple files to a chosen folder
+ipcMain.handle('export-button-data-bulk', async (event, format, items) => {
+  const fmt = buttonDataFormats[format];
+  if (!fmt) return { error: 'Unknown format' };
+
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    title: `Choose folder to export ${fmt.label} files`,
+    properties: ['openDirectory', 'createDirectory']
+  });
+  if (canceled || !filePaths || filePaths.length === 0) return { canceled: true };
+
+  const folder = filePaths[0];
+  let exported = 0;
+  const errors = [];
+  for (const item of items) {
+    const safeName = (item.fileName || 'export').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filePath = path.join(folder, `${safeName}.${fmt.ext}`);
+    try {
+      await fsPromises.writeFile(filePath, JSON.stringify(item.data, null, 2), 'utf8');
+      exported++;
+    } catch (err) {
+      errors.push(`${safeName}: ${err.message}`);
+    }
+  }
+  return { success: true, folder, exported, errors };
+});
+
+// Bulk import: read all matching files from a chosen folder
+ipcMain.handle('import-button-data-bulk', async (event, format) => {
+  const fmt = buttonDataFormats[format];
+  if (!fmt) return { error: 'Unknown format' };
+
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    title: `Choose ${fmt.label} files to import`,
+    filters: [{ name: fmt.label, extensions: [fmt.ext] }],
+    properties: ['openFile', 'multiSelections']
+  });
+  if (canceled || !filePaths || filePaths.length === 0) return { canceled: true };
+
+  const items = [];
+  const errors = [];
+  for (const fp of filePaths) {
+    try {
+      const raw = await fsPromises.readFile(fp, 'utf8');
+      const data = JSON.parse(raw);
+      if (data.format !== format) {
+        errors.push(`${path.basename(fp)}: wrong format (${data.format || 'unknown'})`);
+        continue;
+      }
+      items.push({ data, fileName: path.basename(fp, `.${fmt.ext}`) });
+    } catch (err) {
+      errors.push(`${path.basename(fp)}: ${err.message}`);
+    }
+  }
+  const sourceFolder = path.dirname(filePaths[0]);
+  return { success: true, items, errors, sourceFolder };
+});
+
+// Copy textures from data/textures/ into a target folder's textures/ subfolder
+ipcMain.handle('export-textures-to-folder', async (event, folder, textureNames) => {
+  if (!folder || !Array.isArray(textureNames) || textureNames.length === 0) return { exported: 0 };
+
+  const destDir = path.join(folder, 'textures');
+  await fsPromises.mkdir(destDir, { recursive: true });
+
+  let exported = 0;
+  const errors = [];
+  for (const name of textureNames) {
+    if (!/^[\w-]+$/.test(name)) continue;
+    const src = path.join(texturesDir, `${name}.png`);
+    const dest = path.join(destDir, `${name}.png`);
+    try {
+      await fsPromises.access(src);
+      await fsPromises.copyFile(src, dest);
+      exported++;
+    } catch (err) {
+      errors.push(`${name}: ${err.message}`);
+    }
+  }
+  return { exported, errors };
+});
+
+// Copy textures from a source folder's textures/ subfolder into data/textures/ (skip existing)
+ipcMain.handle('import-textures-from-folder', async (event, sourceFolder) => {
+  if (!sourceFolder) return { imported: 0 };
+
+  const srcDir = path.join(sourceFolder, 'textures');
+  let files;
+  try {
+    files = await fsPromises.readdir(srcDir);
+  } catch {
+    return { imported: 0 };
+  }
+
+  const pngFiles = files.filter(f => f.endsWith('.png'));
+  if (pngFiles.length === 0) return { imported: 0 };
+
+  await fsPromises.mkdir(texturesDir, { recursive: true });
+
+  let imported = 0;
+  const skipped = [];
+  const errors = [];
+  for (const file of pngFiles) {
+    const dest = path.join(texturesDir, file);
+    const src = path.join(srcDir, file);
+    try {
+      await fsPromises.access(dest);
+      skipped.push(file);
+    } catch {
+      try {
+        await fsPromises.copyFile(src, dest);
+        imported++;
+      } catch (err) {
+        errors.push(`${file}: ${err.message}`);
+      }
+    }
+  }
+  return { imported, skipped, errors };
+});
+
 // Texture creator dialog
 function showTextureCreatorDialog() {
   const dialogWindow = new BrowserWindow({

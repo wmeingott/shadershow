@@ -411,6 +411,62 @@ function showTabContextMenu(x, y, tabIndex) {
   }
   menu.appendChild(deleteItem);
 
+  // Export/Import separator
+  const exportSep = document.createElement('div');
+  exportSep.className = 'context-menu-separator';
+  menu.appendChild(exportSep);
+
+  const tab = state.shaderTabs[tabIndex];
+  const tabType = tab?.type || 'shaders';
+
+  if (tabType === 'mix') {
+    // Mix tab: export/import compositions
+    const hasPresets = (tab.mixPresets || []).length > 0;
+
+    const exportTabItem = document.createElement('div');
+    exportTabItem.className = `context-menu-item${hasPresets ? '' : ' disabled'}`;
+    exportTabItem.textContent = 'Export All Compositions...';
+    if (hasPresets) {
+      exportTabItem.addEventListener('click', () => {
+        hideTabContextMenu();
+        exportTabMixPresets(tabIndex);
+      });
+    }
+    menu.appendChild(exportTabItem);
+
+    const importTabItem = document.createElement('div');
+    importTabItem.className = 'context-menu-item';
+    importTabItem.textContent = 'Import Compositions...';
+    importTabItem.addEventListener('click', () => {
+      hideTabContextMenu();
+      importTabMixPresets(tabIndex);
+    });
+    menu.appendChild(importTabItem);
+  } else if (tabType !== 'assets') {
+    // Shader tab: export/import shaders
+    const hasSlots = (tab.slots || []).some(s => s !== null);
+
+    const exportTabItem = document.createElement('div');
+    exportTabItem.className = `context-menu-item${hasSlots ? '' : ' disabled'}`;
+    exportTabItem.textContent = 'Export All Shaders...';
+    if (hasSlots) {
+      exportTabItem.addEventListener('click', () => {
+        hideTabContextMenu();
+        exportTabShaders(tabIndex);
+      });
+    }
+    menu.appendChild(exportTabItem);
+
+    const importTabItem = document.createElement('div');
+    importTabItem.className = 'context-menu-item';
+    importTabItem.textContent = 'Import Shaders...';
+    importTabItem.addEventListener('click', () => {
+      hideTabContextMenu();
+      importTabShaders(tabIndex);
+    });
+    menu.appendChild(importTabItem);
+  }
+
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
   document.body.appendChild(menu);
@@ -440,6 +496,212 @@ function hideTabContextMenu() {
     document.removeEventListener('click', tabContextMenuHandler);
     tabContextMenuHandler = null;
   }
+}
+
+// Tab-level bulk export/import functions
+
+// Extract file texture names from shader code via @texture directives
+function extractTextureNames(shaderCode) {
+  const names = new Set();
+  if (!shaderCode) return names;
+  const regex = /^\s*\/\/\s*@texture\s+iChannel[0-3]\s+texture:(\w+)/gm;
+  let match;
+  while ((match = regex.exec(shaderCode)) !== null) {
+    names.add(match[1]);
+  }
+  return names;
+}
+
+async function exportTabShaders(tabIndex) {
+  const tab = state.shaderTabs[tabIndex];
+  if (!tab || tab.type === 'mix' || tab.type === 'assets') return;
+
+  const slots = tab.slots || [];
+  const items = [];
+  const allTextureNames = new Set();
+  for (let i = 0; i < slots.length; i++) {
+    const slotData = slots[i];
+    if (!slotData) continue;
+
+    const exportData = {
+      format: 'shadershow-shader',
+      version: 1,
+      type: slotData.type || 'shader',
+      shaderCode: slotData.shaderCode,
+      params: slotData.params || {},
+      customParams: slotData.customParams || {},
+      presets: slotData.presets || [],
+      label: slotData.label || null
+    };
+    const fileName = slotData.label || `slot-${i + 1}`;
+    items.push({ data: exportData, fileName });
+
+    // Collect texture references
+    for (const name of extractTextureNames(slotData.shaderCode)) {
+      allTextureNames.add(name);
+    }
+  }
+
+  if (items.length === 0) {
+    setStatus('No shaders to export', 'error');
+    return;
+  }
+
+  const result = await window.electronAPI.exportButtonDataBulk('shadershow-shader', items);
+  if (result.success) {
+    // Copy referenced textures into textures/ subfolder
+    let texMsg = '';
+    if (allTextureNames.size > 0) {
+      const texResult = await window.electronAPI.exportTexturesToFolder(result.folder, [...allTextureNames]);
+      if (texResult.exported > 0) {
+        texMsg = `, ${texResult.exported} texture(s)`;
+      }
+    }
+    setStatus(`Exported ${result.exported} shader(s)${texMsg} to folder`, 'success');
+    if (result.errors.length > 0) {
+      log.warn('Grid', `Export errors: ${result.errors.join(', ')}`);
+    }
+  } else if (result.error) {
+    setStatus(`Export failed: ${result.error}`, 'error');
+  }
+}
+
+async function importTabShaders(tabIndex) {
+  const tab = state.shaderTabs[tabIndex];
+  if (!tab || tab.type === 'mix' || tab.type === 'assets') return;
+
+  const result = await window.electronAPI.importButtonDataBulk('shadershow-shader');
+  if (result.canceled) return;
+  if (result.error) {
+    setStatus(`Import failed: ${result.error}`, 'error');
+    return;
+  }
+
+  if (result.items.length === 0) {
+    setStatus('No valid shader files found', 'error');
+    return;
+  }
+
+  // Import textures from textures/ subfolder next to the selected files
+  let texMsg = '';
+  if (result.sourceFolder) {
+    const texResult = await window.electronAPI.importTexturesFromFolder(result.sourceFolder);
+    if (texResult.imported > 0) {
+      texMsg = `, ${texResult.imported} texture(s) imported`;
+      // Clear texture cache so newly imported textures get loaded
+      fileTextureCache.clear();
+    }
+    if (texResult.skipped?.length > 0) {
+      log.info('Grid', `Skipped existing textures: ${texResult.skipped.join(', ')}`);
+    }
+  }
+
+  // Switch to the target tab so assignShaderToSlot operates on the right slots
+  const prevTab = state.activeShaderTab;
+  if (tabIndex !== prevTab) {
+    switchShaderTab(tabIndex);
+  }
+
+  let imported = 0;
+  for (const item of result.items) {
+    const data = item.data;
+    // Add a new slot for each imported shader
+    const slotIndex = state.gridSlots.length;
+    state.gridSlots.push(null);
+    rebuildGridDOM();
+
+    try {
+      if (data.type === 'scene' || isSceneCode(data.shaderCode)) {
+        await assignSceneToSlot(slotIndex, data.shaderCode, null, false, data.params, data.presets);
+      } else {
+        await assignShaderToSlot(slotIndex, data.shaderCode, null, false, data.params, data.presets, data.customParams);
+      }
+      if (data.label) {
+        state.gridSlots[slotIndex].label = data.label;
+        const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`);
+        const labelEl = slot?.querySelector('.slot-label');
+        if (labelEl) labelEl.textContent = data.label;
+      }
+      imported++;
+    } catch (err) {
+      log.warn('Grid', `Failed to import shader "${item.fileName}": ${err.message}`);
+    }
+  }
+
+  saveGridState();
+  setStatus(`Imported ${imported} shader(s)${texMsg}${result.errors.length > 0 ? ` (${result.errors.length} failed)` : ''}`, 'success');
+}
+
+async function exportTabMixPresets(tabIndex) {
+  const tab = state.shaderTabs[tabIndex];
+  if (!tab || tab.type !== 'mix') return;
+
+  const presets = tab.mixPresets || [];
+  if (presets.length === 0) {
+    setStatus('No compositions to export', 'error');
+    return;
+  }
+
+  const items = presets.map((preset, i) => {
+    const exportData = {
+      format: 'shadershow-comp',
+      version: 1,
+      name: preset.name,
+      blendMode: preset.blendMode,
+      channels: preset.channels,
+      thumbnail: preset.thumbnail
+    };
+    const fileName = preset.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+    return { data: exportData, fileName };
+  });
+
+  const result = await window.electronAPI.exportButtonDataBulk('shadershow-comp', items);
+  if (result.success) {
+    setStatus(`Exported ${result.exported} composition(s) to folder`, 'success');
+    if (result.errors.length > 0) {
+      log.warn('Grid', `Export errors: ${result.errors.join(', ')}`);
+    }
+  } else if (result.error) {
+    setStatus(`Export failed: ${result.error}`, 'error');
+  }
+}
+
+async function importTabMixPresets(tabIndex) {
+  const tab = state.shaderTabs[tabIndex];
+  if (!tab || tab.type !== 'mix') return;
+
+  const result = await window.electronAPI.importButtonDataBulk('shadershow-comp');
+  if (result.canceled) return;
+  if (result.error) {
+    setStatus(`Import failed: ${result.error}`, 'error');
+    return;
+  }
+
+  if (result.items.length === 0) {
+    setStatus('No valid composition files found', 'error');
+    return;
+  }
+
+  if (!tab.mixPresets) tab.mixPresets = [];
+
+  let imported = 0;
+  for (const item of result.items) {
+    const data = item.data;
+    tab.mixPresets.push({
+      name: data.name || `Mix ${tab.mixPresets.length + 1}`,
+      blendMode: data.blendMode || 'lighter',
+      channels: data.channels || [],
+      thumbnail: data.thumbnail || null
+    });
+    imported++;
+  }
+
+  // Refresh UI if this is the active tab
+  if (tabIndex === state.activeShaderTab) {
+    rebuildMixPanelDOM();
+  }
+  saveGridState();
+  setStatus(`Imported ${imported} composition(s)${result.errors.length > 0 ? ` (${result.errors.length} failed)` : ''}`, 'success');
 }
 
 // =============================================================================
@@ -724,6 +986,29 @@ function showMixPresetContextMenu(x, y, presetIndex) {
   });
   menu.appendChild(deleteItem);
 
+  // Export/Import separator
+  const exportSep = document.createElement('div');
+  exportSep.className = 'context-menu-separator';
+  menu.appendChild(exportSep);
+
+  const exportItem = document.createElement('div');
+  exportItem.className = 'context-menu-item';
+  exportItem.textContent = 'Export Composition...';
+  exportItem.addEventListener('click', () => {
+    hideTabContextMenu();
+    exportMixPreset(presetIndex);
+  });
+  menu.appendChild(exportItem);
+
+  const importItem = document.createElement('div');
+  importItem.className = 'context-menu-item';
+  importItem.textContent = 'Import Composition...';
+  importItem.addEventListener('click', () => {
+    hideTabContextMenu();
+    importMixPreset(presetIndex);
+  });
+  menu.appendChild(importItem);
+
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
   document.body.appendChild(menu);
@@ -742,6 +1027,62 @@ function showMixPresetContextMenu(x, y, presetIndex) {
     }
   };
   setTimeout(() => document.addEventListener('click', tabContextMenuHandler), 0);
+}
+
+async function exportMixPreset(presetIndex) {
+  const tab = state.shaderTabs[state.activeShaderTab];
+  if (!tab || tab.type !== 'mix') return;
+
+  const preset = tab.mixPresets?.[presetIndex];
+  if (!preset) return;
+
+  const exportData = {
+    format: 'shadershow-comp',
+    version: 1,
+    name: preset.name,
+    blendMode: preset.blendMode,
+    channels: preset.channels,
+    thumbnail: preset.thumbnail
+  };
+
+  const defaultName = preset.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const result = await window.electronAPI.exportButtonData('shadershow-comp', exportData, defaultName);
+  if (result.success) {
+    setStatus(`Exported composition "${preset.name}"`, 'success');
+  } else if (result.error) {
+    setStatus(`Export failed: ${result.error}`, 'error');
+  }
+}
+
+async function importMixPreset(presetIndex) {
+  const tab = state.shaderTabs[state.activeShaderTab];
+  if (!tab || tab.type !== 'mix') return;
+
+  const result = await window.electronAPI.importButtonData('shadershow-comp');
+  if (result.canceled) return;
+  if (result.error) {
+    setStatus(`Import failed: ${result.error}`, 'error');
+    return;
+  }
+
+  const data = result.data;
+  const preset = {
+    name: data.name || `Mix ${presetIndex + 1}`,
+    blendMode: data.blendMode || 'lighter',
+    channels: data.channels || [],
+    thumbnail: data.thumbnail || null
+  };
+
+  if (!tab.mixPresets) tab.mixPresets = [];
+  if (presetIndex < tab.mixPresets.length) {
+    tab.mixPresets[presetIndex] = preset;
+  } else {
+    tab.mixPresets.push(preset);
+  }
+
+  rebuildMixPanelDOM();
+  saveGridState();
+  setStatus(`Imported composition "${preset.name}"`, 'success');
 }
 
 // Update a mix preset with the current mixer state
@@ -1132,6 +1473,29 @@ function showVisualPresetContextMenu(x, y, presetIndex) {
   });
   menu.appendChild(deleteItem);
 
+  // Export/Import separator
+  const exportSep = document.createElement('div');
+  exportSep.className = 'context-menu-separator';
+  menu.appendChild(exportSep);
+
+  const exportItem = document.createElement('div');
+  exportItem.className = 'context-menu-item';
+  exportItem.textContent = 'Export Visual Preset...';
+  exportItem.addEventListener('click', () => {
+    hideTabContextMenu();
+    exportVisualPreset(presetIndex);
+  });
+  menu.appendChild(exportItem);
+
+  const importItem = document.createElement('div');
+  importItem.className = 'context-menu-item';
+  importItem.textContent = 'Import Visual Preset...';
+  importItem.addEventListener('click', () => {
+    hideTabContextMenu();
+    importVisualPreset(presetIndex);
+  });
+  menu.appendChild(importItem);
+
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
   document.body.appendChild(menu);
@@ -1150,6 +1514,66 @@ function showVisualPresetContextMenu(x, y, presetIndex) {
     }
   };
   setTimeout(() => document.addEventListener('click', tabContextMenuHandler), 0);
+}
+
+async function exportVisualPreset(presetIndex) {
+  const preset = state.visualPresets?.[presetIndex];
+  if (!preset) return;
+
+  const exportData = {
+    format: 'shadershow-vis',
+    version: 1,
+    name: preset.name,
+    renderMode: preset.renderMode,
+    shaderCode: preset.shaderCode,
+    params: preset.params || {},
+    customParams: preset.customParams || {},
+    mixerEnabled: preset.mixerEnabled || false,
+    mixerBlendMode: preset.mixerBlendMode,
+    mixerChannels: preset.mixerChannels,
+    thumbnail: preset.thumbnail
+  };
+
+  const defaultName = preset.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const result = await window.electronAPI.exportButtonData('shadershow-vis', exportData, defaultName);
+  if (result.success) {
+    setStatus(`Exported visual preset "${preset.name}"`, 'success');
+  } else if (result.error) {
+    setStatus(`Export failed: ${result.error}`, 'error');
+  }
+}
+
+async function importVisualPreset(presetIndex) {
+  const result = await window.electronAPI.importButtonData('shadershow-vis');
+  if (result.canceled) return;
+  if (result.error) {
+    setStatus(`Import failed: ${result.error}`, 'error');
+    return;
+  }
+
+  const data = result.data;
+  const preset = {
+    name: data.name || `Preset ${presetIndex + 1}`,
+    renderMode: data.renderMode || 'shader',
+    shaderCode: data.shaderCode,
+    params: data.params || {},
+    customParams: data.customParams || {},
+    mixerEnabled: data.mixerEnabled || false,
+    mixerBlendMode: data.mixerBlendMode,
+    mixerChannels: data.mixerChannels,
+    thumbnail: data.thumbnail || null
+  };
+
+  if (!state.visualPresets) state.visualPresets = [];
+  if (presetIndex < state.visualPresets.length) {
+    state.visualPresets[presetIndex] = preset;
+  } else {
+    state.visualPresets.push(preset);
+  }
+
+  rebuildVisualPresetsDOM();
+  saveGridState();
+  setStatus(`Imported visual preset "${preset.name}"`, 'success');
 }
 
 function updateVisualPreset(presetIndex) {
@@ -2174,6 +2598,33 @@ function showGridContextMenu(x, y, slotIndex) {
   });
   menu.appendChild(removeItem);
 
+  // Export/Import separator
+  const exportSep = document.createElement('div');
+  exportSep.className = 'context-menu-separator';
+  menu.appendChild(exportSep);
+
+  // Export Shader
+  const exportItem = document.createElement('div');
+  exportItem.className = `context-menu-item${hasShader ? '' : ' disabled'}`;
+  exportItem.textContent = 'Export Shader...';
+  if (hasShader) {
+    exportItem.addEventListener('click', () => {
+      hideContextMenu();
+      exportShaderSlot(slotIndex);
+    });
+  }
+  menu.appendChild(exportItem);
+
+  // Import Shader
+  const importItem = document.createElement('div');
+  importItem.className = 'context-menu-item';
+  importItem.textContent = 'Import Shader...';
+  importItem.addEventListener('click', () => {
+    hideContextMenu();
+    importShaderSlot(slotIndex);
+  });
+  menu.appendChild(importItem);
+
   // Move/Copy to Tab submenus (only shader tabs, not mix tabs)
   if (hasShader) {
     const otherShaderTabs = [];
@@ -2591,6 +3042,58 @@ function updateSlotVisualState(index, slot) {
     slot.classList.add('active');
   } else {
     slot.classList.remove('active');
+  }
+}
+
+async function exportShaderSlot(slotIndex) {
+  const slotData = state.gridSlots[slotIndex];
+  if (!slotData) return;
+
+  const exportData = {
+    format: 'shadershow-shader',
+    version: 1,
+    type: slotData.type || 'shader',
+    shaderCode: slotData.shaderCode,
+    params: slotData.params || {},
+    customParams: slotData.customParams || {},
+    presets: slotData.presets || [],
+    label: slotData.label || null
+  };
+
+  const defaultName = slotData.label || `slot-${slotIndex + 1}`;
+  const result = await window.electronAPI.exportButtonData('shadershow-shader', exportData, defaultName);
+  if (result.success) {
+    setStatus(`Exported shader to ${result.filePath.split('/').pop().split('\\').pop()}`, 'success');
+  } else if (result.error) {
+    setStatus(`Export failed: ${result.error}`, 'error');
+  }
+}
+
+async function importShaderSlot(slotIndex) {
+  const result = await window.electronAPI.importButtonData('shadershow-shader');
+  if (result.canceled) return;
+  if (result.error) {
+    setStatus(`Import failed: ${result.error}`, 'error');
+    return;
+  }
+
+  const data = result.data;
+  try {
+    if (data.type === 'scene' || isSceneCode(data.shaderCode)) {
+      await assignSceneToSlot(slotIndex, data.shaderCode, null, false, data.params, data.presets);
+    } else {
+      await assignShaderToSlot(slotIndex, data.shaderCode, null, false, data.params, data.presets, data.customParams);
+    }
+    if (data.label) {
+      state.gridSlots[slotIndex].label = data.label;
+      const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`);
+      const labelEl = slot?.querySelector('.slot-label');
+      if (labelEl) labelEl.textContent = data.label;
+      saveGridState();
+    }
+    setStatus(`Imported shader to slot ${slotIndex + 1}`, 'success');
+  } catch (err) {
+    setStatus(`Import failed: ${err.message}`, 'error');
   }
 }
 

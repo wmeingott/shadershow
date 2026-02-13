@@ -1,0 +1,9 @@
+{
+  "files": [],
+  "references": [
+    { "path": "src/main" },
+    { "path": "src/renderer" },
+    { "path": "src/fullscreen" },
+    { "path": "src/preload" }
+  ]
+}

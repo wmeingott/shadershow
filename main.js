@@ -1729,6 +1729,13 @@ ipcMain.on('fullscreen-state', (event, shaderState) => {
   }
 });
 
+// Forward standalone asset updates to fullscreen window
+ipcMain.on('asset-update', (event, data) => {
+  if (fullscreenWindow && !fullscreenWindow.isDestroyed()) {
+    fullscreenWindow.webContents.send('asset-update', data);
+  }
+});
+
 // Forward shader updates to fullscreen window
 ipcMain.on('shader-update', (event, data) => {
   if (fullscreenWindow && !fullscreenWindow.isDestroyed()) {

@@ -33,7 +33,9 @@ async function loadFileTexturesForRenderer(renderer) {
           continue; // Texture not found, skip silently for grid
         }
       }
-      await renderer.loadFileTexture(channel, dataUrl);
+      // ShaderRenderer uses loadTexture(), MiniShaderRenderer uses loadFileTexture()
+      const loadFn = renderer.loadFileTexture || renderer.loadTexture;
+      if (loadFn) await loadFn.call(renderer, channel, dataUrl);
     } catch (err) {
       // Silently skip failed textures in grid thumbnails
     }
@@ -3855,6 +3857,8 @@ export async function selectGridSlot(slotIndex) {
   // and generate the correct parameter UI
   try {
     state.renderer.compile(slotData.shaderCode);
+    // Load file textures for the main renderer (builtin textures are loaded by compile)
+    loadFileTexturesForRenderer(state.renderer);
   } catch (err) {
     log.warn('Grid', `Failed to compile for preview: ${err.message}`);
   }

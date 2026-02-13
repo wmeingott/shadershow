@@ -220,6 +220,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadFileTexture: (name) => ipcRenderer.invoke('load-file-texture', name),
   listFileTextures: () => ipcRenderer.invoke('list-file-textures'),
 
+  // Standalone asset display (renderer → main → fullscreen)
+  sendAssetUpdate: (data) => ipcRenderer.send('asset-update', data),
+  onAssetUpdate: (callback) => onIPC('asset-update', (event, data) => callback(data)),
+
   // Asset media (images & videos in data/media/)
   openMediaForAsset: () => ipcRenderer.invoke('open-media-for-asset'),
   copyMediaToLibrary: (sourcePath) => ipcRenderer.invoke('copy-media-to-library', sourcePath),

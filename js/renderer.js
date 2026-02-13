@@ -250,11 +250,16 @@ function renderLoop(currentTime) {
     if (state.tiledPreviewEnabled && tileState.tiles.length > 0) {
       stats = renderTiledPreview();
       hideMixerOverlay();
+      hideAssetOverlay();
     } else if (isMixerActive()) {
       stats = renderMixerComposite();
+      hideAssetOverlay();
+    } else if (state.renderMode === 'asset' && state.activeAsset) {
+      stats = renderAssetPreview();
     } else {
       stats = state.renderer.render();
       hideMixerOverlay();
+      hideAssetOverlay();
     }
   } catch (err) {
     log.error('Renderer', 'Render error:', err);
@@ -299,6 +304,55 @@ function renderLoop(currentTime) {
     setTimeout(sendRecordingFrame, 0);
   }
   if (state.recordingEnabled) state.recordingFrameCounter++;
+}
+
+// Cache for asset preview overlay canvas
+let assetOverlayCanvas = null;
+let assetOverlayCtx = null;
+
+function renderAssetPreview() {
+  const mainCanvas = document.getElementById('shader-canvas');
+  const canvasWidth = mainCanvas.width;
+  const canvasHeight = mainCanvas.height;
+
+  if (!assetOverlayCanvas) {
+    assetOverlayCanvas = document.createElement('canvas');
+    assetOverlayCanvas.id = 'asset-overlay-canvas';
+    assetOverlayCanvas.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);max-width:100%;max-height:100%';
+    mainCanvas.parentElement.style.position = 'relative';
+    mainCanvas.parentElement.appendChild(assetOverlayCanvas);
+  }
+
+  if (assetOverlayCanvas.width !== canvasWidth || assetOverlayCanvas.height !== canvasHeight) {
+    assetOverlayCanvas.width = canvasWidth;
+    assetOverlayCanvas.height = canvasHeight;
+    assetOverlayCtx = null;
+  }
+
+  if (!assetOverlayCtx) {
+    assetOverlayCtx = assetOverlayCanvas.getContext('2d');
+  }
+
+  const ctx = assetOverlayCtx;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+  const asset = state.activeAsset;
+  if (asset && asset.renderer) {
+    asset.renderer.renderDirect(ctx, 0, 0, canvasWidth, canvasHeight);
+  }
+
+  assetOverlayCanvas.style.display = 'block';
+  hideMixerOverlay();
+
+  // Return stats from main renderer for FPS display
+  return state.renderer.getStats?.() || { fps: 60, time: 0, frame: 0 };
+}
+
+export function hideAssetOverlay() {
+  if (assetOverlayCanvas) {
+    assetOverlayCanvas.style.display = 'none';
+  }
 }
 
 // Cache for tiled preview canvas

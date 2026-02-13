@@ -18,7 +18,17 @@
           "type": "scene"
         },
         {
-          "shaderCode": "// ShaderShow - Default Shader\n// A colorful animated pattern demonstrating Shadertoy uniforms\n// Custom params: // @param name type [default] [min, max] \"description\"\n\nvec3 palette(float t) {\n    vec3 a = vec3(0.5, 0.5, 0.5);\n    vec3 b = vec3(0.5, 0.5, 0.5);\n    vec3 c = vec3(1.0, 1.0, 1.0);\n    vec3 d = vec3(0.263, 0.416, 0.557);\n    return a + b * cos(6.28318 * (c * t + d));\n}\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = (fragCoord * 2.0 - iResolution.xy) / iResolution.y;\n    vec2 uv0 = uv;\n    vec3 finalColor = vec3(0.0);\n\n    for (float i = 0.0; i < 4.0; i++) {\n        uv = fract(uv * 1.5) - 0.5;\n\n        float d = length(uv) * exp(-length(uv0));\n\n        vec3 col = palette(length(uv0) + i * 0.4 + iTime * 0.4);\n\n        d = sin(d * 8.0 + iTime) / 8.0;\n        d = abs(d);\n        d = pow(0.01 / d, 1.2);\n\n        finalColor += col * d;\n    }\n\n    // Mouse interaction - brighten area near cursor\n    if (iMouse.z > 0.0) {\n        vec2 mouseUV = (iMouse.xy * 2.0 - iResolution.xy) / iResolution.y;\n        float mouseDist = length(uv0 - mouseUV);\n        finalColor += vec3(0.2) * smoothstep(0.5, 0.0, mouseDist);\n    }\n\n    fragColor = vec4(finalColor, 1.0);\n}\n",
+          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n *\n * Supported types: int, float, vec2, vec3, vec4, color\n *\n * Examples:\n *   // @param speed float 1.0 [0.0, 2.0] \"Animation speed\"\n *   // @param center vec2 0.5, 0.5 \"Center position\"\n *   // @param tint color [1.0, 0.5, 0.0] \"Tint color\"\n */\n\n// ShaderShow - Default Shader\n// A colorful animated pattern demonstrating Shadertoy uniforms\n// Custom params: // @param name type [default] [min, max] \"description\"\n\n\nvec3 palette(float t) {\n    vec3 a = vec3(0.5, 0.5, 0.5);\n    vec3 b = vec3(0.5, 0.5, 0.5);\n    vec3 c = vec3(1.0, 1.0, 1.0);\n    vec3 d = vec3(0.263, 0.416, 0.557);\n    return a + b * cos(6.28318 * (c * t + d));\n}\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = (fragCoord * 2.0 - iResolution.xy) / iResolution.y;\n    vec2 uv0 = uv;\n    vec3 finalColor = vec3(0.0);\n\n    for (float i = 0.0; i < 4.0; i++) {\n        uv = fract(uv * 1.5) - 0.5;\n\n        float d = length(uv) * exp(-length(uv0));\n\n        vec3 col = palette(length(uv0) + i * 0.4 + iTime * 0.4);\n\n        d = sin(d * 8.0 + iTime) / 8.0;\n        d = abs(d);\n        d = pow(0.01 / d, 1.2);\n\n        finalColor += col * d;\n    }\n\n    // Mouse interaction - brighten area near cursor\n    if (iMouse.z > 0.0) {\n        vec2 mouseUV = (iMouse.xy * 2.0 - iResolution.xy) / iResolution.y;\n        float mouseDist = length(uv0 - mouseUV);\n        finalColor += vec3(0.2) * smoothstep(0.5, 0.0, mouseDist);\n    }\n\n    fragColor = vec4(finalColor, 1.0);\n}\n",
+          "filePath": null,
+          "params": {
+            "speed": 1
+          },
+          "customParams": {},
+          "presets": [],
+          "type": "shader"
+        },
+        {
+          "shaderCode": "// Rolling Dice - Three.js Scene Example\n// A simple dice that continuously rolls across the screen\n\n// @param speed float 1.0 [0.1, 3.0] \"Roll speed\"\n// @param bounceHeight float 0.5 [0.0, 2.0] \"Bounce height\"\n// @param diceSize float 1.0 [0.5, 2.0] \"Dice size\"\n\nfunction setup(THREE, canvas, params) {\n  // Create scene\n  const scene = new THREE.Scene();\n  scene.background = new THREE.Color(0x1a1a2e);\n\n  // Create camera\n  const camera = new THREE.PerspectiveCamera(\n    60,\n    canvas.width / canvas.height,\n    0.1,\n    1000\n  );\n  camera.position.set(0, 4, 6);\n  camera.lookAt(0, 0, 0);\n\n  // Create renderer\n  const renderer = new THREE.WebGLRenderer({\n    canvas: canvas,\n    antialias: true,\n    preserveDrawingBuffer: true\n  });\n  renderer.setSize(canvas.width, canvas.height, false);\n  renderer.shadowMap.enabled = true;\n  renderer.shadowMap.type = THREE.PCFSoftShadowMap;\n\n  // Create dice geometry\n  const diceGeometry = new THREE.BoxGeometry(1, 1, 1);\n\n  // Create materials for each face with dot patterns\n  const diceMaterials = createDiceMaterials(THREE);\n\n  // Create dice mesh\n  const dice = new THREE.Mesh(diceGeometry, diceMaterials);\n  dice.castShadow = true;\n  dice.receiveShadow = true;\n  dice.position.y = 1;\n  scene.add(dice);\n\n  // Create ground plane\n  const groundGeometry = new THREE.PlaneGeometry(20, 20);\n  const groundMaterial = new THREE.MeshStandardMaterial({\n    color: 0x2d3436,\n    roughness: 0.8,\n    metalness: 0.2\n  });\n  const ground = new THREE.Mesh(groundGeometry, groundMaterial);\n  ground.rotation.x = -Math.PI / 2;\n  ground.position.y = 0;\n  ground.receiveShadow = true;\n  scene.add(ground);\n\n  // Add grid helper for visual reference\n  const gridHelper = new THREE.GridHelper(20, 20, 0x444444, 0x333333);\n  gridHelper.position.y = 0.01;\n  scene.add(gridHelper);\n\n  // Lighting\n  const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);\n  scene.add(ambientLight);\n\n  const mainLight = new THREE.DirectionalLight(0xffffff, 1.0);\n  mainLight.position.set(5, 10, 5);\n  mainLight.castShadow = true;\n  mainLight.shadow.mapSize.width = 2048;\n  mainLight.shadow.mapSize.height = 2048;\n  mainLight.shadow.camera.near = 0.5;\n  mainLight.shadow.camera.far = 50;\n  mainLight.shadow.camera.left = -10;\n  mainLight.shadow.camera.right = 10;\n  mainLight.shadow.camera.top = 10;\n  mainLight.shadow.camera.bottom = -10;\n  scene.add(mainLight);\n\n  // Add some colored accent lights\n  const redLight = new THREE.PointLight(0xff6b6b, 0.5, 10);\n  redLight.position.set(-3, 2, 3);\n  scene.add(redLight);\n\n  const blueLight = new THREE.PointLight(0x4ecdc4, 0.5, 10);\n  blueLight.position.set(3, 2, -3);\n  scene.add(blueLight);\n\n  return {\n    scene,\n    camera,\n    renderer,\n    dice,\n    ground\n  };\n}\n\nfunction animate(time, delta, params, objects) {\n  const { dice } = objects;\n  const speed = params.speed || 1.0;\n  const bounceHeight = params.bounceHeight || 0.5;\n  const diceSize = params.diceSize || 1.0;\n\n  // Update dice scale\n  dice.scale.setScalar(diceSize);\n\n  // Rolling animation\n  const rollSpeed = speed * 2;\n  dice.rotation.x += delta * rollSpeed * 3;\n  dice.rotation.z += delta * rollSpeed * 2;\n\n  // Bounce animation\n  const bounceFreq = speed * 2;\n  const bounce = Math.abs(Math.sin(time * bounceFreq)) * bounceHeight;\n  dice.position.y = 0.5 * diceSize + bounce;\n\n  // Slight horizontal movement (rolling back and forth)\n  dice.position.x = Math.sin(time * speed * 0.5) * 2;\n  dice.position.z = Math.cos(time * speed * 0.3) * 1.5;\n\n  // Add slight wobble to rotation based on bounce\n  dice.rotation.y = Math.sin(time * speed) * 0.3;\n}\n\nfunction cleanup(objects) {\n  // Dispose of geometries and materials\n  if (objects.dice) {\n    objects.dice.geometry.dispose();\n    if (Array.isArray(objects.dice.material)) {\n      objects.dice.material.forEach(m => m.dispose());\n    }\n  }\n  if (objects.ground) {\n    objects.ground.geometry.dispose();\n    objects.ground.material.dispose();\n  }\n}\n\n// Helper function to create dice face materials with dots\nfunction createDiceMaterials(THREE) {\n  const faceColors = [\n    0xe74c3c, // 1 - red\n    0xf39c12, // 2 - orange\n    0x2ecc71, // 3 - green\n    0x3498db, // 4 - blue\n    0x9b59b6, // 5 - purple\n    0x1abc9c  // 6 - teal\n  ];\n\n  const dotPatterns = [\n    [[0.5, 0.5]], // 1\n    [[0.25, 0.25], [0.75, 0.75]], // 2\n    [[0.25, 0.25], [0.5, 0.5], [0.75, 0.75]], // 3\n    [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]], // 4\n    [[0.25, 0.25], [0.75, 0.25], [0.5, 0.5], [0.25, 0.75], [0.75, 0.75]], // 5\n    [[0.25, 0.25], [0.75, 0.25], [0.25, 0.5], [0.75, 0.5], [0.25, 0.75], [0.75, 0.75]] // 6\n  ];\n\n  // Order for cube faces: +X, -X, +Y, -Y, +Z, -Z\n  // Standard dice: opposite faces sum to 7\n  // So: 1-6, 2-5, 3-4\n  const faceOrder = [2, 5, 1, 6, 3, 4]; // Maps to standard dice layout\n\n  return faceOrder.map((num, index) => {\n    const canvas = document.createElement('canvas');\n    canvas.width = 256;\n    canvas.height = 256;\n    const ctx = canvas.getContext('2d');\n\n    // Fill background\n    ctx.fillStyle = '#' + faceColors[num - 1].toString(16).padStart(6, '0');\n    ctx.fillRect(0, 0, 256, 256);\n\n    // Draw rounded rectangle border\n    ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';\n    ctx.lineWidth = 8;\n    roundRect(ctx, 10, 10, 236, 236, 20);\n    ctx.stroke();\n\n    // Draw dots\n    ctx.fillStyle = '#ffffff';\n    const dots = dotPatterns[num - 1];\n    const dotRadius = 22;\n\n    dots.forEach(([x, y]) => {\n      ctx.beginPath();\n      ctx.arc(x * 256, y * 256, dotRadius, 0, Math.PI * 2);\n      ctx.fill();\n\n      // Add subtle shadow to dots\n      ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';\n      ctx.lineWidth = 2;\n      ctx.stroke();\n    });\n\n    const texture = new THREE.CanvasTexture(canvas);\n    texture.needsUpdate = true;\n\n    return new THREE.MeshStandardMaterial({\n      map: texture,\n      roughness: 0.4,\n      metalness: 0.1\n    });\n  });\n}\n\n// Helper function to draw rounded rectangle\nfunction roundRect(ctx, x, y, width, height, radius) {\n  ctx.beginPath();\n  ctx.moveTo(x + radius, y);\n  ctx.lineTo(x + width - radius, y);\n  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);\n  ctx.lineTo(x + width, y + height - radius);\n  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);\n  ctx.lineTo(x + radius, y + height);\n  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);\n  ctx.lineTo(x, y + radius);\n  ctx.quadraticCurveTo(x, y, x + radius, y);\n  ctx.closePath();\n}\n",
           "filePath": null,
           "params": {
             "red": 1,
@@ -36,207 +46,6 @@
           },
           "customParams": {},
           "presets": [],
-          "type": "shader"
-        },
-        {
-          "shaderCode": "// Rolling Dice - Three.js Scene Example\n// A simple dice that continuously rolls across the screen\n\n// @param speed float 1.0 [0.1, 3.0] \"Roll speed\"\n// @param bounceHeight float 0.5 [0.0, 2.0] \"Bounce height\"\n// @param diceSize float 1.0 [0.5, 2.0] \"Dice size\"\n\nfunction setup(THREE, canvas, params) {\n  // Create scene\n  const scene = new THREE.Scene();\n  scene.background = new THREE.Color(0x1a1a2e);\n\n  // Create camera\n  const camera = new THREE.PerspectiveCamera(\n    60,\n    canvas.width / canvas.height,\n    0.1,\n    1000\n  );\n  camera.position.set(0, 4, 6);\n  camera.lookAt(0, 0, 0);\n\n  // Create renderer\n  const renderer = new THREE.WebGLRenderer({\n    canvas: canvas,\n    antialias: true,\n    preserveDrawingBuffer: true\n  });\n  renderer.setSize(canvas.width, canvas.height, false);\n  renderer.shadowMap.enabled = true;\n  renderer.shadowMap.type = THREE.PCFSoftShadowMap;\n\n  // Create dice geometry\n  const diceGeometry = new THREE.BoxGeometry(1, 1, 1);\n\n  // Create materials for each face with dot patterns\n  const diceMaterials = createDiceMaterials(THREE);\n\n  // Create dice mesh\n  const dice = new THREE.Mesh(diceGeometry, diceMaterials);\n  dice.castShadow = true;\n  dice.receiveShadow = true;\n  dice.position.y = 1;\n  scene.add(dice);\n\n  // Create ground plane\n  const groundGeometry = new THREE.PlaneGeometry(20, 20);\n  const groundMaterial = new THREE.MeshStandardMaterial({\n    color: 0x2d3436,\n    roughness: 0.8,\n    metalness: 0.2\n  });\n  const ground = new THREE.Mesh(groundGeometry, groundMaterial);\n  ground.rotation.x = -Math.PI / 2;\n  ground.position.y = 0;\n  ground.receiveShadow = true;\n  scene.add(ground);\n\n  // Add grid helper for visual reference\n  const gridHelper = new THREE.GridHelper(20, 20, 0x444444, 0x333333);\n  gridHelper.position.y = 0.01;\n  scene.add(gridHelper);\n\n  // Lighting\n  const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);\n  scene.add(ambientLight);\n\n  const mainLight = new THREE.DirectionalLight(0xffffff, 1.0);\n  mainLight.position.set(5, 10, 5);\n  mainLight.castShadow = true;\n  mainLight.shadow.mapSize.width = 2048;\n  mainLight.shadow.mapSize.height = 2048;\n  mainLight.shadow.camera.near = 0.5;\n  mainLight.shadow.camera.far = 50;\n  mainLight.shadow.camera.left = -10;\n  mainLight.shadow.camera.right = 10;\n  mainLight.shadow.camera.top = 10;\n  mainLight.shadow.camera.bottom = -10;\n  scene.add(mainLight);\n\n  // Add some colored accent lights\n  const redLight = new THREE.PointLight(0xff6b6b, 0.5, 10);\n  redLight.position.set(-3, 2, 3);\n  scene.add(redLight);\n\n  const blueLight = new THREE.PointLight(0x4ecdc4, 0.5, 10);\n  blueLight.position.set(3, 2, -3);\n  scene.add(blueLight);\n\n  return {\n    scene,\n    camera,\n    renderer,\n    dice,\n    ground\n  };\n}\n\nfunction animate(time, delta, params, objects) {\n  const { dice } = objects;\n  const speed = params.speed || 1.0;\n  const bounceHeight = params.bounceHeight || 0.5;\n  const diceSize = params.diceSize || 1.0;\n\n  // Update dice scale\n  dice.scale.setScalar(diceSize);\n\n  // Rolling animation\n  const rollSpeed = speed * 2;\n  dice.rotation.x += delta * rollSpeed * 3;\n  dice.rotation.z += delta * rollSpeed * 2;\n\n  // Bounce animation\n  const bounceFreq = speed * 2;\n  const bounce = Math.abs(Math.sin(time * bounceFreq)) * bounceHeight;\n  dice.position.y = 0.5 * diceSize + bounce;\n\n  // Slight horizontal movement (rolling back and forth)\n  dice.position.x = Math.sin(time * speed * 0.5) * 2;\n  dice.position.z = Math.cos(time * speed * 0.3) * 1.5;\n\n  // Add slight wobble to rotation based on bounce\n  dice.rotation.y = Math.sin(time * speed) * 0.3;\n}\n\nfunction cleanup(objects) {\n  // Dispose of geometries and materials\n  if (objects.dice) {\n    objects.dice.geometry.dispose();\n    if (Array.isArray(objects.dice.material)) {\n      objects.dice.material.forEach(m => m.dispose());\n    }\n  }\n  if (objects.ground) {\n    objects.ground.geometry.dispose();\n    objects.ground.material.dispose();\n  }\n}\n\n// Helper function to create dice face materials with dots\nfunction createDiceMaterials(THREE) {\n  const faceColors = [\n    0xe74c3c, // 1 - red\n    0xf39c12, // 2 - orange\n    0x2ecc71, // 3 - green\n    0x3498db, // 4 - blue\n    0x9b59b6, // 5 - purple\n    0x1abc9c  // 6 - teal\n  ];\n\n  const dotPatterns = [\n    [[0.5, 0.5]], // 1\n    [[0.25, 0.25], [0.75, 0.75]], // 2\n    [[0.25, 0.25], [0.5, 0.5], [0.75, 0.75]], // 3\n    [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]], // 4\n    [[0.25, 0.25], [0.75, 0.25], [0.5, 0.5], [0.25, 0.75], [0.75, 0.75]], // 5\n    [[0.25, 0.25], [0.75, 0.25], [0.25, 0.5], [0.75, 0.5], [0.25, 0.75], [0.75, 0.75]] // 6\n  ];\n\n  // Order for cube faces: +X, -X, +Y, -Y, +Z, -Z\n  // Standard dice: opposite faces sum to 7\n  // So: 1-6, 2-5, 3-4\n  const faceOrder = [2, 5, 1, 6, 3, 4]; // Maps to standard dice layout\n\n  return faceOrder.map((num, index) => {\n    const canvas = document.createElement('canvas');\n    canvas.width = 256;\n    canvas.height = 256;\n    const ctx = canvas.getContext('2d');\n\n    // Fill background\n    ctx.fillStyle = '#' + faceColors[num - 1].toString(16).padStart(6, '0');\n    ctx.fillRect(0, 0, 256, 256);\n\n    // Draw rounded rectangle border\n    ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';\n    ctx.lineWidth = 8;\n    roundRect(ctx, 10, 10, 236, 236, 20);\n    ctx.stroke();\n\n    // Draw dots\n    ctx.fillStyle = '#ffffff';\n    const dots = dotPatterns[num - 1];\n    const dotRadius = 22;\n\n    dots.forEach(([x, y]) => {\n      ctx.beginPath();\n      ctx.arc(x * 256, y * 256, dotRadius, 0, Math.PI * 2);\n      ctx.fill();\n\n      // Add subtle shadow to dots\n      ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';\n      ctx.lineWidth = 2;\n      ctx.stroke();\n    });\n\n    const texture = new THREE.CanvasTexture(canvas);\n    texture.needsUpdate = true;\n\n    return new THREE.MeshStandardMaterial({\n      map: texture,\n      roughness: 0.4,\n      metalness: 0.1\n    });\n  });\n}\n\n// Helper function to draw rounded rectangle\nfunction roundRect(ctx, x, y, width, height, radius) {\n  ctx.beginPath();\n  ctx.moveTo(x + radius, y);\n  ctx.lineTo(x + width - radius, y);\n  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);\n  ctx.lineTo(x + width, y + height - radius);\n  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);\n  ctx.lineTo(x + radius, y + height);\n  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);\n  ctx.lineTo(x, y + radius);\n  ctx.quadraticCurveTo(x, y, x + radius, y);\n  ctx.closePath();\n}\n",
-          "filePath": null,
-          "params": {
-            "speed": 1,
-            "showGround": 0.5,
-            "lightHeight": 0.5,
-            "lightDepth": 0.5,
-            "light1": [
-              1,
-              1,
-              1
-            ],
-            "light2": [
-              1,
-              1,
-              1
-            ],
-            "light3": [
-              1,
-              1,
-              1
-            ],
-            "light4": [
-              1,
-              1,
-              1
-            ],
-            "light5": [
-              1,
-              1,
-              1
-            ],
-            "light6": [
-              1,
-              1,
-              1
-            ],
-            "light7": [
-              1,
-              1,
-              1
-            ],
-            "light8": [
-              1,
-              1,
-              1
-            ]
-          },
-          "customParams": {},
-          "presets": [
-            {
-              "params": {
-                "speed": 1,
-                "showGround": 0.32,
-                "lightHeight": 0.5,
-                "lightDepth": 0.5,
-                "light1": [
-                  0.30980392156862746,
-                  0.9803921568627451,
-                  0.0196078431372549
-                ],
-                "light2": [
-                  1,
-                  0,
-                  0
-                ],
-                "light3": [
-                  0,
-                  0,
-                  1
-                ],
-                "light4": [
-                  1,
-                  0,
-                  1
-                ],
-                "light5": [
-                  1,
-                  1,
-                  1
-                ],
-                "light6": [
-                  1,
-                  1,
-                  0
-                ],
-                "light7": [
-                  0,
-                  1,
-                  1
-                ],
-                "light8": [
-                  1,
-                  1,
-                  1
-                ]
-              },
-              "name": null
-            },
-            {
-              "params": {
-                "speed": 1,
-                "showGround": 0.5,
-                "lightHeight": 0.5,
-                "lightDepth": 0.5,
-                "light1": [
-                  1,
-                  1,
-                  1
-                ],
-                "light2": [
-                  0,
-                  1,
-                  1
-                ],
-                "light3": [
-                  1,
-                  1,
-                  1
-                ],
-                "light4": [
-                  1,
-                  0,
-                  1
-                ],
-                "light5": [
-                  1,
-                  1,
-                  1
-                ],
-                "light6": [
-                  1,
-                  1,
-                  1
-                ],
-                "light7": [
-                  1,
-                  1,
-                  1
-                ],
-                "light8": [
-                  1,
-                  1,
-                  0
-                ]
-              },
-              "name": null
-            },
-            {
-              "params": {
-                "speed": 1,
-                "showGround": 0.5,
-                "lightHeight": 0.5,
-                "lightDepth": 0.5,
-                "light1": [
-                  1,
-                  1,
-                  1
-                ],
-                "light2": [
-                  1,
-                  1,
-                  1
-                ],
-                "light3": [
-                  1,
-                  1,
-                  1
-                ],
-                "light4": [
-                  1,
-                  1,
-                  1
-                ],
-                "light5": [
-                  1,
-                  1,
-                  1
-                ],
-                "light6": [
-                  1,
-                  1,
-                  1
-                ],
-                "light7": [
-                  1,
-                  1,
-                  1
-                ],
-                "light8": [
-                  1,
-                  1,
-                  1
-                ]
-              },
-              "name": null
-            }
-          ],
           "type": "scene"
         },
         {
@@ -246,11 +55,11 @@
             "speed": 1
           },
           "customParams": {
-            "iFlame": 0.64,
+            "iFlame": 0.3,
             "light1": [
-              0.2,
-              0.30196078431372547,
-              0.8
+              0.9,
+              0.4,
+              0.1
             ],
             "light2": [
               0.2,
@@ -258,29 +67,29 @@
               0.8
             ],
             "light3": [
-              0.9019607843137255,
-              0.4,
-              0.30196078431372547
+              0.9,
+              0,
+              1
             ],
             "light4": [
-              1,
-              0.54,
-              0.23
-            ],
-            "light5": [
-              0.9,
-              0.4,
-              0.3
-            ],
-            "light6": [
               0.2,
               0.3,
               0.8
             ],
+            "light5": [
+              0.9,
+              0.4,
+              0.6
+            ],
+            "light6": [
+              0.2,
+              0.6,
+              0.7
+            ],
             "light7": [
               0.9,
-              0,
-              1
+              0.4,
+              0.3
             ],
             "light8": [
               0.2,
@@ -292,7 +101,17 @@
           "type": "shader"
         },
         {
-          "shaderCode": "// Custom params: // @param name type [default] [min, max] \"description\"\n\n/*\n\n    Bumped Sinusoidal Warp\n    ----------------------\n\n    Sinusoidal planar deformation, or the 2D sine warp effect to people \n    like me. The effect has been around for years, and there are\n    countless examples on the net. IQ's \"Sculpture III\" is basically a \n    much more sophisticated, spherical variation.\n\n    This particular version was modified from Fabrice's \"Plop 2,\" which in \n    turn was a simplified version of Fantomas's \"Plop.\" I simply reduced \n    the frequency and iteration count in order to make it less busy.\n\n    I also threw in a texture, added point-lit bump mapping, speckles... \n    and that's pretty much it. As for why a metallic surface would be \n    defying\tthe laws of physics and moving like this is anyone's guess. :)\n\n    By the way, I have a 3D version, similar to this, that I'll put up at \n    a later date.\n    \n\n\n    Related examples:\n\n    Fantomas - Plop\n    https://www.shadertoy.com/view/ltSSDV\n\n    Fabrice - Plop 2\n    https://www.shadertoy.com/view/MlSSDV\n\n    IQ - Sculpture III (loosely related)\n    https://www.shadertoy.com/view/XtjSDK\n\n    Shane - Lit Sine Warp (far less code)\n    https://www.shadertoy.com/view/Ml2XDV\n\n*/\n\n\n// Warp function. Variations have been around for years. This is\n// almost the same as Fabrice's version:\n// Fabrice - Plop 2\n// https://www.shadertoy.com/view/MlSSDV\nvec2 W(vec2 p){\n    \n    p = (p + 3.)*4.;\n\n    float t = iTime/2.;\n\n    // Layered, sinusoidal feedback, with time component.\n    for (int i=0; i<3; i++){\n        p += cos(p.yx*3. + vec2(t, 1.57))/3.;\n        p += sin(p.yx + t + vec2(1.57, 0))/2.;\n        p *= 1.3;\n    }\n\n    // A bit of jitter to counter the high frequency sections.\n    p += fract(sin(p+vec2(13, 7))*5e5)*.03 - .015;\n\n    return mod(p, 2.) - 1.; // Range: [vec2(-1), vec2(1)]\n    \n}\n\n// Bump mapping function. Put whatever you want here. In this case, \n// we're returning the length of the sinusoidal warp function.\nfloat bumpFunc(vec2 p){ \n\n    return length(W(p))*.7071; // Range: [0, 1]\n\n}\n\n/*\n// Standard ray-plane intersection.\nvec3 rayPlane(vec3 p, vec3 o, vec3 n, vec3 rd) {\n    \n    float dn = dot(rd, n);\n\n    float s = 1e8;\n    \n    if (abs(dn) > 0.0001) {\n        s = dot(p-o, n) / dn;\n        s += float(s < 0.0) * 1e8;\n    }\n    \n    return o + s*rd;\n}\n*/\n\nvec3 smoothFract(vec3 x){ x = fract(x); return min(x, x*(1.-x)*12.); }\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord ){\n\n    // Screen coordinates.\n    vec2 uv = (fragCoord - iResolution.xy*.5)/iResolution.y;\n    \n    \n    // PLANE ROTATION\n    //\n    // Rotating the canvas back and forth. I don't feel it adds value, in this case,\n    // but feel free to uncomment it.\n    //float th = sin(iTime*0.1)*sin(iTime*0.12)*2.;\n    //float cs = cos(th), si = sin(th);\n    //uv *= mat2(cs, -si, si, cs);\n  \n\n    // VECTOR SETUP - surface postion, ray origin, unit direction vector, and light postion.\n    //\n    // Setup: I find 2D bump mapping more intuitive to pretend I'm raytracing, then lighting a \n    // bump mapped plane situated at the origin. Others may disagree. :)  \n    vec3 sp = vec3(uv, 0); // Surface posion, or hit point. Essentially, a screen at the origin.\n    vec3 rd = normalize(vec3(uv, 1)); // Unit direction vector. From the origin to the screen plane.\n    vec3 lp = vec3(cos(iTime)*.5, sin(iTime)*.2, -1); // Light position - Back from the screen.\n    vec3 sn = vec3(0, 0, -1); // Plane normal. Z pointing toward the viewer.\n \n     \n/*\n    // I deliberately left this block in to show that the above is a simplified version\n    // of a raytraced plane. The \"rayPlane\" equation is commented out above.\n    vec3 rd = normalize(vec3(uv, 1));\n    vec3 ro = vec3(0, 0, -1);\n\n    // Plane normal.\n    vec3 sn = normalize(vec3(cos(iTime)*.25, sin(iTime)*.25, -1));\n    //vec3 sn = normalize(vec3(0, 0, -1));\n    \n    vec3 sp = rayPlane(vec3(0), ro, sn, rd);\n    vec3 lp = vec3(cos(iTime)*.5, sin(iTime)*.25, -1); \n*/    \n    \n    \n    // BUMP MAPPING - PERTURBING THE NORMAL\n    //\n    // Setting up the bump mapping variables. Normally, you'd amalgamate a lot of the following,\n    // and roll it into a single function, but I wanted to show the workings.\n    //\n    // f - Function value\n    // fx - Change in \"f\" in in the X-direction.\n    // fy - Change in \"f\" in in the Y-direction.\n    vec2 eps = vec2(4./iResolution.y, 0);\n    \n    float f = bumpFunc(sp.xy); // Sample value multiplied by the amplitude.\n    float fx = bumpFunc(sp.xy - eps.xy); // Same for the nearby sample in the X-direction.\n    float fy = bumpFunc(sp.xy - eps.yx); // Same for the nearby sample in the Y-direction.\n   \n    // Controls how much the bump is accentuated.\n    const float bumpFactor = .05;\n    \n    // Using the above to determine the dx and dy function gradients.\n    fx = (fx - f)/eps.x; // Change in X\n    fy = (fy - f)/eps.x; // Change in Y.\n    // Using the gradient vector, \"vec3(fx, fy, 0),\" to perturb the XY plane normal \",vec3(0, 0, -1).\"\n    // By the way, there's a redundant step I'm skipping in this particular case, on account of the \n    // normal only having a Z-component. Normally, though, you'd need the commented stuff below.\n    //vec3 grad = vec3(fx, fy, 0);\n    //grad -= sn*dot(sn, grad);\n    //sn = normalize(sn + grad*bumpFactor ); \n    sn = normalize(sn + vec3(fx, fy, 0)*bumpFactor);   \n    // Equivalent to the following.\n    //sn = cross(-vec3(1, 0, fx*bumpFactor), vec3(0, 1, fy*bumpFactor));\n    //sn = normalize(sn);\n   \n    \n    // LIGHTING\n    //\n    // Determine the light direction vector, calculate its distance, then normalize it.\n    vec3 ld = lp - sp;\n    float lDist = max(length(ld), .0001);\n    ld /= lDist;\n\n    // Light attenuation.    \n    float atten = 1./(1. + lDist*lDist*.15);\n    //float atten = min(1./(lDist*lDist*1.), 1.);\n    \n    // Using the bump function, \"f,\" to darken the crevices. Completely optional, but I\n    // find it gives extra depth.\n    atten *= f*.9 + .1; // Or... f*f*.7 + .3; //  pow(f, .75); // etc.\n\n    \n\n    // Diffuse value.\n    float diff = max(dot(sn, ld), 0.);  \n    // Enhancing the diffuse value a bit. Made up.\n    diff = pow(diff, 4.)*.66 + pow(diff, 8.)*.34; \n    // Specular highlighting.\n    float spec = pow(max(dot( reflect(-ld, sn), -rd), 0.), 12.); \n    //float spec = pow(max(dot(normalize(ld - rd), sn), 0.), 32.);\n    \n    \n    // TEXTURE COLOR\n    //\n    // Combining the surface postion with a fraction of the warped surface position to index \n    // into the texture. The result is a slightly warped texture, as a opposed to a completely \n    // warped one. By the way, the warp function is called above in the \"bumpFunc\" function,\n    // so it's kind of wasteful doing it again here, but the function is kind of cheap, and\n    // it's more readable this way.\n    vec3 texCol = texture(iChannel0, sp.xy + W(sp.xy)/8.).xyz; \n    texCol *= texCol; // Rough sRGB to linear conversion... That's a whole other conversation. :)\n    // A bit of color processing.\n    texCol = smoothstep(.05, .75, pow(texCol, vec3(.75, .8, .85)));    \n    \n    // Textureless. Simple and elegant... so it clearly didn't come from me. Thanks Fabrice. :)\n    //vec3 texCol = smoothFract( W(sp.xy).xyy )*.1 + .2;\n    \n    \n    \n    // FINAL COLOR\n    // Using the values above to produce the final color.   \n    vec3 col = (texCol*(diff*vec3(1, .97, .92)*2. + .5) + vec3(1, .6, .2)*spec*2.)*atten;\n    \n    // Faux environment mapping: I added this in at a later date out of sheer boredome, and  \n    // because I like shiny stuff. You can comment it out if it's not to your liking. :)\n    float ref = max(dot(reflect(rd, sn), vec3(1)), 0.);\n    col += col*pow(ref, 4.)*vec3(.25, .5, 1)*3.;\n    \n\n    // Perform some statistically unlikely (but close enough) 2.0 gamma correction. :) \n    fragColor = vec4(sqrt(clamp(col, 0., 1.)), 1);\n}",
+          "shaderCode": "// Custom params: // @param name type [default] [min, max] \"description\"\n\n/*\n\n    Bumped Sinusoidal Warp\n    ----------------------\n\n    Sinusoidal planar deformation, or the 2D sine warp effect to people \n    like me. The effect has been around for years, and there are\n    countless examples on the net. IQ's \"Sculpture III\" is basically a \n    much more sophisticated, spherical variation.\n\n    This particular version was modified from Fabrice's \"Plop 2,\" which in \n    turn was a simplified version of Fantomas's \"Plop.\" I simply reduced \n    the frequency and iteration count in order to make it less busy.\n\n    I also threw in a texture, added point-lit bump mapping, speckles... \n    and that's pretty much it. As for why a metallic surface would be \n    defying\tthe laws of physics and moving like this is anyone's guess. :)\n\n    By the way, I have a 3D version, similar to this, that I'll put up at \n    a later date.\n    \n\n\n    Related examples:\n\n    Fantomas - Plop\n    https://www.shadertoy.com/view/ltSSDV\n\n    Fabrice - Plop 2\n    https://www.shadertoy.com/view/MlSSDV\n\n    IQ - Sculpture III (loosely related)\n    https://www.shadertoy.com/view/XtjSDK\n\n    Shane - Lit Sine Warp (far less code)\n    https://www.shadertoy.com/view/Ml2XDV\n\n*/\n\n\n// Warp function. Variations have been around for years. This is\n// almost the same as Fabrice's version:\n// Fabrice - Plop 2\n// https://www.shadertoy.com/view/MlSSDV\n// @texture iChannel0 GrayNoise\n\nvec2 W(vec2 p){\n    \n    p = (p + 3.)*4.;\n\n    float t = iTime/2.;\n\n    // Layered, sinusoidal feedback, with time component.\n    for (int i=0; i<3; i++){\n        p += cos(p.yx*3. + vec2(t, 1.57))/3.;\n        p += sin(p.yx + t + vec2(1.57, 0))/2.;\n        p *= 1.3;\n    }\n\n    // A bit of jitter to counter the high frequency sections.\n    p += fract(sin(p+vec2(13, 7))*5e5)*.03 - .015;\n\n    return mod(p, 2.) - 1.; // Range: [vec2(-1), vec2(1)]\n    \n}\n\n// Bump mapping function. Put whatever you want here. In this case, \n// we're returning the length of the sinusoidal warp function.\nfloat bumpFunc(vec2 p){ \n\n    return length(W(p))*.7071; // Range: [0, 1]\n\n}\n\n/*\n// Standard ray-plane intersection.\nvec3 rayPlane(vec3 p, vec3 o, vec3 n, vec3 rd) {\n    \n    float dn = dot(rd, n);\n\n    float s = 1e8;\n    \n    if (abs(dn) > 0.0001) {\n        s = dot(p-o, n) / dn;\n        s += float(s < 0.0) * 1e8;\n    }\n    \n    return o + s*rd;\n}\n*/\n\nvec3 smoothFract(vec3 x){ x = fract(x); return min(x, x*(1.-x)*12.); }\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord ){\n\n    // Screen coordinates.\n    vec2 uv = (fragCoord - iResolution.xy*.5)/iResolution.y;\n    \n    \n    // PLANE ROTATION\n    //\n    // Rotating the canvas back and forth. I don't feel it adds value, in this case,\n    // but feel free to uncomment it.\n    //float th = sin(iTime*0.1)*sin(iTime*0.12)*2.;\n    //float cs = cos(th), si = sin(th);\n    //uv *= mat2(cs, -si, si, cs);\n  \n\n    // VECTOR SETUP - surface postion, ray origin, unit direction vector, and light postion.\n    //\n    // Setup: I find 2D bump mapping more intuitive to pretend I'm raytracing, then lighting a \n    // bump mapped plane situated at the origin. Others may disagree. :)  \n    vec3 sp = vec3(uv, 0); // Surface posion, or hit point. Essentially, a screen at the origin.\n    vec3 rd = normalize(vec3(uv, 1)); // Unit direction vector. From the origin to the screen plane.\n    vec3 lp = vec3(cos(iTime)*.5, sin(iTime)*.2, -1); // Light position - Back from the screen.\n    vec3 sn = vec3(0, 0, -1); // Plane normal. Z pointing toward the viewer.\n \n     \n/*\n    // I deliberately left this block in to show that the above is a simplified version\n    // of a raytraced plane. The \"rayPlane\" equation is commented out above.\n    vec3 rd = normalize(vec3(uv, 1));\n    vec3 ro = vec3(0, 0, -1);\n\n    // Plane normal.\n    vec3 sn = normalize(vec3(cos(iTime)*.25, sin(iTime)*.25, -1));\n    //vec3 sn = normalize(vec3(0, 0, -1));\n    \n    vec3 sp = rayPlane(vec3(0), ro, sn, rd);\n    vec3 lp = vec3(cos(iTime)*.5, sin(iTime)*.25, -1); \n*/    \n    \n    \n    // BUMP MAPPING - PERTURBING THE NORMAL\n    //\n    // Setting up the bump mapping variables. Normally, you'd amalgamate a lot of the following,\n    // and roll it into a single function, but I wanted to show the workings.\n    //\n    // f - Function value\n    // fx - Change in \"f\" in in the X-direction.\n    // fy - Change in \"f\" in in the Y-direction.\n    vec2 eps = vec2(4./iResolution.y, 0);\n    \n    float f = bumpFunc(sp.xy); // Sample value multiplied by the amplitude.\n    float fx = bumpFunc(sp.xy - eps.xy); // Same for the nearby sample in the X-direction.\n    float fy = bumpFunc(sp.xy - eps.yx); // Same for the nearby sample in the Y-direction.\n   \n    // Controls how much the bump is accentuated.\n    const float bumpFactor = .05;\n    \n    // Using the above to determine the dx and dy function gradients.\n    fx = (fx - f)/eps.x; // Change in X\n    fy = (fy - f)/eps.x; // Change in Y.\n    // Using the gradient vector, \"vec3(fx, fy, 0),\" to perturb the XY plane normal \",vec3(0, 0, -1).\"\n    // By the way, there's a redundant step I'm skipping in this particular case, on account of the \n    // normal only having a Z-component. Normally, though, you'd need the commented stuff below.\n    //vec3 grad = vec3(fx, fy, 0);\n    //grad -= sn*dot(sn, grad);\n    //sn = normalize(sn + grad*bumpFactor ); \n    sn = normalize(sn + vec3(fx, fy, 0)*bumpFactor);   \n    // Equivalent to the following.\n    //sn = cross(-vec3(1, 0, fx*bumpFactor), vec3(0, 1, fy*bumpFactor));\n    //sn = normalize(sn);\n   \n    \n    // LIGHTING\n    //\n    // Determine the light direction vector, calculate its distance, then normalize it.\n    vec3 ld = lp - sp;\n    float lDist = max(length(ld), .0001);\n    ld /= lDist;\n\n    // Light attenuation.    \n    float atten = 1./(1. + lDist*lDist*.15);\n    //float atten = min(1./(lDist*lDist*1.), 1.);\n    \n    // Using the bump function, \"f,\" to darken the crevices. Completely optional, but I\n    // find it gives extra depth.\n    atten *= f*.9 + .1; // Or... f*f*.7 + .3; //  pow(f, .75); // etc.\n\n    \n\n    // Diffuse value.\n    float diff = max(dot(sn, ld), 0.);  \n    // Enhancing the diffuse value a bit. Made up.\n    diff = pow(diff, 4.)*.66 + pow(diff, 8.)*.34; \n    // Specular highlighting.\n    float spec = pow(max(dot( reflect(-ld, sn), -rd), 0.), 12.); \n    //float spec = pow(max(dot(normalize(ld - rd), sn), 0.), 32.);\n    \n    \n    // TEXTURE COLOR\n    //\n    // Combining the surface postion with a fraction of the warped surface position to index \n    // into the texture. The result is a slightly warped texture, as a opposed to a completely \n    // warped one. By the way, the warp function is called above in the \"bumpFunc\" function,\n    // so it's kind of wasteful doing it again here, but the function is kind of cheap, and\n    // it's more readable this way.\n    vec3 texCol = texture(iChannel0, sp.xy + W(sp.xy)/8.).xyz; \n    texCol *= texCol; // Rough sRGB to linear conversion... That's a whole other conversation. :)\n    // A bit of color processing.\n    texCol = smoothstep(.05, .75, pow(texCol, vec3(.75, .8, .85)));    \n    \n    // Textureless. Simple and elegant... so it clearly didn't come from me. Thanks Fabrice. :)\n    //vec3 texCol = smoothFract( W(sp.xy).xyy )*.1 + .2;\n    \n    \n    \n    // FINAL COLOR\n    // Using the values above to produce the final color.   \n    vec3 col = (texCol*(diff*vec3(1, .97, .92)*2. + .5) + vec3(1, .6, .2)*spec*2.)*atten;\n    \n    // Faux environment mapping: I added this in at a later date out of sheer boredome, and  \n    // because I like shiny stuff. You can comment it out if it's not to your liking. :)\n    float ref = max(dot(reflect(rd, sn), vec3(1)), 0.);\n    col += col*pow(ref, 4.)*vec3(.25, .5, 1)*3.;\n    \n\n    // Perform some statistically unlikely (but close enough) 2.0 gamma correction. :) \n    fragColor = vec4(sqrt(clamp(col, 0., 1.)), 1);\n}",
+          "filePath": null,
+          "params": {
+            "speed": 1
+          },
+          "customParams": {},
+          "presets": [],
+          "type": "shader"
+        },
+        {
+          "shaderCode": "// Colorful flames effect\n// Custom params: // @param name type [default] [min, max] \"description\"\n// @texture iChannel0 RGBANoise\n// @param light1 color[2] [[0.9, 0.4, 0.1],[0.9,0.7,0.3]] \"Flamme 1\"\n// @param light2 color[2] [[0.2, 0.6, 0.7],[0.6,0.8,0.9]] \"Flamme 2\"\n// @param light3 color[2] [[0.9, 0.3, 0.0],[0.9,0.3,0.0]] \"Flamme 3\"\n// @param light4 color[2] [[0.2, 0.3, 0.8],[0.9,0.6,0.9]] \"Flamme 4\"\n// @param light5 color[2] [[0.9, 0.4, 0.6],[0.9,0.7,0.3]] \"Flamme 5\"\n// @param light6 color[2] [[0.2, 0.6, 0.0],[0.6,0.8,0.9]] \"Flamme 6\"\n// @param light7 color[2] [[0.9, 0.4, 0.7],[0.1,0.8,0.5]] \"Flamme 7\"\n// @param light8 color[2] [[0.2, 0.3, 0.3],[0.9,0.6,0.9]] \"Flamme 8\"\n// @param fspeed vec2 [0.03, 0.1] [0.0,1.0] \"Flamme 8\"\n\n#define R iResolution.xy\n#define S smoothstep\n#define T texture\n\nvec3 flame (vec2 u, float s, vec3 c1, vec3 c2) {\n    float y = S(-.6,.6,u.y);\n    u += T(iChannel0, u*.02 + vec2(s - iTime*fspeed[0], s - iTime*fspeed[1])).r * y * vec2(0.7, 0.2);\n    float f = S(.1, 0., length(u) - .4);\n    f *= S(0., 1., length(u + vec2(0., .35)));\n    return f*mix(c1,c2,y);\n}\n\nvoid mainImage( out vec4 O, in vec2 I )\n{\n    vec2 u = (I-.5*R)/R.y*vec2(10.,1.3);\n    \n    vec3 f1 = flame(u+vec2( 7.5,0.0),.1,light1[0],light1[1]);\n    vec3 f2 = flame(u+vec2( 6.,0.),.2,light2[0],light2[1]);\n    vec3 f3 = flame(u+vec2( 4.5,0.),.3,light3[0],light3[1]);\n    vec3 f4 = flame(u+vec2( 3.,0.),.4,light4[0],light4[1]);\n    vec3 f5 = flame(u+vec2( 1.5,0.),.5,light5[0],light5[1]);\n    vec3 f6 = flame(u+vec2( 0.,0.),.6,light6[0],light6[1]);\n    vec3 f7 = flame(u+vec2( -1.5,0.),.7,light7[0],light7[1]);\n    vec3 f8 = flame(u+vec2(-3.,0.),.8,light8[0],light8[1]);\n\n    vec3 C = f1+f2+f3+f4+f5+f6+f7+f8;\n    O = vec4(C+C,1.0);\n}",
           "filePath": "/Users/mbp11/development/ai/anthropic/shadershow/shadertoy/fluessig1.frag",
           "params": {
             "speed": 1.22,
@@ -332,12 +151,113 @@
             "g9": 0,
             "b9": 0
           },
-          "customParams": {},
+          "customParams": {
+            "light1": [
+              [
+                0.9,
+                0.4,
+                0.1
+              ],
+              [
+                0.9,
+                0.7,
+                0.3
+              ]
+            ],
+            "light2": [
+              [
+                0.2,
+                0.6,
+                0.7
+              ],
+              [
+                0.6,
+                0.8,
+                0.9
+              ]
+            ],
+            "light3": [
+              [
+                0.9,
+                0.3,
+                0
+              ],
+              [
+                0.9,
+                0.3,
+                0
+              ]
+            ],
+            "light4": [
+              [
+                0.2,
+                0.3,
+                0.8
+              ],
+              [
+                0.9,
+                0.6,
+                0.9
+              ]
+            ],
+            "light5": [
+              [
+                0.9,
+                0.4,
+                0.6
+              ],
+              [
+                0.9,
+                0.7,
+                0.3
+              ]
+            ],
+            "light6": [
+              [
+                0.2,
+                0.6,
+                0
+              ],
+              [
+                0.6,
+                0.8,
+                0.9
+              ]
+            ],
+            "light7": [
+              [
+                0.9,
+                0.4,
+                0.7
+              ],
+              [
+                0.1,
+                0.8,
+                0.5
+              ]
+            ],
+            "light8": [
+              [
+                0.2,
+                0.3,
+                0.3
+              ],
+              [
+                0.9,
+                0.6,
+                0.9
+              ]
+            ],
+            "fspeed": [
+              0,
+              0.1
+            ]
+          },
           "presets": [],
           "type": "shader"
         },
         {
-          "shaderCode": "// Colorful flames effect\n// Custom params: // @param name type [default] [min, max] \"description\"\n// @texture iChannel0 RGBANoise\n// @param light1 color[2] [[0.9, 0.4, 0.1],[0.9,0.7,0.3]] \"Flamme 1\"\n// @param light2 color[2] [[0.2, 0.6, 0.7],[0.6,0.8,0.9]] \"Flamme 2\"\n// @param light3 color[2] [[0.9, 0.3, 0.0],[0.9,0.3,0.0]] \"Flamme 3\"\n// @param light4 color[2] [[0.2, 0.3, 0.8],[0.9,0.6,0.9]] \"Flamme 4\"\n// @param light5 color[2] [[0.9, 0.4, 0.6],[0.9,0.7,0.3]] \"Flamme 5\"\n// @param light6 color[2] [[0.2, 0.6, 0.0],[0.6,0.8,0.9]] \"Flamme 6\"\n// @param light7 color[2] [[0.9, 0.4, 0.7],[0.1,0.8,0.5]] \"Flamme 7\"\n// @param light8 color[2] [[0.2, 0.3, 0.3],[0.9,0.6,0.9]] \"Flamme 8\"\n// @param fspeed vec2 [0.03, 0.1] [0.0,1.0] \"Flamme 8\"\n\n#define R iResolution.xy\n#define S smoothstep\n#define T texture\n\nvec3 flame (vec2 u, float s, vec3 c1, vec3 c2) {\n    float y = S(-.6,.6,u.y);\n    u += T(iChannel0, u*.02 + vec2(s - iTime*fspeed[0], s - iTime*fspeed[1])).r * y * vec2(0.7, 0.2);\n    float f = S(.1, 0., length(u) - .4);\n    f *= S(0., 1., length(u + vec2(0., .35)));\n    return f*mix(c1,c2,y);\n}\n\nvoid mainImage( out vec4 O, in vec2 I )\n{\n    vec2 u = (I-.5*R)/R.y*vec2(10.,1.3);\n    \n    vec3 f1 = flame(u+vec2( 7.5,0.0),.1,light1[0],light1[1]);\n    vec3 f2 = flame(u+vec2( 6.,0.),.2,light2[0],light2[1]);\n    vec3 f3 = flame(u+vec2( 4.5,0.),.3,light3[0],light3[1]);\n    vec3 f4 = flame(u+vec2( 3.,0.),.4,light4[0],light4[1]);\n    vec3 f5 = flame(u+vec2( 1.5,0.),.5,light5[0],light5[1]);\n    vec3 f6 = flame(u+vec2( 0.,0.),.6,light6[0],light6[1]);\n    vec3 f7 = flame(u+vec2( -1.5,0.),.7,light7[0],light7[1]);\n    vec3 f8 = flame(u+vec2(-3.,0.),.8,light8[0],light8[1]);\n\n    vec3 C = f1+f2+f3+f4+f5+f6+f7+f8;\n    O = vec4(C+C,1.0);\n}",
+          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n *\n * Supported types: int, float, vec2, vec3, vec4, color\n *\n * Examples:\n *   // @param speed float 1.0 [0.0, 2.0] \"Animation speed\"\n *   // @param center vec2 0.5, 0.5 \"Center position\"\n *   // @param tint color [1.0, 0.5, 0.0] \"Tint color\"\n */\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n\tvec2 uv = fragCoord.xy / iResolution.xy;\n\tfragColor = vec4(uv,0.5+0.5*sin(iTime),1.0);\n    \n    \n    float pi = 3.1415926535897; \n\n     \n    float cx = uv.x+0.5*sin(iTime/5.0); \n    float cy = uv.y+0.5*cos(iTime/3.0); \n     \n    float v = sin(sqrt(100.0*(cx*cx+cy*cy))); \n    v += sin(uv.x*10.0+iTime); \n    v += cos(uv.y*4.0+iTime); \n     \n    fragColor = vec4(sin(v*pi), cos(v*pi), sin(v*pi + 0.5*pi*v), 1.0); \n    \n}",
           "filePath": null,
           "params": {
             "speed": 1.16
@@ -456,7 +376,7 @@
           "type": "shader"
         },
         {
-          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n *\n * Supported types: int, float, vec2, vec3, vec4, color\n *\n * Examples:\n *   // @param speed float 1.0 [0.0, 2.0] \"Animation speed\"\n *   // @param center vec2 0.5, 0.5 \"Center position\"\n *   // @param tint color [1.0, 0.5, 0.0] \"Tint color\"\n */\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n\tvec2 uv = fragCoord.xy / iResolution.xy;\n\tfragColor = vec4(uv,0.5+0.5*sin(iTime),1.0);\n    \n    \n    float pi = 3.1415926535897; \n\n     \n    float cx = uv.x+0.5*sin(iTime/5.0); \n    float cy = uv.y+0.5*cos(iTime/3.0); \n     \n    float v = sin(sqrt(100.0*(cx*cx+cy*cy))); \n    v += sin(uv.x*10.0+iTime); \n    v += cos(uv.y*4.0+iTime); \n     \n    fragColor = vec4(sin(v*pi), cos(v*pi), sin(v*pi + 0.5*pi*v), 1.0); \n    \n}",
+          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n *\n * Supported types: int, float, vec2, vec3, vec4, color\n *\n * Examples:\n *   // @param speed float 1.0 [0.0, 2.0] \"Animation speed\"\n *   // @param center vec2 0.5, 0.5 \"Center position\"\n *   // @param tint color [1.0, 0.5, 0.0] \"Tint color\"\n */\n\nvec3 palette(float d){\n\treturn mix(vec3(0.2,0.7,0.9),vec3(1.,0.,1.),d);\n}\n\nvec2 rotate(vec2 p,float a){\n\tfloat c = cos(a);\n    float s = sin(a);\n    return p*mat2(c,s,-s,c);\n}\n\nfloat map(vec3 p){\n    for( int i = 0; i<8; ++i){\n        float t = iTime*0.2;\n        p.xz =rotate(p.xz,t);\n        p.xy =rotate(p.xy,t*1.89);\n        p.xz = abs(p.xz);\n        p.xz-=.5;\n\t}\n\treturn dot(sign(p),p)/5.;\n}\n\nvec4 rm (vec3 ro, vec3 rd){\n    float t = 0.;\n    vec3 col = vec3(0.);\n    float d;\n    for(float i =0.; i<64.; i++){\n\t\tvec3 p = ro + rd*t;\n        d = map(p)*.5;\n        if(d<0.02){\n            break;\n        }\n        if(d>100.){\n        \tbreak;\n        }\n        //col+=vec3(0.6,0.8,0.8)/(400.*(d));\n        col+=palette(length(p)*.1)/(400.*(d));\n        t+=d;\n    }\n    return vec4(col,1./(d*100.));\n}\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 uv = (fragCoord-(iResolution.xy/2.))/iResolution.x;\n\tvec3 ro = vec3(0.,0.,-50.);\n    ro.xz = rotate(ro.xz,iTime);\n    vec3 cf = normalize(-ro);\n    vec3 cs = normalize(cross(cf,vec3(0.,1.,0.)));\n    vec3 cu = normalize(cross(cf,cs));\n    \n    vec3 uuv = ro+cf*3. + uv.x*cs + uv.y*cu;\n    \n    vec3 rd = normalize(uuv-ro);\n    \n    vec4 col = rm(ro,rd);\n    \n    \n    fragColor = col;\n}\n\n/** SHADERDATA\n{\n\t\"title\": \"fractal pyramid\",\n\t\"description\": \"\",\n\t\"model\": \"car\"\n}\n*/",
           "filePath": null,
           "params": {
             "speed": 1,
@@ -524,51 +444,6 @@
               "name": null
             }
           ],
-          "type": "shader"
-        },
-        {
-          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n *\n * Supported types: int, float, vec2, vec3, vec4, color\n *\n * Examples:\n *   // @param speed float 1.0 [0.0, 2.0] \"Animation speed\"\n *   // @param center vec2 0.5, 0.5 \"Center position\"\n *   // @param tint color [1.0, 0.5, 0.0] \"Tint color\"\n */\n\nvec3 palette(float d){\n\treturn mix(vec3(0.2,0.7,0.9),vec3(1.,0.,1.),d);\n}\n\nvec2 rotate(vec2 p,float a){\n\tfloat c = cos(a);\n    float s = sin(a);\n    return p*mat2(c,s,-s,c);\n}\n\nfloat map(vec3 p){\n    for( int i = 0; i<8; ++i){\n        float t = iTime*0.2;\n        p.xz =rotate(p.xz,t);\n        p.xy =rotate(p.xy,t*1.89);\n        p.xz = abs(p.xz);\n        p.xz-=.5;\n\t}\n\treturn dot(sign(p),p)/5.;\n}\n\nvec4 rm (vec3 ro, vec3 rd){\n    float t = 0.;\n    vec3 col = vec3(0.);\n    float d;\n    for(float i =0.; i<64.; i++){\n\t\tvec3 p = ro + rd*t;\n        d = map(p)*.5;\n        if(d<0.02){\n            break;\n        }\n        if(d>100.){\n        \tbreak;\n        }\n        //col+=vec3(0.6,0.8,0.8)/(400.*(d));\n        col+=palette(length(p)*.1)/(400.*(d));\n        t+=d;\n    }\n    return vec4(col,1./(d*100.));\n}\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 uv = (fragCoord-(iResolution.xy/2.))/iResolution.x;\n\tvec3 ro = vec3(0.,0.,-50.);\n    ro.xz = rotate(ro.xz,iTime);\n    vec3 cf = normalize(-ro);\n    vec3 cs = normalize(cross(cf,vec3(0.,1.,0.)));\n    vec3 cu = normalize(cross(cf,cs));\n    \n    vec3 uuv = ro+cf*3. + uv.x*cs + uv.y*cu;\n    \n    vec3 rd = normalize(uuv-ro);\n    \n    vec4 col = rm(ro,rd);\n    \n    \n    fragColor = col;\n}\n\n/** SHADERDATA\n{\n\t\"title\": \"fractal pyramid\",\n\t\"description\": \"\",\n\t\"model\": \"car\"\n}\n*/",
-          "filePath": null,
-          "params": {
-            "speed": 1,
-            "p0": 0.5,
-            "p1": 0.5,
-            "p2": 0.5,
-            "p3": 0.5,
-            "p4": 0.5,
-            "r0": 1,
-            "g0": 1,
-            "b0": 1,
-            "r1": 1,
-            "g1": 1,
-            "b1": 1,
-            "r2": 1,
-            "g2": 1,
-            "b2": 1,
-            "r3": 1,
-            "g3": 1,
-            "b3": 1,
-            "r4": 1,
-            "g4": 1,
-            "b4": 1,
-            "r5": 1,
-            "g5": 1,
-            "b5": 1,
-            "r6": 1,
-            "g6": 1,
-            "b6": 1,
-            "r7": 1,
-            "g7": 1,
-            "b7": 1,
-            "r8": 1,
-            "g8": 1,
-            "b8": 1,
-            "r9": 1,
-            "g9": 1,
-            "b9": 1
-          },
-          "customParams": {},
-          "presets": [],
           "type": "shader"
         },
         {
@@ -710,6 +585,237 @@
           "shaderCode": "\n// @param cColor color[10] [[1.0, 0.0, 0.0],[0.0, 1.0, 0.0],[0.0, 0.0, 1.0],[1.0, 1.0, 0.1],[0.0, 0.5, 1.0],[1.0, 0.5, 0.0],[0.0, 1.0, 0.5],[1.0, 0.0, 1.0],[1.0, 1.0, 1.0],[0.5, 0.0, 1.0]] \"Fire color\"\n// @param colors vec2 [3.0,3.0] [1,10]\n// @param rradius float 0.5 [0.0, 1.0] \"radius halo\"\n// @param mradius float 0.1 [0.0, 1.0] \"Radius voll\"\n// @param gridsize int 10 [0,100] \"Anzahl\"\n// @param xspeed vec2 [0.0,0.0] [-2.0,2.0] \"Geschwindigkeit\"\n// @param cspeed vec2 [0.0,0.0] [-2.0,2.0] \"Geschwindigkeit\"\n// @param pos vec2 [0.0,0.0] [-2.0,2.0] \"Geschwindigkeit\"\n\n\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    // Normalize coordinates to 0-1 range\n    vec2 uv = fragCoord.xy / iResolution.xy;\n    \n    vec2 t = vec2(mod(iTime, iResolution.x), mod(iTime, iResolution.y));\n    \n    uv = uv + (t * xspeed) + pos;\n\n    // Grid parameters\n    float gridSize = float(gridsize);\n    float radius = rradius * (1.0 / gridSize);\n    \n    // Scale UV to grid space (0 to 10)\n    vec2 gridUV = uv * gridSize;\n    \n    // Get the cell index (0-9) and position within cell (0-1)\n    vec2 cellIndex = floor(gridUV);\n    vec2 cellUV = fract(gridUV);\n    \n    // Center of each cell is at (0.5, 0.5) in cell space\n    // Convert radius to cell space (cell is 1/10 of screen, so radius * 10)\n    float cellRadius = radius * gridSize;\n    \n    // Distance from center of cell\n    float dist = distance(cellUV, vec2(0.5));\n    \n    // Draw circle: white inside, black outside\n    float circle = smoothstep(mradius, cellRadius, dist);\n    \n    // Output color\n    vec2 c = cellIndex + t * cspeed;\n    int ci = int(mod(mod(c.x,colors.x) + mod(c.y,colors.y), 10.0));\n    vec3 color = cColor[ci] - vec3(circle);\n    \n    fragColor = vec4(color, 1.0);\n}\n",
           "filePath": null,
           "params": {
+            "speed": 1,
+            "cColor": [
+              [
+                1,
+                0,
+                0
+              ],
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                0,
+                1
+              ],
+              [
+                1,
+                1,
+                0.1
+              ],
+              [
+                0,
+                0.5,
+                1
+              ],
+              [
+                1,
+                0.5,
+                0
+              ],
+              [
+                0,
+                1,
+                0.5
+              ],
+              [
+                1,
+                0,
+                1
+              ],
+              [
+                1,
+                1,
+                1
+              ],
+              [
+                0.5,
+                0,
+                1
+              ]
+            ],
+            "colors": [
+              4,
+              2.01
+            ],
+            "rradius": 0.5,
+            "mradius": 0.1,
+            "gridsize": 10,
+            "xspeed": [
+              0.06,
+              0
+            ],
+            "cspeed": [
+              0.78,
+              0
+            ],
+            "pos": [
+              0,
+              0
+            ]
+          },
+          "customParams": {
+            "cColor": [
+              [
+                1,
+                0,
+                0
+              ],
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                0,
+                1
+              ],
+              [
+                1,
+                1,
+                0.1
+              ],
+              [
+                0,
+                0.5,
+                1
+              ],
+              [
+                1,
+                0.5,
+                0
+              ],
+              [
+                0,
+                1,
+                0.5
+              ],
+              [
+                1,
+                0,
+                1
+              ],
+              [
+                1,
+                1,
+                1
+              ],
+              [
+                0.5,
+                0,
+                1
+              ]
+            ],
+            "colors": [
+              4,
+              2.01
+            ],
+            "rradius": 0.5,
+            "mradius": 0.1,
+            "gridsize": 10,
+            "xspeed": [
+              0.06,
+              0
+            ],
+            "cspeed": [
+              0.78,
+              0
+            ],
+            "pos": [
+              0,
+              0
+            ]
+          },
+          "presets": [
+            {
+              "params": {
+                "speed": 1,
+                "cColor": [
+                  [
+                    1,
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    1,
+                    0
+                  ],
+                  [
+                    0,
+                    0,
+                    1
+                  ],
+                  [
+                    1,
+                    1,
+                    0.1
+                  ],
+                  [
+                    0,
+                    0.5,
+                    1
+                  ],
+                  [
+                    1,
+                    0.5,
+                    0
+                  ],
+                  [
+                    0,
+                    1,
+                    0.5
+                  ],
+                  [
+                    1,
+                    0,
+                    1
+                  ],
+                  [
+                    1,
+                    1,
+                    1
+                  ],
+                  [
+                    0.5,
+                    0,
+                    1
+                  ]
+                ],
+                "colors": [
+                  4,
+                  2.01
+                ],
+                "rradius": 0.5,
+                "mradius": 0.1,
+                "gridsize": 10,
+                "xspeed": [
+                  0.06,
+                  0
+                ],
+                "cspeed": [
+                  0.78,
+                  0
+                ],
+                "pos": [
+                  0,
+                  0
+                ]
+              },
+              "name": null
+            }
+          ],
+          "type": "shader"
+        },
+        {
+          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n *\n * Supported types: int, float, vec2, vec3, vec4, color\n *\n * Examples:\n *   // @param speed float 1.0 [0.0, 2.0] \"Animation speed\"\n *   // @param center vec2 0.5, 0.5 \"Center position\"\n *   // @param tint color [1.0, 0.5, 0.0] \"Tint color\"\n */\n\n#define P(z) vec3(cos((z)*.06)*24., cos((z)*.09)*12., z)\n#define O(Z,c) ( length(                 /* orb */   \\\n          X - vec3( sin( T*c*6. ) * 6.,        \\\n                    sin( T*c*4. ) * 2.,  \\\n                    T*4.+Z )  ) - c )\n// MENGERLAYER\n#define m(f, h)\\\n    s /= (f), \\\n    p = abs(fract(q/s)*s - s*.5), \\\n \tm = min(m, min(max(p.x, p.y), \\\n               min(max(p.y, p.z), \\\n               max(p.x, p.z))) - s/(h))\n\nvoid mainImage(out vec4 o, vec2 u) {\n   \n    float tun, i, e, T = iTime,m,d=4.,s = .5,l,\n          j = 0.;\n    vec3  c,r = iResolution;\n    mat2 rot = mat2(cos(cos(T*.2)*.6+vec4(0,33,11,0)));\n    \n    u = (u+u - r.xy) / r.y;\n\n    vec3  q,p = P(T*4.),\n          Z = normalize( P(T*4.+3.) - p),\n          X = normalize(vec3(Z.z,0,-Z)),\n          D = vec3(rot*u, 1) * mat3(-X, cross(X, Z), Z);\n \n    for(;i++ < 1e2;\n        c += (1.+cos(.6*i+vec3(2,1,0))) / s + vec3(1,2,8)*s + 1e1*vec3(5,2,1)/e\n    )\n        q = p += j + D * s,\n        X = p - P(p.z),X.z = p.z,\n        tun = 4. - length(max(abs(X.x), abs(X.y))),\n        e = max(     min( O( 5., .1),\n                     min( O( 7., .15),\n                          O( 9., .2) )), .001),\n        m=1e1,\n        s = 128.,\n        m(32., 8.),\n        s = 6.,\n        m(2., 6.),\n        m(2., 4.),\n        s = 32.,\n        m(2., 4.),\n        d += s = min(e*.5, max(tun, .001+.7*abs(m))),\n        D += s < .01 ? - .1 : 0.,\n        p = q;\n    o.rgb = tanh(c*c/7e8*exp(d/2e1));\n\n}",
+          "filePath": null,
+          "params": {
             "speed": 1
           },
           "customParams": {
@@ -789,22 +895,126 @@
           "type": "shader"
         },
         {
-          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n *\n * Supported types: int, float, vec2, vec3, vec4, color\n *\n * Examples:\n *   // @param speed float 1.0 [0.0, 2.0] \"Animation speed\"\n *   // @param center vec2 0.5, 0.5 \"Center position\"\n *   // @param tint color [1.0, 0.5, 0.0] \"Tint color\"\n */\n\n#define P(z) vec3(cos((z)*.06)*24., cos((z)*.09)*12., z)\n#define O(Z,c) ( length(                 /* orb */   \\\n          X - vec3( sin( T*c*6. ) * 6.,        \\\n                    sin( T*c*4. ) * 2.,  \\\n                    T*4.+Z )  ) - c )\n// MENGERLAYER\n#define m(f, h)\\\n    s /= (f), \\\n    p = abs(fract(q/s)*s - s*.5), \\\n \tm = min(m, min(max(p.x, p.y), \\\n               min(max(p.y, p.z), \\\n               max(p.x, p.z))) - s/(h))\n\nvoid mainImage(out vec4 o, vec2 u) {\n   \n    float tun, i, e, T = iTime,m,d=4.,s = .5,l,\n          j = 0.;\n    vec3  c,r = iResolution;\n    mat2 rot = mat2(cos(cos(T*.2)*.6+vec4(0,33,11,0)));\n    \n    u = (u+u - r.xy) / r.y;\n\n    vec3  q,p = P(T*4.),\n          Z = normalize( P(T*4.+3.) - p),\n          X = normalize(vec3(Z.z,0,-Z)),\n          D = vec3(rot*u, 1) * mat3(-X, cross(X, Z), Z);\n \n    for(;i++ < 1e2;\n        c += (1.+cos(.6*i+vec3(2,1,0))) / s + vec3(1,2,8)*s + 1e1*vec3(5,2,1)/e\n    )\n        q = p += j + D * s,\n        X = p - P(p.z),X.z = p.z,\n        tun = 4. - length(max(abs(X.x), abs(X.y))),\n        e = max(     min( O( 5., .1),\n                     min( O( 7., .15),\n                          O( 9., .2) )), .001),\n        m=1e1,\n        s = 128.,\n        m(32., 8.),\n        s = 6.,\n        m(2., 6.),\n        m(2., 4.),\n        s = 32.,\n        m(2., 4.),\n        d += s = min(e*.5, max(tun, .001+.7*abs(m))),\n        D += s < .01 ? - .1 : 0.,\n        p = q;\n    o.rgb = tanh(c*c/7e8*exp(d/2e1));\n\n}",
+          "shaderCode": "// Colorful flames effect\n// Custom params: // @param name type [default] [min, max] \"description\"\n// @texture iChannel0 RGBANoise\n// @param lights color[16] [[0.9, 0.4, 0.1],[0.9,0.7,0.3],[0.2, 0.6, 0.7],[0.6,0.8,0.9],[0.9, 0.3, 0.0],[0.9,0.3,0.0],[0.2, 0.3, 0.8],[0.9,0.6,0.9],[0.9, 0.4, 0.6],[0.9,0.7,0.3],[0.2, 0.6, 0.0],[0.6,0.8,0.9],[0.9, 0.4, 0.7],[0.1,0.8,0.5],[0.2, 0.3, 0.3],[0.9,0.6,0.9]]\n// @param fspeed vec2 [0.03,0.1] \"Flamme 8\"\n// @param size vec2 0.4,0.6  \"Flamme 8\"\n// @param pos vec2 0.4,0.1 [-5.0,5.0]  \"Flamme 8\"\n\n#define R iResolution.xy\n#define S smoothstep\n#define T texture\n\nvec3 flame (vec2 u, float s, vec3 c1, vec3 c2) {\n    float y = S(-.6,.6,u.y);\n    u += T(iChannel0, u*.02 + vec2(s - iTime*fspeed[0]*0.2, s - iTime*fspeed[1]*.5)).r * y * vec2(0.7, 0.2);\n    float f = S(.1, 0., length(u) - size[0]);\n    f *= S(0., 1., length(u + vec2(0., .35)));\n    return f*mix(c1,c2,y);\n}\n\nvoid mainImage( out vec4 O, in vec2 I )\n{\n    vec2 u = (I-.5*R)/R.y*vec2(10.,1.3);\n    \n    vec3 C = vec3(.0,.0,.0);\n    \n    int i = 0;\n    for(i = 0; i < 8 ; i++){\n      C +=flame(vec2(-2.0,-0.1) * pos + u+vec2(float(i) * size[1] * 2.0,0.0),.1 * float(i),lights[i*2],lights[i*2+1]);\n    }\n    \n    O = vec4(C+C,1.0);\n}",
           "filePath": "/Users/mbp11/development/ai/anthropic/shadershow/shadertoy/metal-menger.frag",
           "params": {
             "speed": 1
           },
-          "customParams": {},
+          "customParams": {
+            "lights": [
+              [
+                0.9,
+                0.4,
+                0.1
+              ],
+              [
+                0.9,
+                0.7,
+                0.3
+              ],
+              [
+                0.2,
+                0.6,
+                0.7
+              ],
+              [
+                0.6,
+                0.8,
+                0.9
+              ],
+              [
+                0.9,
+                0.3,
+                0
+              ],
+              [
+                0.9,
+                0.3,
+                0
+              ],
+              [
+                0.2,
+                0.3,
+                0.8
+              ],
+              [
+                0.9,
+                0.6,
+                0.9
+              ],
+              [
+                0.9,
+                0.4,
+                0.6
+              ],
+              [
+                0.9,
+                0.7,
+                0.3
+              ],
+              [
+                0.2,
+                0.6,
+                0
+              ],
+              [
+                0.6,
+                0.8,
+                0.9
+              ],
+              [
+                0.9,
+                0.4,
+                0.7
+              ],
+              [
+                0.1,
+                0.8,
+                0.5
+              ],
+              [
+                0.2,
+                0.3,
+                0.3
+              ],
+              [
+                0.9,
+                0.6,
+                0.9
+              ]
+            ],
+            "fspeed": [
+              0.03,
+              0.1
+            ],
+            "size": [
+              0.4,
+              0.6
+            ],
+            "pos": [
+              0.4,
+              0.1
+            ]
+          },
           "presets": [],
           "type": "shader"
         },
         {
-          "shaderCode": "// Colorful flames effect\n// Custom params: // @param name type [default] [min, max] \"description\"\n// @texture iChannel0 RGBANoise\n// @param lights color[16] [[0.9, 0.4, 0.1],[0.9,0.7,0.3],[0.2, 0.6, 0.7],[0.6,0.8,0.9],[0.9, 0.3, 0.0],[0.9,0.3,0.0],[0.2, 0.3, 0.8],[0.9,0.6,0.9],[0.9, 0.4, 0.6],[0.9,0.7,0.3],[0.2, 0.6, 0.0],[0.6,0.8,0.9],[0.9, 0.4, 0.7],[0.1,0.8,0.5],[0.2, 0.3, 0.3],[0.9,0.6,0.9]]\n// @param fspeed vec2 [0.03,0.1] \"Flamme 8\"\n// @param size vec2 0.4,0.6  \"Flamme 8\"\n// @param pos vec2 0.4,0.1 [-5.0,5.0]  \"Flamme 8\"\n\n#define R iResolution.xy\n#define S smoothstep\n#define T texture\n\nvec3 flame (vec2 u, float s, vec3 c1, vec3 c2) {\n    float y = S(-.6,.6,u.y);\n    u += T(iChannel0, u*.02 + vec2(s - iTime*fspeed[0]*0.2, s - iTime*fspeed[1]*.5)).r * y * vec2(0.7, 0.2);\n    float f = S(.1, 0., length(u) - size[0]);\n    f *= S(0., 1., length(u + vec2(0., .35)));\n    return f*mix(c1,c2,y);\n}\n\nvoid mainImage( out vec4 O, in vec2 I )\n{\n    vec2 u = (I-.5*R)/R.y*vec2(10.,1.3);\n    \n    vec3 C = vec3(.0,.0,.0);\n    \n    int i = 0;\n    for(i = 0; i < 8 ; i++){\n      C +=flame(vec2(-2.0,-0.1) * pos + u+vec2(float(i) * size[1] * 2.0,0.0),.1 * float(i),lights[i*2],lights[i*2+1]);\n    }\n    \n    O = vec4(C+C,1.0);\n}",
+          "shaderCode": "// Fire shader - Parametric flame effect\n\n// @param amplification float 1.0 [0.0,5.0] \"Verstaerkung\"\n// @param iterations float 0.5 [0.0, 1.0] \"Iteration depth\"\n// @param amplitude float 0.5 [0.0, 1.0] \"Wave amplitude\"\n// @param zoom float 0.5 [0.1, 1.0] \"Zoom level\"\n// @param fireColor color [1.0, 0.3, 0.1] \"Fire color\"\n\n/*\n    @SnoopethDuckDuck -6 chars\n    @Xor              -1 chars\n\n    Thanks! :D\n\n*/\n\n\nvoid mainImage(out vec4 o, vec2 u) {\n    float f, i, r, e,\n          t = iTime;\n    vec3 p, z = iResolution;\n    for(o*=i;\n        i++<1e2;\n        f += r = .01 + abs(--r)*.1,\n        o += 1. / r)\n        for(p = vec3((u-z.xy/(2. * 2.0 * zoom))/z.y * f, f+t),\n            p += cos(t+p.yzx+p.zzx)*(.6 + 5.0 * amplitude),\n            r =  cos(p.z),\n            e = 1.6 + iterations;\n            e < 32.;\n            e += e )\n            r += abs(dot(sin(t + p*e ), z/z)) / e;\n    o = amplification * tanh(vec4(fireColor,1) * o * o / f / 7e6);\n}\n\n\n\n/* you can put it out with this :D\n\nvoid mainImage( out vec4 o, vec2 u ) {\n    float s=.002,i,n;\n    vec3 r = iResolution,p;\n    for(o *= i; i++ < 40. && s > .001;) {\n        s = 1. + (p += vec3((u-r.xy/2.)/r.y,1) * s).y;\n        for (n =.5; n < 20.;n+=n)\n            s += abs(dot(sin(p.z+iTime+p * n), vec3(.1))) / n;\n        o += s *.03+.03;\n    }\n    o = tanh(o);\n}\n\n*/\n\n\n/* original fire shader\n\nvoid mainImage(out vec4 o, vec2 u) {\n    float f, i, r, e,\n          t = iTime;\n    vec3 p, z = iResolution;\n    for(o*=i;\n        i++<1e2;\n        f += r = .01 + abs(r)*.1,\n        o += 1. / r)\n        for(p = vec3(((u-z.xy/2.)/z.y) * f, f+t),\n            p += cos(t+p.yzx+p.zzx)*.6,\n            r =  cos(p.z)-1.,\n            e = 1.6;\n            e < 32.;\n            e += e )\n            r += abs(dot(sin(t + p*e ), vec3(1))) / e;\n    o = tanh(vec4(6,2,1,1) * o * o / f / 7e6);\n}\n\n*/",
           "filePath": null,
           "params": {
             "speed": 1
           },
           "customParams": {
+            "amplification": 1,
+            "iterations": 0.5,
+            "amplitude": 0.5,
+            "zoom": 0.5,
+            "fireColor": [
+              1,
+              0.3,
+              0.1
+            ],
             "lights": [
               [
                 0.9803921568627451,
@@ -1305,7 +1515,7 @@
           "type": "shader"
         },
         {
-          "shaderCode": "// Fire shader - Parametric flame effect\n\n// @param amplification float 1.0 [0.0,5.0] \"Verstaerkung\"\n// @param iterations float 0.5 [0.0, 1.0] \"Iteration depth\"\n// @param amplitude float 0.5 [0.0, 1.0] \"Wave amplitude\"\n// @param zoom float 0.5 [0.1, 1.0] \"Zoom level\"\n// @param fireColor color [1.0, 0.3, 0.1] \"Fire color\"\n\n/*\n    @SnoopethDuckDuck -6 chars\n    @Xor              -1 chars\n\n    Thanks! :D\n\n*/\n\n\nvoid mainImage(out vec4 o, vec2 u) {\n    float f, i, r, e,\n          t = iTime;\n    vec3 p, z = iResolution;\n    for(o*=i;\n        i++<1e2;\n        f += r = .01 + abs(--r)*.1,\n        o += 1. / r)\n        for(p = vec3((u-z.xy/(2. * 2.0 * zoom))/z.y * f, f+t),\n            p += cos(t+p.yzx+p.zzx)*(.6 + 5.0 * amplitude),\n            r =  cos(p.z),\n            e = 1.6 + iterations;\n            e < 32.;\n            e += e )\n            r += abs(dot(sin(t + p*e ), z/z)) / e;\n    o = amplification * tanh(vec4(fireColor,1) * o * o / f / 7e6);\n}\n\n\n\n/* you can put it out with this :D\n\nvoid mainImage( out vec4 o, vec2 u ) {\n    float s=.002,i,n;\n    vec3 r = iResolution,p;\n    for(o *= i; i++ < 40. && s > .001;) {\n        s = 1. + (p += vec3((u-r.xy/2.)/r.y,1) * s).y;\n        for (n =.5; n < 20.;n+=n)\n            s += abs(dot(sin(p.z+iTime+p * n), vec3(.1))) / n;\n        o += s *.03+.03;\n    }\n    o = tanh(o);\n}\n\n*/\n\n\n/* original fire shader\n\nvoid mainImage(out vec4 o, vec2 u) {\n    float f, i, r, e,\n          t = iTime;\n    vec3 p, z = iResolution;\n    for(o*=i;\n        i++<1e2;\n        f += r = .01 + abs(r)*.1,\n        o += 1. / r)\n        for(p = vec3(((u-z.xy/2.)/z.y) * f, f+t),\n            p += cos(t+p.yzx+p.zzx)*.6,\n            r =  cos(p.z)-1.,\n            e = 1.6;\n            e < 32.;\n            e += e )\n            r += abs(dot(sin(t + p*e ), vec3(1))) / e;\n    o = tanh(vec4(6,2,1,1) * o * o / f / 7e6);\n}\n\n*/",
+          "shaderCode": "// Custom params: // @param name type [default] [min, max] \"description\"\n\n/*\n\n    Bumped Sinusoidal Warp\n    ----------------------\n\n    Sinusoidal planar deformation, or the 2D sine warp effect to people \n    like me. The effect has been around for years, and there are\n    countless examples on the net. IQ's \"Sculpture III\" is basically a \n    much more sophisticated, spherical variation.\n\n    This particular version was modified from Fabrice's \"Plop 2,\" which in \n    turn was a simplified version of Fantomas's \"Plop.\" I simply reduced \n    the frequency and iteration count in order to make it less busy.\n\n    I also threw in a texture, added point-lit bump mapping, speckles... \n    and that's pretty much it. As for why a metallic surface would be \n    defying\tthe laws of physics and moving like this is anyone's guess. :)\n\n    By the way, I have a 3D version, similar to this, that I'll put up at \n    a later date.\n    \n\n\n    Related examples:\n\n    Fantomas - Plop\n    https://www.shadertoy.com/view/ltSSDV\n\n    Fabrice - Plop 2\n    https://www.shadertoy.com/view/MlSSDV\n\n    IQ - Sculpture III (loosely related)\n    https://www.shadertoy.com/view/XtjSDK\n\n    Shane - Lit Sine Warp (far less code)\n    https://www.shadertoy.com/view/Ml2XDV\n\n*/\n\n// @texture iChannel0 texture:wood\n\n// Warp function. Variations have been around for years. This is\n// almost the same as Fabrice's version:\n// Fabrice - Plop 2\n// https://www.shadertoy.com/view/MlSSDV\nvec2 W(vec2 p){\n    \n    p = (p + 3.)*4.;\n\n    float t = iTime/2.;\n\n    // Layered, sinusoidal feedback, with time component.\n    for (int i=0; i<3; i++){\n        p += cos(p.yx*3. + vec2(t, 1.57))/3.;\n        p += sin(p.yx + t + vec2(1.57, 0))/2.;\n        p *= 1.3;\n    }\n\n    // A bit of jitter to counter the high frequency sections.\n    p += fract(sin(p+vec2(13, 7))*5e5)*.03 - .015;\n\n    return mod(p, 2.) - 1.; // Range: [vec2(-1), vec2(1)]\n    \n}\n\n// Bump mapping function. Put whatever you want here. In this case, \n// we're returning the length of the sinusoidal warp function.\nfloat bumpFunc(vec2 p){ \n\n    return length(W(p))*.7071; // Range: [0, 1]\n\n}\n\n/*\n// Standard ray-plane intersection.\nvec3 rayPlane(vec3 p, vec3 o, vec3 n, vec3 rd) {\n    \n    float dn = dot(rd, n);\n\n    float s = 1e8;\n    \n    if (abs(dn) > 0.0001) {\n        s = dot(p-o, n) / dn;\n        s += float(s < 0.0) * 1e8;\n    }\n    \n    return o + s*rd;\n}\n*/\n\nvec3 smoothFract(vec3 x){ x = fract(x); return min(x, x*(1.-x)*12.); }\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord ){\n\n    // Screen coordinates.\n    vec2 uv = (fragCoord - iResolution.xy*.5)/iResolution.y;\n    \n    \n    // PLANE ROTATION\n    //\n    // Rotating the canvas back and forth. I don't feel it adds value, in this case,\n    // but feel free to uncomment it.\n    //float th = sin(iTime*0.1)*sin(iTime*0.12)*2.;\n    //float cs = cos(th), si = sin(th);\n    //uv *= mat2(cs, -si, si, cs);\n  \n\n    // VECTOR SETUP - surface postion, ray origin, unit direction vector, and light postion.\n    //\n    // Setup: I find 2D bump mapping more intuitive to pretend I'm raytracing, then lighting a \n    // bump mapped plane situated at the origin. Others may disagree. :)  \n    vec3 sp = vec3(uv, 0); // Surface posion, or hit point. Essentially, a screen at the origin.\n    vec3 rd = normalize(vec3(uv, 1)); // Unit direction vector. From the origin to the screen plane.\n    vec3 lp = vec3(cos(iTime)*.5, sin(iTime)*.2, -1); // Light position - Back from the screen.\n    vec3 sn = vec3(0, 0, -1); // Plane normal. Z pointing toward the viewer.\n \n     \n/*\n    // I deliberately left this block in to show that the above is a simplified version\n    // of a raytraced plane. The \"rayPlane\" equation is commented out above.\n    vec3 rd = normalize(vec3(uv, 1));\n    vec3 ro = vec3(0, 0, -1);\n\n    // Plane normal.\n    vec3 sn = normalize(vec3(cos(iTime)*.25, sin(iTime)*.25, -1));\n    //vec3 sn = normalize(vec3(0, 0, -1));\n    \n    vec3 sp = rayPlane(vec3(0), ro, sn, rd);\n    vec3 lp = vec3(cos(iTime)*.5, sin(iTime)*.25, -1); \n*/    \n    \n    \n    // BUMP MAPPING - PERTURBING THE NORMAL\n    //\n    // Setting up the bump mapping variables. Normally, you'd amalgamate a lot of the following,\n    // and roll it into a single function, but I wanted to show the workings.\n    //\n    // f - Function value\n    // fx - Change in \"f\" in in the X-direction.\n    // fy - Change in \"f\" in in the Y-direction.\n    vec2 eps = vec2(4./iResolution.y, 0);\n    \n    float f = bumpFunc(sp.xy); // Sample value multiplied by the amplitude.\n    float fx = bumpFunc(sp.xy - eps.xy); // Same for the nearby sample in the X-direction.\n    float fy = bumpFunc(sp.xy - eps.yx); // Same for the nearby sample in the Y-direction.\n   \n    // Controls how much the bump is accentuated.\n    const float bumpFactor = .05;\n    \n    // Using the above to determine the dx and dy function gradients.\n    fx = (fx - f)/eps.x; // Change in X\n    fy = (fy - f)/eps.x; // Change in Y.\n    // Using the gradient vector, \"vec3(fx, fy, 0),\" to perturb the XY plane normal \",vec3(0, 0, -1).\"\n    // By the way, there's a redundant step I'm skipping in this particular case, on account of the \n    // normal only having a Z-component. Normally, though, you'd need the commented stuff below.\n    //vec3 grad = vec3(fx, fy, 0);\n    //grad -= sn*dot(sn, grad);\n    //sn = normalize(sn + grad*bumpFactor ); \n    sn = normalize(sn + vec3(fx, fy, 0)*bumpFactor);   \n    // Equivalent to the following.\n    //sn = cross(-vec3(1, 0, fx*bumpFactor), vec3(0, 1, fy*bumpFactor));\n    //sn = normalize(sn);\n   \n    \n    // LIGHTING\n    //\n    // Determine the light direction vector, calculate its distance, then normalize it.\n    vec3 ld = lp - sp;\n    float lDist = max(length(ld), .0001);\n    ld /= lDist;\n\n    // Light attenuation.    \n    float atten = 1./(1. + lDist*lDist*.15);\n    //float atten = min(1./(lDist*lDist*1.), 1.);\n    \n    // Using the bump function, \"f,\" to darken the crevices. Completely optional, but I\n    // find it gives extra depth.\n    atten *= f*.9 + .1; // Or... f*f*.7 + .3; //  pow(f, .75); // etc.\n\n    \n\n    // Diffuse value.\n    float diff = max(dot(sn, ld), 0.);  \n    // Enhancing the diffuse value a bit. Made up.\n    diff = pow(diff, 4.)*.66 + pow(diff, 8.)*.34; \n    // Specular highlighting.\n    float spec = pow(max(dot( reflect(-ld, sn), -rd), 0.), 12.); \n    //float spec = pow(max(dot(normalize(ld - rd), sn), 0.), 32.);\n    \n    \n    // TEXTURE COLOR\n    //\n    // Combining the surface postion with a fraction of the warped surface position to index \n    // into the texture. The result is a slightly warped texture, as a opposed to a completely \n    // warped one. By the way, the warp function is called above in the \"bumpFunc\" function,\n    // so it's kind of wasteful doing it again here, but the function is kind of cheap, and\n    // it's more readable this way.\n    vec3 texCol = texture(iChannel0, sp.xy + W(sp.xy)/8.).xyz; \n    texCol *= texCol; // Rough sRGB to linear conversion... That's a whole other conversation. :)\n    // A bit of color processing.\n    texCol = smoothstep(.05, .75, pow(texCol, vec3(.75, .8, .85)));    \n    \n    // Textureless. Simple and elegant... so it clearly didn't come from me. Thanks Fabrice. :)\n    //vec3 texCol = smoothFract( W(sp.xy).xyy )*.1 + .2;\n    \n    \n    \n    // FINAL COLOR\n    // Using the values above to produce the final color.   \n    vec3 col = (texCol*(diff*vec3(1, .97, .92)*2. + .5) + vec3(1, .6, .2)*spec*2.)*atten;\n    \n    // Faux environment mapping: I added this in at a later date out of sheer boredome, and  \n    // because I like shiny stuff. You can comment it out if it's not to your liking. :)\n    float ref = max(dot(reflect(rd, sn), vec3(1)), 0.);\n    col += col*pow(ref, 4.)*vec3(.25, .5, 1)*3.;\n    \n\n    // Perform some statistically unlikely (but close enough) 2.0 gamma correction. :) \n    fragColor = vec4(sqrt(clamp(col, 0., 1.)), 1);\n}",
           "filePath": null,
           "params": {
             "speed": 1
@@ -1325,14 +1535,14 @@
           "type": "shader"
         },
         {
-          "shaderCode": "// Custom params: // @param name type [default] [min, max] \"description\"\n\n/*\n\n    Bumped Sinusoidal Warp\n    ----------------------\n\n    Sinusoidal planar deformation, or the 2D sine warp effect to people \n    like me. The effect has been around for years, and there are\n    countless examples on the net. IQ's \"Sculpture III\" is basically a \n    much more sophisticated, spherical variation.\n\n    This particular version was modified from Fabrice's \"Plop 2,\" which in \n    turn was a simplified version of Fantomas's \"Plop.\" I simply reduced \n    the frequency and iteration count in order to make it less busy.\n\n    I also threw in a texture, added point-lit bump mapping, speckles... \n    and that's pretty much it. As for why a metallic surface would be \n    defying\tthe laws of physics and moving like this is anyone's guess. :)\n\n    By the way, I have a 3D version, similar to this, that I'll put up at \n    a later date.\n    \n\n\n    Related examples:\n\n    Fantomas - Plop\n    https://www.shadertoy.com/view/ltSSDV\n\n    Fabrice - Plop 2\n    https://www.shadertoy.com/view/MlSSDV\n\n    IQ - Sculpture III (loosely related)\n    https://www.shadertoy.com/view/XtjSDK\n\n    Shane - Lit Sine Warp (far less code)\n    https://www.shadertoy.com/view/Ml2XDV\n\n*/\n\n// @texture iChannel0 texture:wood\n\n// Warp function. Variations have been around for years. This is\n// almost the same as Fabrice's version:\n// Fabrice - Plop 2\n// https://www.shadertoy.com/view/MlSSDV\nvec2 W(vec2 p){\n    \n    p = (p + 3.)*4.;\n\n    float t = iTime/2.;\n\n    // Layered, sinusoidal feedback, with time component.\n    for (int i=0; i<3; i++){\n        p += cos(p.yx*3. + vec2(t, 1.57))/3.;\n        p += sin(p.yx + t + vec2(1.57, 0))/2.;\n        p *= 1.3;\n    }\n\n    // A bit of jitter to counter the high frequency sections.\n    p += fract(sin(p+vec2(13, 7))*5e5)*.03 - .015;\n\n    return mod(p, 2.) - 1.; // Range: [vec2(-1), vec2(1)]\n    \n}\n\n// Bump mapping function. Put whatever you want here. In this case, \n// we're returning the length of the sinusoidal warp function.\nfloat bumpFunc(vec2 p){ \n\n    return length(W(p))*.7071; // Range: [0, 1]\n\n}\n\n/*\n// Standard ray-plane intersection.\nvec3 rayPlane(vec3 p, vec3 o, vec3 n, vec3 rd) {\n    \n    float dn = dot(rd, n);\n\n    float s = 1e8;\n    \n    if (abs(dn) > 0.0001) {\n        s = dot(p-o, n) / dn;\n        s += float(s < 0.0) * 1e8;\n    }\n    \n    return o + s*rd;\n}\n*/\n\nvec3 smoothFract(vec3 x){ x = fract(x); return min(x, x*(1.-x)*12.); }\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord ){\n\n    // Screen coordinates.\n    vec2 uv = (fragCoord - iResolution.xy*.5)/iResolution.y;\n    \n    \n    // PLANE ROTATION\n    //\n    // Rotating the canvas back and forth. I don't feel it adds value, in this case,\n    // but feel free to uncomment it.\n    //float th = sin(iTime*0.1)*sin(iTime*0.12)*2.;\n    //float cs = cos(th), si = sin(th);\n    //uv *= mat2(cs, -si, si, cs);\n  \n\n    // VECTOR SETUP - surface postion, ray origin, unit direction vector, and light postion.\n    //\n    // Setup: I find 2D bump mapping more intuitive to pretend I'm raytracing, then lighting a \n    // bump mapped plane situated at the origin. Others may disagree. :)  \n    vec3 sp = vec3(uv, 0); // Surface posion, or hit point. Essentially, a screen at the origin.\n    vec3 rd = normalize(vec3(uv, 1)); // Unit direction vector. From the origin to the screen plane.\n    vec3 lp = vec3(cos(iTime)*.5, sin(iTime)*.2, -1); // Light position - Back from the screen.\n    vec3 sn = vec3(0, 0, -1); // Plane normal. Z pointing toward the viewer.\n \n     \n/*\n    // I deliberately left this block in to show that the above is a simplified version\n    // of a raytraced plane. The \"rayPlane\" equation is commented out above.\n    vec3 rd = normalize(vec3(uv, 1));\n    vec3 ro = vec3(0, 0, -1);\n\n    // Plane normal.\n    vec3 sn = normalize(vec3(cos(iTime)*.25, sin(iTime)*.25, -1));\n    //vec3 sn = normalize(vec3(0, 0, -1));\n    \n    vec3 sp = rayPlane(vec3(0), ro, sn, rd);\n    vec3 lp = vec3(cos(iTime)*.5, sin(iTime)*.25, -1); \n*/    \n    \n    \n    // BUMP MAPPING - PERTURBING THE NORMAL\n    //\n    // Setting up the bump mapping variables. Normally, you'd amalgamate a lot of the following,\n    // and roll it into a single function, but I wanted to show the workings.\n    //\n    // f - Function value\n    // fx - Change in \"f\" in in the X-direction.\n    // fy - Change in \"f\" in in the Y-direction.\n    vec2 eps = vec2(4./iResolution.y, 0);\n    \n    float f = bumpFunc(sp.xy); // Sample value multiplied by the amplitude.\n    float fx = bumpFunc(sp.xy - eps.xy); // Same for the nearby sample in the X-direction.\n    float fy = bumpFunc(sp.xy - eps.yx); // Same for the nearby sample in the Y-direction.\n   \n    // Controls how much the bump is accentuated.\n    const float bumpFactor = .05;\n    \n    // Using the above to determine the dx and dy function gradients.\n    fx = (fx - f)/eps.x; // Change in X\n    fy = (fy - f)/eps.x; // Change in Y.\n    // Using the gradient vector, \"vec3(fx, fy, 0),\" to perturb the XY plane normal \",vec3(0, 0, -1).\"\n    // By the way, there's a redundant step I'm skipping in this particular case, on account of the \n    // normal only having a Z-component. Normally, though, you'd need the commented stuff below.\n    //vec3 grad = vec3(fx, fy, 0);\n    //grad -= sn*dot(sn, grad);\n    //sn = normalize(sn + grad*bumpFactor ); \n    sn = normalize(sn + vec3(fx, fy, 0)*bumpFactor);   \n    // Equivalent to the following.\n    //sn = cross(-vec3(1, 0, fx*bumpFactor), vec3(0, 1, fy*bumpFactor));\n    //sn = normalize(sn);\n   \n    \n    // LIGHTING\n    //\n    // Determine the light direction vector, calculate its distance, then normalize it.\n    vec3 ld = lp - sp;\n    float lDist = max(length(ld), .0001);\n    ld /= lDist;\n\n    // Light attenuation.    \n    float atten = 1./(1. + lDist*lDist*.15);\n    //float atten = min(1./(lDist*lDist*1.), 1.);\n    \n    // Using the bump function, \"f,\" to darken the crevices. Completely optional, but I\n    // find it gives extra depth.\n    atten *= f*.9 + .1; // Or... f*f*.7 + .3; //  pow(f, .75); // etc.\n\n    \n\n    // Diffuse value.\n    float diff = max(dot(sn, ld), 0.);  \n    // Enhancing the diffuse value a bit. Made up.\n    diff = pow(diff, 4.)*.66 + pow(diff, 8.)*.34; \n    // Specular highlighting.\n    float spec = pow(max(dot( reflect(-ld, sn), -rd), 0.), 12.); \n    //float spec = pow(max(dot(normalize(ld - rd), sn), 0.), 32.);\n    \n    \n    // TEXTURE COLOR\n    //\n    // Combining the surface postion with a fraction of the warped surface position to index \n    // into the texture. The result is a slightly warped texture, as a opposed to a completely \n    // warped one. By the way, the warp function is called above in the \"bumpFunc\" function,\n    // so it's kind of wasteful doing it again here, but the function is kind of cheap, and\n    // it's more readable this way.\n    vec3 texCol = texture(iChannel0, sp.xy + W(sp.xy)/8.).xyz; \n    texCol *= texCol; // Rough sRGB to linear conversion... That's a whole other conversation. :)\n    // A bit of color processing.\n    texCol = smoothstep(.05, .75, pow(texCol, vec3(.75, .8, .85)));    \n    \n    // Textureless. Simple and elegant... so it clearly didn't come from me. Thanks Fabrice. :)\n    //vec3 texCol = smoothFract( W(sp.xy).xyy )*.1 + .2;\n    \n    \n    \n    // FINAL COLOR\n    // Using the values above to produce the final color.   \n    vec3 col = (texCol*(diff*vec3(1, .97, .92)*2. + .5) + vec3(1, .6, .2)*spec*2.)*atten;\n    \n    // Faux environment mapping: I added this in at a later date out of sheer boredome, and  \n    // because I like shiny stuff. You can comment it out if it's not to your liking. :)\n    float ref = max(dot(reflect(rd, sn), vec3(1)), 0.);\n    col += col*pow(ref, 4.)*vec3(.25, .5, 1)*3.;\n    \n\n    // Perform some statistically unlikely (but close enough) 2.0 gamma correction. :) \n    fragColor = vec4(sqrt(clamp(col, 0., 1.)), 1);\n}",
-          "filePath": "/home/christoph/devtmp/ai/anthropic/shadershow/examples/fluessig2.frag",
+          "shaderCode": "{\n  \"format\": \"shadershow-shader\",\n  \"version\": 1,\n  \"type\": \"scene\",\n  \"shaderCode\": \"// Rolling Dice - Three.js Scene Example\\n// A simple dice that continuously rolls across the screen\\n\\n// @param speed float 1.0 [0.1, 3.0] \\\"Roll speed\\\"\\n// @param bounceHeight float 0.5 [0.0, 2.0] \\\"Bounce height\\\"\\n// @param diceSize float 1.0 [0.5, 2.0] \\\"Dice size\\\"\\n\\nfunction setup(THREE, canvas, params) {\\n  // Create scene\\n  const scene = new THREE.Scene();\\n  scene.background = new THREE.Color(0x1a1a2e);\\n\\n  // Create camera\\n  const camera = new THREE.PerspectiveCamera(\\n    60,\\n    canvas.width / canvas.height,\\n    0.1,\\n    1000\\n  );\\n  camera.position.set(0, 4, 6);\\n  camera.lookAt(0, 0, 0);\\n\\n  // Create renderer\\n  const renderer = new THREE.WebGLRenderer({\\n    canvas: canvas,\\n    antialias: true,\\n    preserveDrawingBuffer: true\\n  });\\n  renderer.setSize(canvas.width, canvas.height, false);\\n  renderer.shadowMap.enabled = true;\\n  renderer.shadowMap.type = THREE.PCFSoftShadowMap;\\n\\n  // Create dice geometry\\n  const diceGeometry = new THREE.BoxGeometry(1, 1, 1);\\n\\n  // Create materials for each face with dot patterns\\n  const diceMaterials = createDiceMaterials(THREE);\\n\\n  // Create dice mesh\\n  const dice = new THREE.Mesh(diceGeometry, diceMaterials);\\n  dice.castShadow = true;\\n  dice.receiveShadow = true;\\n  dice.position.y = 1;\\n  scene.add(dice);\\n\\n  // Create ground plane\\n  const groundGeometry = new THREE.PlaneGeometry(20, 20);\\n  const groundMaterial = new THREE.MeshStandardMaterial({\\n    color: 0x2d3436,\\n    roughness: 0.8,\\n    metalness: 0.2\\n  });\\n  const ground = new THREE.Mesh(groundGeometry, groundMaterial);\\n  ground.rotation.x = -Math.PI / 2;\\n  ground.position.y = 0;\\n  ground.receiveShadow = true;\\n  scene.add(ground);\\n\\n  // Add grid helper for visual reference\\n  const gridHelper = new THREE.GridHelper(20, 20, 0x444444, 0x333333);\\n  gridHelper.position.y = 0.01;\\n  scene.add(gridHelper);\\n\\n  // Lighting\\n  const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);\\n  scene.add(ambientLight);\\n\\n  const mainLight = new THREE.DirectionalLight(0xffffff, 1.0);\\n  mainLight.position.set(5, 10, 5);\\n  mainLight.castShadow = true;\\n  mainLight.shadow.mapSize.width = 2048;\\n  mainLight.shadow.mapSize.height = 2048;\\n  mainLight.shadow.camera.near = 0.5;\\n  mainLight.shadow.camera.far = 50;\\n  mainLight.shadow.camera.left = -10;\\n  mainLight.shadow.camera.right = 10;\\n  mainLight.shadow.camera.top = 10;\\n  mainLight.shadow.camera.bottom = -10;\\n  scene.add(mainLight);\\n\\n  // Add some colored accent lights\\n  const redLight = new THREE.PointLight(0xff6b6b, 0.5, 10);\\n  redLight.position.set(-3, 2, 3);\\n  scene.add(redLight);\\n\\n  const blueLight = new THREE.PointLight(0x4ecdc4, 0.5, 10);\\n  blueLight.position.set(3, 2, -3);\\n  scene.add(blueLight);\\n\\n  return {\\n    scene,\\n    camera,\\n    renderer,\\n    dice,\\n    ground\\n  };\\n}\\n\\nfunction animate(time, delta, params, objects) {\\n  const { dice } = objects;\\n  const speed = params.speed || 1.0;\\n  const bounceHeight = params.bounceHeight || 0.5;\\n  const diceSize = params.diceSize || 1.0;\\n\\n  // Update dice scale\\n  dice.scale.setScalar(diceSize);\\n\\n  // Rolling animation\\n  const rollSpeed = speed * 2;\\n  dice.rotation.x += delta * rollSpeed * 3;\\n  dice.rotation.z += delta * rollSpeed * 2;\\n\\n  // Bounce animation\\n  const bounceFreq = speed * 2;\\n  const bounce = Math.abs(Math.sin(time * bounceFreq)) * bounceHeight;\\n  dice.position.y = 0.5 * diceSize + bounce;\\n\\n  // Slight horizontal movement (rolling back and forth)\\n  dice.position.x = Math.sin(time * speed * 0.5) * 2;\\n  dice.position.z = Math.cos(time * speed * 0.3) * 1.5;\\n\\n  // Add slight wobble to rotation based on bounce\\n  dice.rotation.y = Math.sin(time * speed) * 0.3;\\n}\\n\\nfunction cleanup(objects) {\\n  // Dispose of geometries and materials\\n  if (objects.dice) {\\n    objects.dice.geometry.dispose();\\n    if (Array.isArray(objects.dice.material)) {\\n      objects.dice.material.forEach(m => m.dispose());\\n    }\\n  }\\n  if (objects.ground) {\\n    objects.ground.geometry.dispose();\\n    objects.ground.material.dispose();\\n  }\\n}\\n\\n// Helper function to create dice face materials with dots\\nfunction createDiceMaterials(THREE) {\\n  const faceColors = [\\n    0xe74c3c, // 1 - red\\n    0xf39c12, // 2 - orange\\n    0x2ecc71, // 3 - green\\n    0x3498db, // 4 - blue\\n    0x9b59b6, // 5 - purple\\n    0x1abc9c  // 6 - teal\\n  ];\\n\\n  const dotPatterns = [\\n    [[0.5, 0.5]], // 1\\n    [[0.25, 0.25], [0.75, 0.75]], // 2\\n    [[0.25, 0.25], [0.5, 0.5], [0.75, 0.75]], // 3\\n    [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]], // 4\\n    [[0.25, 0.25], [0.75, 0.25], [0.5, 0.5], [0.25, 0.75], [0.75, 0.75]], // 5\\n    [[0.25, 0.25], [0.75, 0.25], [0.25, 0.5], [0.75, 0.5], [0.25, 0.75], [0.75, 0.75]] // 6\\n  ];\\n\\n  // Order for cube faces: +X, -X, +Y, -Y, +Z, -Z\\n  // Standard dice: opposite faces sum to 7\\n  // So: 1-6, 2-5, 3-4\\n  const faceOrder = [2, 5, 1, 6, 3, 4]; // Maps to standard dice layout\\n\\n  return faceOrder.map((num, index) => {\\n    const canvas = document.createElement('canvas');\\n    canvas.width = 256;\\n    canvas.height = 256;\\n    const ctx = canvas.getContext('2d');\\n\\n    // Fill background\\n    ctx.fillStyle = '#' + faceColors[num - 1].toString(16).padStart(6, '0');\\n    ctx.fillRect(0, 0, 256, 256);\\n\\n    // Draw rounded rectangle border\\n    ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';\\n    ctx.lineWidth = 8;\\n    roundRect(ctx, 10, 10, 236, 236, 20);\\n    ctx.stroke();\\n\\n    // Draw dots\\n    ctx.fillStyle = '#ffffff';\\n    const dots = dotPatterns[num - 1];\\n    const dotRadius = 22;\\n\\n    dots.forEach(([x, y]) => {\\n      ctx.beginPath();\\n      ctx.arc(x * 256, y * 256, dotRadius, 0, Math.PI * 2);\\n      ctx.fill();\\n\\n      // Add subtle shadow to dots\\n      ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';\\n      ctx.lineWidth = 2;\\n      ctx.stroke();\\n    });\\n\\n    const texture = new THREE.CanvasTexture(canvas);\\n    texture.needsUpdate = true;\\n\\n    return new THREE.MeshStandardMaterial({\\n      map: texture,\\n      roughness: 0.4,\\n      metalness: 0.1\\n    });\\n  });\\n}\\n\\n// Helper function to draw rounded rectangle\\nfunction roundRect(ctx, x, y, width, height, radius) {\\n  ctx.beginPath();\\n  ctx.moveTo(x + radius, y);\\n  ctx.lineTo(x + width - radius, y);\\n  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);\\n  ctx.lineTo(x + width, y + height - radius);\\n  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);\\n  ctx.lineTo(x + radius, y + height);\\n  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);\\n  ctx.lineTo(x, y + radius);\\n  ctx.quadraticCurveTo(x, y, x + radius, y);\\n  ctx.closePath();\\n}\\n\",\n  \"params\": {\n    \"speed\": 1\n  },\n  \"customParams\": {},\n  \"presets\": [],\n  \"label\": null\n}",
+          "filePath": "/home/christoph/devtmp/ai/anthropic/shadershow/export/my shaders/slot-1.shader",
           "params": {
             "speed": 1
           },
           "customParams": {},
           "presets": [],
-          "type": "shader"
+          "type": "scene"
         }
       ]
     },
@@ -2033,11 +2243,16 @@
           "type": "asset-image",
           "mediaPath": "Gemini_Generated_Image_f5jupyf5jupyf5ju (1).png",
           "customParams": {
-            "x": 0,
-            "y": 0,
-            "width": 1792,
-            "height": 2400,
-            "scale": 1
+            "x": 529,
+            "y": 209,
+            "width": 443,
+            "height": 3666,
+            "scale": 0.86,
+            "keepAR": 1,
+            "cropL": 0,
+            "cropT": 0,
+            "cropR": 1,
+            "cropB": 1
           },
           "label": "Gemini_Generated_Image_f5jupyf5jupyf5ju (1).png"
         }

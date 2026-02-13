@@ -4,8 +4,13 @@
   "description": "A VS Code-like GLSL shader editor with Shadertoy compatibility",
   "main": "main.js",
   "scripts": {
+    "build": "node esbuild.config.mjs",
+    "build:watch": "node esbuild.config.mjs --watch",
+    "typecheck": "tsc -b",
     "start": "electron .",
-    "dev": "electron . --enable-logging"
+    "dev": "electron . --enable-logging",
+    "start:ts": "npm run build && electron . --main dist/main/app.js",
+    "dev:ts": "npm run build && electron . --main dist/main/app.js --enable-logging"
   },
   "keywords": [
     "glsl",
@@ -17,7 +22,12 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^33.0.0"
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.2.3",
+    "@types/ws": "^8.18.1",
+    "electron": "^33.0.0",
+    "esbuild": "^0.27.3",
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "@babel/standalone": "^7.28.6",

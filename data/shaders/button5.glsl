@@ -44,6 +44,8 @@
 // almost the same as Fabrice's version:
 // Fabrice - Plop 2
 // https://www.shadertoy.com/view/MlSSDV
+// @texture iChannel0 GrayNoise
+
 vec2 W(vec2 p){
     
     p = (p + 3.)*4.;

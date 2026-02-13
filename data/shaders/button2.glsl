@@ -1,6 +1,33 @@
+/*
+ * ShaderShow - Available Uniforms
+ * ================================
+ * vec3  iResolution      - Viewport resolution (width, height, 1.0)
+ * float iTime            - Playback time in seconds
+ * float iTimeDelta       - Time since last frame in seconds
+ * int   iFrame           - Current frame number
+ * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)
+ * vec4  iDate            - (year, month, day, time in seconds)
+ *
+ * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)
+ * vec3  iChannelResolution[4] - Resolution of each channel
+ *
+ * Custom Parameters (@param)
+ * --------------------------
+ * Define custom uniforms with UI controls using @param comments:
+ *   // @param name type [default] [min, max] "description"
+ *
+ * Supported types: int, float, vec2, vec3, vec4, color
+ *
+ * Examples:
+ *   // @param speed float 1.0 [0.0, 2.0] "Animation speed"
+ *   // @param center vec2 0.5, 0.5 "Center position"
+ *   // @param tint color [1.0, 0.5, 0.0] "Tint color"
+ */
+
 // ShaderShow - Default Shader
 // A colorful animated pattern demonstrating Shadertoy uniforms
 // Custom params: // @param name type [default] [min, max] "description"
+
 
 vec3 palette(float t) {
     vec3 a = vec3(0.5, 0.5, 0.5);

@@ -14,7 +14,8 @@ export const state = {
   renderer: null,        // Current active renderer (ShaderRenderer or ThreeSceneRenderer)
   shaderRenderer: null,  // WebGL shader renderer
   sceneRenderer: null,   // Three.js scene renderer
-  renderMode: 'shader',  // 'shader' or 'scene'
+  renderMode: 'shader',  // 'shader', 'scene', or 'asset'
+  activeAsset: null,     // { renderer, type, mediaPath, dataUrl } when renderMode === 'asset'
   compileTimeout: null,
   animationId: null,
   previewEnabled: true,

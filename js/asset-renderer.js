@@ -77,7 +77,11 @@ export class AssetRenderer {
         resolve({ width: video.videoWidth, height: video.videoHeight });
       };
       video.onerror = () => reject(new Error('Failed to load video'));
-      video.src = filePath.startsWith('file://') ? filePath : `file://${filePath}`;
+      // Convert file path to proper file:// URL (handles Windows paths)
+      const fileUrl = filePath.startsWith('file://') ? filePath
+        : filePath.startsWith('/') ? `file://${filePath}`
+        : `file:///${filePath.replace(/\\/g, '/')}`;
+      video.src = fileUrl;
     });
   }
 

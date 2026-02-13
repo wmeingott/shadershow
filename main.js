@@ -1274,8 +1274,12 @@ function stopRecording() {
     recordingProcess.stdin.end();
   } catch (err) {
     console.error('Error closing FFmpeg stdin:', err);
-    // Force kill if stdin close fails
-    recordingProcess.kill('SIGTERM');
+    // Force kill if stdin close fails (avoid SIGTERM on Windows where it hard-kills)
+    if (process.platform === 'win32') {
+      recordingProcess.kill();
+    } else {
+      recordingProcess.kill('SIGTERM');
+    }
   }
 
   // The 'close' event handler above will update state and notify renderer
@@ -1375,7 +1379,7 @@ async function readDirectoryContents(dirPath, basePath = '') {
 
   for (const entry of entries) {
     const entryPath = path.join(dirPath, entry.name);
-    const relativePath = basePath ? `${basePath}/${entry.name}` : entry.name;
+    const relativePath = basePath ? basePath + '/' + entry.name : entry.name;
 
     if (entry.isDirectory()) {
       // Recursively read subdirectory
@@ -3423,7 +3427,11 @@ app.on('before-quit', () => {
     try {
       recordingProcess.stdin.end();
     } catch (err) {
-      recordingProcess.kill('SIGTERM');
+      if (process.platform === 'win32') {
+        recordingProcess.kill();
+      } else {
+        recordingProcess.kill('SIGTERM');
+      }
     }
   }
 });

@@ -997,7 +997,7 @@ function generateMixerParamsUI(container) {
     if (slotData) {
       filename = isAsset
         ? (slotData.label || slotData.mediaPath)
-        : slotData.filePath?.split('/').pop();
+        : slotData.filePath?.split('/').pop()?.split('\\').pop();
     }
     const label = `Ch ${i + 1}: ${filename || (isAsset ? 'Asset' : 'Mix Preset')}`;
     const accentColor = MIXER_CHANNEL_COLORS[i % MIXER_CHANNEL_COLORS.length];

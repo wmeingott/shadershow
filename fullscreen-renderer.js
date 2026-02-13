@@ -1038,7 +1038,11 @@ window.electronAPI.onMixerChannelUpdate?.((data) => {
       video.muted = true;
       video.playsInline = true;
       video.loop = true;
-      video.src = filePath.startsWith('file://') ? filePath : `file://${filePath}`;
+      // Convert file path to proper file:// URL (handles Windows paths)
+      const fileUrl = filePath.startsWith('file://') ? filePath
+        : filePath.startsWith('/') ? `file://${filePath}`
+        : `file:///${filePath.replace(/\\/g, '/')}`;
+      video.src = fileUrl;
       video.play().catch(() => {});
       mixerAssets[channelIndex] = { source: video, type: assetType, params: params || {} };
     } else if (dataUrl) {

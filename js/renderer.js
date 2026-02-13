@@ -553,7 +553,7 @@ export function selectTile(tileIndex) {
       // Update local presets UI for this shader
       updateLocalPresetsUI();
 
-      const name = slotData.filePath?.split('/').pop() || `Slot ${tile.gridSlotIndex + 1}`;
+      const name = slotData.filePath?.split('/').pop()?.split('\\').pop() || `Slot ${tile.gridSlotIndex + 1}`;
       setStatus(`Tile ${tileIndex + 1}: ${name}`, 'success');
     } else {
       setStatus(`Tile ${tileIndex + 1} (empty slot)`, 'success');

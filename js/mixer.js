@@ -250,7 +250,7 @@ function selectMixerChannel(channelIndex) {
 
   const name = isAsset
     ? (slotData?.label || slotData?.mediaPath || `Asset ${ch.slotIndex + 1}`)
-    : (slotData?.filePath?.split('/').pop() || (ch.shaderCode ? 'Mix Preset' : `Slot ${ch.slotIndex + 1}`));
+    : (slotData?.filePath?.split('/').pop()?.split('\\').pop() || (ch.shaderCode ? 'Mix Preset' : `Slot ${ch.slotIndex + 1}`));
   setStatus(`Mixer ${channelIndex + 1}: ${name}`, 'success');
 }
 
@@ -307,7 +307,7 @@ export function assignShaderToMixer(channelIndex, slotIndex) {
     params: { speed: ch.params.speed ?? 1, ...ch.customParams }
   });
 
-  const name = slotData?.filePath?.split('/').pop() || `Slot ${slotIndex + 1}`;
+  const name = slotData?.filePath?.split('/').pop()?.split('\\').pop() || `Slot ${slotIndex + 1}`;
   setStatus(`Mixer ${channelIndex + 1} \u2190 ${name}`, 'success');
   notifyRemoteStateChanged();
 }

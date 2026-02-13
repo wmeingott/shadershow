@@ -1,175 +1,222 @@
-// Stage Lights Array Simulation - OPTIMIZED
-// Creates an array of animated stage lights with volumetric fog
+// Custom params: // @param name type [default] [min, max] "description"
 
-// @param showGround float 0.5 [0.0, 1.0] "Show ground (>0.5)"
-// @param lightHeight float 0.5 [0.0, 1.0] "Light height"
-// @param lightDepth float 0.5 [0.0, 1.0] "Light depth"
-// @param light1 color [1.0, 0.0, 0.0] "Light 1"
-// @param light2 color [0.0, 1.0, 0.0] "Light 2"
-// @param light3 color [0.0, 0.0, 1.0] "Light 3"
-// @param light4 color [1.0, 1.0, 0.0] "Light 4"
-// @param light5 color [1.0, 0.0, 1.0] "Light 5"
-// @param light6 color [0.0, 1.0, 1.0] "Light 6"
-// @param light7 color [1.0, 0.5, 0.0] "Light 7"
-// @param light8 color [0.5, 0.0, 1.0] "Light 8"
+/*
 
-#define NUM_LIGHTS 8
-#define PI 3.14159265359
-#define MAX_STEPS 88  // Reduziert von ~100
+    Bumped Sinusoidal Warp
+    ----------------------
 
-// Vereinfachte Noise-Funktion
-float hash(float n) {
-    return fract(sin(n) * 43758.5453123);
-}
+    Sinusoidal planar deformation, or the 2D sine warp effect to people 
+    like me. The effect has been around for years, and there are
+    countless examples on the net. IQ's "Sculpture III" is basically a 
+    much more sophisticated, spherical variation.
 
-// Schnellerer Noise - weniger Operationen
-float noise2(vec3 x) {
-    vec3 p = floor(x);
-    vec3 f = fract(x);
-    f = f * f * (3.0 - 2.0 * f);
+    This particular version was modified from Fabrice's "Plop 2," which in 
+    turn was a simplified version of Fantomas's "Plop." I simply reduced 
+    the frequency and iteration count in order to make it less busy.
+
+    I also threw in a texture, added point-lit bump mapping, speckles... 
+    and that's pretty much it. As for why a metallic surface would be 
+    defying	the laws of physics and moving like this is anyone's guess. :)
+
+    By the way, I have a 3D version, similar to this, that I'll put up at 
+    a later date.
     
-    float n = p.x + p.y * 57.0 + 113.0 * p.z;
-    float a = hash(n);
-    float b = hash(n + 1.0);
-    float c = hash(n + 57.0);
-    float d = hash(n + 58.0);
-    float e = hash(n + 113.0);
-    float f1 = hash(n + 114.0);
-    float g = hash(n + 170.0);
-    float h = hash(n + 171.0);
+
+
+    Related examples:
+
+    Fantomas - Plop
+    https://www.shadertoy.com/view/ltSSDV
+
+    Fabrice - Plop 2
+    https://www.shadertoy.com/view/MlSSDV
+
+    IQ - Sculpture III (loosely related)
+    https://www.shadertoy.com/view/XtjSDK
+
+    Shane - Lit Sine Warp (far less code)
+    https://www.shadertoy.com/view/Ml2XDV
+
+*/
+
+// @texture iChannel0 texture:wood
+
+// Warp function. Variations have been around for years. This is
+// almost the same as Fabrice's version:
+// Fabrice - Plop 2
+// https://www.shadertoy.com/view/MlSSDV
+vec2 W(vec2 p){
     
-    return mix(mix(mix(a, b, f.x), mix(c, d, f.x), f.y),
-               mix(mix(e, f1, f.x), mix(g, h, f.x), f.y), f.z);
-}
+    p = (p + 3.)*4.;
 
-float noise(vec3 x){
-  return 1.0;
-}
-// Vorberechnete Lichtdaten
-struct Light {
-    vec3 pos;
-    vec3 dir;
-    vec3 color;
-    float angle;
-    float intensity;
-};
+    float t = iTime/2.;
 
-// Lichtparameter einmal pro Frame berechnen
-void setupLights(out Light lights[NUM_LIGHTS]) {
-    // Build color array from named parameters
-    vec3 lightColors[NUM_LIGHTS];
-    lightColors[0] = light1;
-    lightColors[1] = light2;
-    lightColors[2] = light3;
-    lightColors[3] = light4;
-    lightColors[4] = light5;
-    lightColors[5] = light6;
-    lightColors[6] = light7;
-    lightColors[7] = light8;
-
-    for (int j = 0; j < NUM_LIGHTS; j++) {
-        float lightIndex = float(j);
-        float phase = lightIndex * PI * 2.0 / float(NUM_LIGHTS);
-        float swing = sin(iTime * 0.5 + phase) * 0.3;
-        float tilt = cos(iTime * 0.7 + phase * 1.5) * 0.2;
-
-        lights[j].pos = vec3(-35.0 + lightIndex * 1.0, 3.0 * lightHeight + 3.0, 10.0 * lightDepth - 10.0);
-        lights[j].dir = normalize(vec3(swing, -0.8 + tilt, 1.0));
-        lights[j].angle = 0.3 + 0.1 * sin(iTime + phase);
-
-        // Flicker
-        float flicker = 0.9 + 0.1 * sin(iTime * 20.0 + lightIndex * 7.0);
-        lights[j].intensity = 2.0 * flicker;
-        lights[j].color = lightColors[j];
+    // Layered, sinusoidal feedback, with time component.
+    for (int i=0; i<3; i++){
+        p += cos(p.yx*3. + vec2(t, 1.57))/3.;
+        p += sin(p.yx + t + vec2(1.57, 0))/2.;
+        p *= 1.3;
     }
+
+    // A bit of jitter to counter the high frequency sections.
+    p += fract(sin(p+vec2(13, 7))*5e5)*.03 - .015;
+
+    return mod(p, 2.) - 1.; // Range: [vec2(-1), vec2(1)]
+    
 }
 
-// Optimierte Spotlight-Berechnung
-vec3 spotlightFast(vec3 pos, Light light, float fog) {
-    vec3 toLight = light.pos - pos;
-    float dist2 = dot(toLight, toLight);  // Quadrat statt length()
-    vec3 lightVec = toLight * inversesqrt(dist2);
-    
-    float spotEffect = dot(lightVec, -light.dir);
-    float spotCutoff = cos(light.angle);
-    
-    if (spotEffect < spotCutoff) return vec3(0.0);
-    
-    float edge = smoothstep(spotCutoff, 1.0, spotEffect);
-    float dist = sqrt(dist2);
-    float attenuation = 1.0 / (1.0 + 0.1 * dist + 0.01 * dist2);
-    
-    return light.color * (edge * attenuation * fog * light.intensity);
+// Bump mapping function. Put whatever you want here. In this case, 
+// we're returning the length of the sinusoidal warp function.
+float bumpFunc(vec2 p){ 
+
+    return length(W(p))*.7071; // Range: [0, 1]
+
 }
 
-// Optimiertes Ray Marching
-vec3 volumetricLighting(vec3 ro, vec3 rd, float maxDist, Light lights[NUM_LIGHTS]) {
-    vec3 color = vec3(0.0);
+/*
+// Standard ray-plane intersection.
+vec3 rayPlane(vec3 p, vec3 o, vec3 n, vec3 rd) {
     
-    // Adaptive Schrittweite
-    float stepSize = maxDist / float(MAX_STEPS);
-    stepSize = max(stepSize, 0.15);  // Minimum 0.15
+    float dn = dot(rd, n);
+
+    float s = 1e8;
     
-    float t = stepSize * 0.5;  // Start mit halber Schrittweite (besseres Sampling)
-    
-    for (int i = 0; i < MAX_STEPS; i++) {
-        if (t >= maxDist) break;
-        
-        vec3 pos = ro + rd * t;
-        
-        // Fog nur einmal pro Schritt berechnen
-        float fog = 0.1 + noise(pos * 0.5 + vec3(0.0, -iTime * 0.1, 0.0)) * 0.05;
-        
-        // Alle Lichter akkumulieren
-        vec3 lightContrib = vec3(0.0);
-        for (int j = 0; j < NUM_LIGHTS; j++) {
-            lightContrib += spotlightFast(pos, lights[j], fog);
-        }
-        
-        color += lightContrib;
-        t += stepSize;
+    if (abs(dn) > 0.0001) {
+        s = dot(p-o, n) / dn;
+        s += float(s < 0.0) * 1e8;
     }
     
-    return color * stepSize;
+    return o + s*rd;
 }
+*/
 
-float groundPlane(vec3 ro, vec3 rd) {
-    return rd.y < 0.0 ? -ro.y / rd.y : -1.0;
+vec3 smoothFract(vec3 x){ x = fract(x); return min(x, x*(1.-x)*12.); }
+
+void mainImage( out vec4 fragColor, in vec2 fragCoord ){
+
+    // Screen coordinates.
+    vec2 uv = (fragCoord - iResolution.xy*.5)/iResolution.y;
+    
+    
+    // PLANE ROTATION
+    //
+    // Rotating the canvas back and forth. I don't feel it adds value, in this case,
+    // but feel free to uncomment it.
+    //float th = sin(iTime*0.1)*sin(iTime*0.12)*2.;
+    //float cs = cos(th), si = sin(th);
+    //uv *= mat2(cs, -si, si, cs);
+  
+
+    // VECTOR SETUP - surface postion, ray origin, unit direction vector, and light postion.
+    //
+    // Setup: I find 2D bump mapping more intuitive to pretend I'm raytracing, then lighting a 
+    // bump mapped plane situated at the origin. Others may disagree. :)  
+    vec3 sp = vec3(uv, 0); // Surface posion, or hit point. Essentially, a screen at the origin.
+    vec3 rd = normalize(vec3(uv, 1)); // Unit direction vector. From the origin to the screen plane.
+    vec3 lp = vec3(cos(iTime)*.5, sin(iTime)*.2, -1); // Light position - Back from the screen.
+    vec3 sn = vec3(0, 0, -1); // Plane normal. Z pointing toward the viewer.
+ 
+     
+/*
+    // I deliberately left this block in to show that the above is a simplified version
+    // of a raytraced plane. The "rayPlane" equation is commented out above.
+    vec3 rd = normalize(vec3(uv, 1));
+    vec3 ro = vec3(0, 0, -1);
+
+    // Plane normal.
+    vec3 sn = normalize(vec3(cos(iTime)*.25, sin(iTime)*.25, -1));
+    //vec3 sn = normalize(vec3(0, 0, -1));
+    
+    vec3 sp = rayPlane(vec3(0), ro, sn, rd);
+    vec3 lp = vec3(cos(iTime)*.5, sin(iTime)*.25, -1); 
+*/    
+    
+    
+    // BUMP MAPPING - PERTURBING THE NORMAL
+    //
+    // Setting up the bump mapping variables. Normally, you'd amalgamate a lot of the following,
+    // and roll it into a single function, but I wanted to show the workings.
+    //
+    // f - Function value
+    // fx - Change in "f" in in the X-direction.
+    // fy - Change in "f" in in the Y-direction.
+    vec2 eps = vec2(4./iResolution.y, 0);
+    
+    float f = bumpFunc(sp.xy); // Sample value multiplied by the amplitude.
+    float fx = bumpFunc(sp.xy - eps.xy); // Same for the nearby sample in the X-direction.
+    float fy = bumpFunc(sp.xy - eps.yx); // Same for the nearby sample in the Y-direction.
+   
+    // Controls how much the bump is accentuated.
+    const float bumpFactor = .05;
+    
+    // Using the above to determine the dx and dy function gradients.
+    fx = (fx - f)/eps.x; // Change in X
+    fy = (fy - f)/eps.x; // Change in Y.
+    // Using the gradient vector, "vec3(fx, fy, 0)," to perturb the XY plane normal ",vec3(0, 0, -1)."
+    // By the way, there's a redundant step I'm skipping in this particular case, on account of the 
+    // normal only having a Z-component. Normally, though, you'd need the commented stuff below.
+    //vec3 grad = vec3(fx, fy, 0);
+    //grad -= sn*dot(sn, grad);
+    //sn = normalize(sn + grad*bumpFactor ); 
+    sn = normalize(sn + vec3(fx, fy, 0)*bumpFactor);   
+    // Equivalent to the following.
+    //sn = cross(-vec3(1, 0, fx*bumpFactor), vec3(0, 1, fy*bumpFactor));
+    //sn = normalize(sn);
+   
+    
+    // LIGHTING
+    //
+    // Determine the light direction vector, calculate its distance, then normalize it.
+    vec3 ld = lp - sp;
+    float lDist = max(length(ld), .0001);
+    ld /= lDist;
+
+    // Light attenuation.    
+    float atten = 1./(1. + lDist*lDist*.15);
+    //float atten = min(1./(lDist*lDist*1.), 1.);
+    
+    // Using the bump function, "f," to darken the crevices. Completely optional, but I
+    // find it gives extra depth.
+    atten *= f*.9 + .1; // Or... f*f*.7 + .3; //  pow(f, .75); // etc.
+
+    
+
+    // Diffuse value.
+    float diff = max(dot(sn, ld), 0.);  
+    // Enhancing the diffuse value a bit. Made up.
+    diff = pow(diff, 4.)*.66 + pow(diff, 8.)*.34; 
+    // Specular highlighting.
+    float spec = pow(max(dot( reflect(-ld, sn), -rd), 0.), 12.); 
+    //float spec = pow(max(dot(normalize(ld - rd), sn), 0.), 32.);
+    
+    
+    // TEXTURE COLOR
+    //
+    // Combining the surface postion with a fraction of the warped surface position to index 
+    // into the texture. The result is a slightly warped texture, as a opposed to a completely 
+    // warped one. By the way, the warp function is called above in the "bumpFunc" function,
+    // so it's kind of wasteful doing it again here, but the function is kind of cheap, and
+    // it's more readable this way.
+    vec3 texCol = texture(iChannel0, sp.xy + W(sp.xy)/8.).xyz; 
+    texCol *= texCol; // Rough sRGB to linear conversion... That's a whole other conversation. :)
+    // A bit of color processing.
+    texCol = smoothstep(.05, .75, pow(texCol, vec3(.75, .8, .85)));    
+    
+    // Textureless. Simple and elegant... so it clearly didn't come from me. Thanks Fabrice. :)
+    //vec3 texCol = smoothFract( W(sp.xy).xyy )*.1 + .2;
+    
+    
+    
+    // FINAL COLOR
+    // Using the values above to produce the final color.   
+    vec3 col = (texCol*(diff*vec3(1, .97, .92)*2. + .5) + vec3(1, .6, .2)*spec*2.)*atten;
+    
+    // Faux environment mapping: I added this in at a later date out of sheer boredome, and  
+    // because I like shiny stuff. You can comment it out if it's not to your liking. :)
+    float ref = max(dot(reflect(rd, sn), vec3(1)), 0.);
+    col += col*pow(ref, 4.)*vec3(.25, .5, 1)*3.;
+    
+
+    // Perform some statistically unlikely (but close enough) 2.0 gamma correction. :) 
+    fragColor = vec4(sqrt(clamp(col, 0., 1.)), 1);
 }
-
-void mainImage(out vec4 fragColor, in vec2 fragCoord) {
-    vec2 uv = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;
-    
-    // Lichter einmal pro Pixel vorberechnen
-    Light lights[NUM_LIGHTS];
-    setupLights(lights);
-    
-    // Camera
-    vec3 ro = vec3(0.0, 1.5, 5.0);
-    vec3 forward = normalize(vec3(0.0, 1.0, 0.0) - ro);
-    vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), forward));
-    vec3 up = cross(forward, right);
-    vec3 rd = normalize(forward + uv.x * right + uv.y * up);
-    
-    // Background
-    vec3 color = vec3(0.02, 0.02, 0.05) * (1.0 - uv.y * 0.5);
-    
-    // Ground
-    float groundT = 0.0;
-    if(showGround >= 0.5){
-    groundT = groundPlane(ro, rd);
-    if (groundT > 0.0) {
-        vec3 groundPos = ro + rd * groundT;
-        vec2 checker = floor(groundPos.xz * 2.0);
-        float pattern = mod(checker.x + checker.y, 2.0);
-        color = mix(color, mix(vec3(0.05), vec3(0.1), pattern), exp(-groundT * 0.1));
-    }
-    }
-    // Volumetric lighting
-    color += volumetricLighting(ro, rd, groundT > 0.0 ? groundT : 10.0, lights);
-    
-    // Tonemapping + Gamma + Vignette kombiniert
-    color = pow(color / (1.0 + color), vec3(0.4545)) * (1.0 - dot(uv, uv) * 0.3);
-    
-    fragColor = vec4(color, 1.0);
-} 

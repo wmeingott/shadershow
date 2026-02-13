@@ -152,6 +152,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     if (!validSlot(slotIndex)) return Promise.reject(new Error('Invalid slot index'));
     return ipcRenderer.invoke('delete-shader-from-slot', slotIndex);
   },
+  readFileContent: (filePath) => ipcRenderer.invoke('read-file-content', filePath),
 
   // Mixer fullscreen (renderer → main → fullscreen)
   sendMixerParamUpdate: (data) => ipcRenderer.send('mixer-param-update', data),

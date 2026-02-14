@@ -28,6 +28,10 @@ export interface AssetParamValues {
   cropT: number;
   cropR: number;
   cropB: number;
+  repeatX: number;
+  repeatY: number;
+  speedX: number;
+  speedY: number;
   loop?: number;
   start?: number;
   end?: number;
@@ -54,6 +58,10 @@ const ASSET_PARAM_DEFS: AssetParamDef[] = [
   { name: 'cropT',  type: 'float', default: 0,   min: 0,     max: 1,    step: 0.001, description: 'Crop top (0-1)' },
   { name: 'cropR',  type: 'float', default: 1,   min: 0,     max: 1,    step: 0.001, description: 'Crop right (0-1)' },
   { name: 'cropB',  type: 'float', default: 1,   min: 0,     max: 1,    step: 0.001, description: 'Crop bottom (0-1)' },
+  { name: 'repeatX', type: 'int',   default: 1, min: 1, max: 16,     step: 1,   description: 'Repeat horizontal' },
+  { name: 'repeatY', type: 'int',   default: 1, min: 1, max: 16,     step: 1,   description: 'Repeat vertical' },
+  { name: 'speedX',  type: 'float', default: 0, min: -2000, max: 2000, step: 1, description: 'Translation speed X (px/s)' },
+  { name: 'speedY',  type: 'float', default: 0, min: -2000, max: 2000, step: 1, description: 'Translation speed Y (px/s)' },
 ];
 
 const VIDEO_PARAM_DEFS: AssetParamDef[] = [
@@ -76,6 +84,7 @@ export class AssetRenderer {
   customParamValues: AssetParamValues;
   naturalWidth: number;
   naturalHeight: number;
+  private _startTime: number;
 
   constructor(canvas: HTMLCanvasElement | null) {
     this.canvas = canvas;
@@ -84,9 +93,10 @@ export class AssetRenderer {
     this.image = null;
     this.video = null;
     this.mediaPath = null;
-    this.customParamValues = { x: 0, y: 0, width: 0, height: 0, scale: 1.0, keepAR: 1, cropL: 0, cropT: 0, cropR: 1, cropB: 1 };
+    this.customParamValues = { x: 0, y: 0, width: 0, height: 0, scale: 1.0, keepAR: 1, cropL: 0, cropT: 0, cropR: 1, cropB: 1, repeatX: 1, repeatY: 1, speedX: 0, speedY: 0 };
     this.naturalWidth = 0;
     this.naturalHeight = 0;
+    this._startTime = performance.now();
   }
 
   // Load an image from a data URL
@@ -172,8 +182,31 @@ export class AssetRenderer {
 
     const crop = computeCropDraw(this.naturalWidth, this.naturalHeight, this.customParamValues as unknown as Record<string, number>, dw, dh);
     if (!crop) return;
-    const { x = 0, y = 0 } = this.customParamValues;
-    ctx.drawImage(source, crop.sx, crop.sy, crop.sw, crop.sh, x + dx, y + dy, crop.drawW, crop.drawH);
+    const { x = 0, y = 0, repeatX = 1, repeatY = 1, speedX = 0, speedY = 0 } = this.customParamValues;
+
+    if (repeatX <= 1 && repeatY <= 1 && speedX === 0 && speedY === 0) {
+      // Fast path: single draw, no tiling/scrolling
+      ctx.drawImage(source, crop.sx, crop.sy, crop.sw, crop.sh, x + dx, y + dy, crop.drawW, crop.drawH);
+    } else {
+      const tileW = crop.drawW / repeatX;
+      const tileH = crop.drawH / repeatY;
+      const elapsed = (performance.now() - this._startTime) / 1000;
+      const offX = tileW > 0 ? ((speedX * elapsed) % tileW + tileW) % tileW : 0;
+      const offY = tileH > 0 ? ((speedY * elapsed) % tileH + tileH) % tileH : 0;
+      const bx = x + dx;
+      const by = y + dy;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(bx, by, crop.drawW, crop.drawH);
+      ctx.clip();
+      for (let row = -1; row <= repeatY; row++) {
+        for (let col = -1; col <= repeatX; col++) {
+          ctx.drawImage(source, crop.sx, crop.sy, crop.sw, crop.sh,
+            bx + col * tileW + offX, by + row * tileH + offY, tileW, tileH);
+        }
+      }
+      ctx.restore();
+    }
   }
 
   // Render to own canvas (for grid thumbnail)
@@ -188,7 +221,7 @@ export class AssetRenderer {
     this.ctx2d.clearRect(0, 0, cw, ch);
 
     // Apply crop for thumbnail
-    const { cropL, cropT, cropR, cropB } = this.customParamValues;
+    const { cropL, cropT, cropR, cropB, repeatX = 1, repeatY = 1, speedX = 0, speedY = 0 } = this.customParamValues;
     const srcW = this.naturalWidth;
     const srcH = this.naturalHeight;
     const sx = (cropL || 0) * srcW;
@@ -197,7 +230,26 @@ export class AssetRenderer {
     const sh = ((cropB ?? 1) - (cropT || 0)) * srcH;
 
     if (sw > 0 && sh > 0) {
-      this.ctx2d.drawImage(source, sx, sy, sw, sh, 0, 0, cw, ch);
+      if (repeatX <= 1 && repeatY <= 1 && speedX === 0 && speedY === 0) {
+        this.ctx2d.drawImage(source, sx, sy, sw, sh, 0, 0, cw, ch);
+      } else {
+        const tileW = cw / repeatX;
+        const tileH = ch / repeatY;
+        const elapsed = (performance.now() - this._startTime) / 1000;
+        const offX = tileW > 0 ? ((speedX * elapsed) % tileW + tileW) % tileW : 0;
+        const offY = tileH > 0 ? ((speedY * elapsed) % tileH + tileH) % tileH : 0;
+        this.ctx2d.save();
+        this.ctx2d.beginPath();
+        this.ctx2d.rect(0, 0, cw, ch);
+        this.ctx2d.clip();
+        for (let row = -1; row <= repeatY; row++) {
+          for (let col = -1; col <= repeatX; col++) {
+            this.ctx2d.drawImage(source, sx, sy, sw, sh,
+              col * tileW + offX, row * tileH + offY, tileW, tileH);
+          }
+        }
+        this.ctx2d.restore();
+      }
     }
   }
 

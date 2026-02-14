@@ -7,141 +7,17 @@
 import { Logger, LOG_LEVEL } from '@shared/logger.js';
 import type { TextureDirective, ParamValue, ParamArrayValue, ParamValues } from '@shared/types/params.js';
 import type { CompileResult } from '@shared/types/renderer.js';
+import { computeCropDraw, updateVideoLoop } from '@renderer/renderers/gl-utils.js';
+import { ShaderRenderer } from '@renderer/renderers/shader-renderer.js';
+import { ThreeSceneRenderer } from '@renderer/renderers/three-scene-renderer.js';
+import { TileRenderer } from '@renderer/renderers/tile-renderer.js';
+import type { TileBounds, TileSharedState } from '@renderer/renderers/tile-renderer.js';
 
 // =============================================================================
 // Logger
 // =============================================================================
 
 const log = new Logger('FullscreenRenderer', LOG_LEVEL.WARN);
-
-// =============================================================================
-// Declare class stubs — these live in the renderer bundle and will be
-// available at runtime but cannot be imported at compile time.
-// =============================================================================
-
-interface MouseState {
-  x: number;
-  y: number;
-  clickX: number;
-  clickY: number;
-  isDown: boolean;
-}
-
-declare class ShaderRenderer {
-  gl: WebGL2RenderingContext;
-  canvas: HTMLCanvasElement;
-  isPlaying: boolean;
-  startTime: number;
-  pausedTime: number;
-  lastFrameTime: number;
-  frameCount: number;
-  fps: number;
-  mouse: MouseState;
-  channelTextures: (WebGLTexture | null)[];
-  channelResolutions: [number, number, number][];
-  program: WebGLProgram | null;
-  fileTextureDirectives: TextureDirective[];
-  channelVideoSources: (HTMLVideoElement | null)[];
-
-  constructor(canvas: HTMLCanvasElement);
-  compile(source: string): CompileResult;
-  render(): void;
-  setResolution(width: number, height: number): void;
-  setParam(name: string, value: ParamValue | ParamArrayValue): void;
-  setParams(params: ParamValues): void;
-  getParams(): ParamValues;
-  reinitialize(): void;
-  dispose(): void;
-  loadTexture(channel: number, dataUrl: string): Promise<void>;
-  loadVideo(channel: number, filePath: string): Promise<void>;
-  loadCamera(channel: number): Promise<void>;
-  loadAudio(channel: number, fftSize?: number): Promise<void>;
-  updateVideoTextures(): void;
-  clearChannel(channel: number): void;
-}
-
-declare class ThreeSceneRenderer {
-  isPlaying: boolean;
-  startTime: number;
-  pausedTime: number;
-  frameCount: number;
-  fileTextureDirectives: TextureDirective[];
-
-  constructor(canvas: HTMLCanvasElement);
-  compile(source: string): CompileResult;
-  render(): void;
-  setResolution(width: number, height: number): void;
-  setParam(name: string, value: ParamValue | ParamArrayValue): void;
-  setParams(params: ParamValues): void;
-  getParams(): ParamValues;
-  reinitialize(): void;
-  dispose(): void;
-  loadTexture(channel: number, dataUrl: string): Promise<void>;
-  loadVideo(channel: number, filePath: string): Promise<void>;
-  loadCamera(channel: number): Promise<void>;
-  loadAudio(channel: number, fftSize?: number): Promise<void>;
-}
-
-interface TileBounds {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  tileIndex?: number;
-}
-
-interface TileSharedState {
-  time: number;
-  timeDelta: number;
-  frame: number;
-  mouse: MouseState;
-  date: Float32Array;
-  channelTextures: (WebGLTexture | null)[];
-  channelResolutions: Float32Array | number[];
-}
-
-declare class TileRenderer {
-  program: WebGLProgram | null;
-  bounds: TileBounds;
-  fileTextureDirectives: TextureDirective[];
-
-  constructor(gl: WebGL2RenderingContext, bounds: TileBounds);
-  compile(source: string): CompileResult;
-  render(sharedState: TileSharedState): void;
-  setParam(name: string, value: ParamValue | ParamArrayValue): void;
-  setParams(params: ParamValues): void;
-  setBounds(bounds: TileBounds): void;
-  dispose(): void;
-  loadTexture(channel: number, dataUrl: string): Promise<{ width: number; height: number }>;
-}
-
-// =============================================================================
-// Declare function stubs for AssetUtils (bundled separately)
-// =============================================================================
-
-declare function computeCropDraw(
-  srcW: number,
-  srcH: number,
-  params: Record<string, number>,
-  destW: number,
-  destH: number,
-): { sx: number; sy: number; sw: number; sh: number; drawW: number; drawH: number } | null;
-
-declare function updateVideoLoop(
-  video: HTMLVideoElement | null,
-  params: { loop?: boolean; start?: number; end?: number },
-): void;
-
-// =============================================================================
-// Declare global AssetUtils (available at runtime from gl-utils.js global)
-// =============================================================================
-
-interface AssetUtilsGlobal {
-  computeCropDraw: typeof computeCropDraw;
-  updateVideoLoop: typeof updateVideoLoop;
-}
-
-declare const AssetUtils: AssetUtilsGlobal;
 
 // =============================================================================
 // electronAPI declaration
@@ -366,6 +242,9 @@ let localPresets: PresetEntry[] = [];
 let activeLocalPresetIndex: number | null = null;
 let presetBarTimeout: ReturnType<typeof setTimeout> | null = null;
 let blackoutEnabled: boolean = false;
+
+// Asset tiling start time
+const _fsStartTime: number = performance.now();
 
 // FPS tracking
 let frameCount: number = 0;
@@ -611,10 +490,30 @@ function drawAssetWithCrop(
   const natH: number = (source as HTMLImageElement).naturalHeight
     || (source as HTMLVideoElement).videoHeight
     || source.height;
-  const crop = AssetUtils.computeCropDraw(natW, natH, params, canvasW, canvasH);
+  const crop = computeCropDraw(natW, natH, params, canvasW, canvasH);
   if (!crop) return;
-  const { x = 0, y = 0 } = params;
-  ctx.drawImage(source, crop.sx, crop.sy, crop.sw, crop.sh, x, y, crop.drawW, crop.drawH);
+  const { x = 0, y = 0, repeatX = 1, repeatY = 1, speedX = 0, speedY = 0 } = params;
+
+  if (repeatX <= 1 && repeatY <= 1 && speedX === 0 && speedY === 0) {
+    ctx.drawImage(source, crop.sx, crop.sy, crop.sw, crop.sh, x, y, crop.drawW, crop.drawH);
+  } else {
+    const tileW: number = crop.drawW / repeatX;
+    const tileH: number = crop.drawH / repeatY;
+    const elapsed: number = (performance.now() - _fsStartTime) / 1000;
+    const offX: number = tileW > 0 ? ((speedX * elapsed) % tileW + tileW) % tileW : 0;
+    const offY: number = tileH > 0 ? ((speedY * elapsed) % tileH + tileH) % tileH : 0;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y, crop.drawW, crop.drawH);
+    ctx.clip();
+    for (let row = -1; row <= repeatY; row++) {
+      for (let col = -1; col <= repeatX; col++) {
+        ctx.drawImage(source, crop.sx, crop.sy, crop.sw, crop.sh,
+          x + col * tileW + offX, y + row * tileH + offY, tileW, tileH);
+      }
+    }
+    ctx.restore();
+  }
 }
 
 // =============================================================================
@@ -655,7 +554,7 @@ function renderStandaloneAsset(): void {
   const asset = standaloneAsset;
   if (asset && asset.source) {
     if (asset.type === 'asset-video') {
-      AssetUtils.updateVideoLoop(asset.source as HTMLVideoElement, asset.params);
+      updateVideoLoop(asset.source as HTMLVideoElement, asset.params);
     }
     try {
       drawAssetWithCrop(ctx, asset.source, asset.params, canvas.width, canvas.height);
@@ -1059,7 +958,7 @@ function renderMixerFrame(): void {
     const asset: AssetEntry | null = i < mixerAssets.length ? mixerAssets[i] : null;
     if (asset && asset.source) {
       if (asset.type === 'asset-video') {
-        AssetUtils.updateVideoLoop(asset.source as HTMLVideoElement, asset.params);
+        updateVideoLoop(asset.source as HTMLVideoElement, asset.params);
       }
       ctx.globalAlpha = alpha;
       try {
@@ -1340,6 +1239,10 @@ export function registerIPCHandlers(): void {
     // Clear standalone asset when switching to shader/scene
     if (standaloneAsset) {
       clearStandaloneAsset();
+    }
+    // Exit mixer mode when switching to single shader/scene
+    if (mixerMode) {
+      exitMixerMode();
     }
 
     // Switch renderer if mode changed

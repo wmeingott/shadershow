@@ -22,6 +22,7 @@ export class RemoteServer {
   private server: http.Server | null = null;
   private wss: WebSocketServer | null = null;
   private app: Express | null = null;
+  private thumbnailCache = new Map<string, Buffer>();
   port = 9876;
 
   constructor({ queryRenderer, dispatchAction }: RemoteServerOptions) {
@@ -92,12 +93,25 @@ export class RemoteServer {
       try {
         const tabIndex = parseInt(req.params.tabIndex as string, 10);
         const slotIndex = parseInt(req.params.slotIndex as string, 10);
+        const cacheKey = `${tabIndex}-${slotIndex}`;
+
+        // Serve from cache if available
+        const cached = this.thumbnailCache.get(cacheKey);
+        if (cached) {
+          res.set('Content-Type', 'image/jpeg');
+          res.set('Cache-Control', 'public, max-age=86400');
+          res.send(cached);
+          return;
+        }
+
+        // Cache miss — query renderer
         const result = await this.queryRenderer('remote-get-thumbnail', { tabIndex, slotIndex }) as any;
         if (result && result.dataUrl) {
           const base64 = result.dataUrl.replace(/^data:image\/\w+;base64,/, '');
           const buf = Buffer.from(base64, 'base64');
+          this.thumbnailCache.set(cacheKey, buf);
           res.set('Content-Type', 'image/jpeg');
-          res.set('Cache-Control', 'no-cache');
+          res.set('Cache-Control', 'public, max-age=86400');
           res.send(buf);
         } else {
           res.status(404).json({ error: 'No thumbnail available' });
@@ -124,6 +138,7 @@ export class RemoteServer {
       '/api/playback/toggle': 'remote-toggle-playback',
       '/api/playback/reset': 'remote-reset-time',
       '/api/blackout': 'remote-blackout',
+      '/api/vp/recall': 'remote-recall-visual-preset',
     };
 
     for (const [route, channel] of Object.entries(actions)) {
@@ -174,7 +189,15 @@ export class RemoteServer {
       'toggle-playback': 'remote-toggle-playback',
       'reset-time': 'remote-reset-time',
       'blackout': 'remote-blackout',
+      'recall-visual-preset': 'remote-recall-visual-preset',
     };
+
+    // Handle thumbnail cache invalidation
+    if (msg.type === 'invalidate-thumbnail') {
+      const { tab, slot } = msg.data as { tab: number; slot: number };
+      this.thumbnailCache.delete(`${tab}-${slot}`);
+      return;
+    }
 
     const channel = wsActions[msg.type];
     if (channel) {

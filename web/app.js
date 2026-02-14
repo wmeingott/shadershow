@@ -6,9 +6,39 @@
   let appState = null;
   let ws = null;
   let reconnectTimer = null;
-  let thumbnailTimer = null;
   let currentView = 'grid';
   let assigningChannel = null; // When non-null, next slot tap assigns to this mixer channel
+
+  // ---- Thumbnail versioning ----
+  const thumbnailVersions = {}; // key: 'tab-slot' → version counter
+  let thumbnailRefreshTimer = null;
+
+  function getThumbnailUrl(tab, slot) {
+    const key = `${tab}-${slot}`;
+    if (thumbnailVersions[key] === undefined) thumbnailVersions[key] = 0;
+    return `/api/thumbnail/${tab}/${slot}?v=${thumbnailVersions[key]}`;
+  }
+
+  function bumpSlotThumbnail(tab, slot) {
+    const key = `${tab}-${slot}`;
+    thumbnailVersions[key] = (thumbnailVersions[key] || 0) + 1;
+    // Tell server to clear its cache for this slot
+    wsSend('invalidate-thumbnail', { tab, slot });
+  }
+
+  function scheduleActiveThumbnailRefresh() {
+    clearTimeout(thumbnailRefreshTimer);
+    thumbnailRefreshTimer = setTimeout(() => {
+      if (!appState) return;
+      const tab = appState.activeTab;
+      const slot = appState.activeSlot;
+      if (tab === undefined || slot === undefined) return;
+      bumpSlotThumbnail(tab, slot);
+      // Update the <img> element for the active slot
+      const img = document.querySelector(`.slot-thumb[data-tab="${tab}"][data-slot="${slot}"]`);
+      if (img) img.src = getThumbnailUrl(tab, slot);
+    }, 500);
+  }
 
   // ---- WebSocket ----
   function connect() {
@@ -19,7 +49,6 @@
       setConnectionStatus('Connected', 'connected');
       clearTimeout(reconnectTimer);
       fetchState();
-      startThumbnailPolling();
     };
 
     ws.onmessage = (event) => {
@@ -33,7 +62,6 @@
 
     ws.onclose = () => {
       setConnectionStatus('Disconnected', 'error');
-      stopThumbnailPolling();
       scheduleReconnect();
     };
 
@@ -107,27 +135,6 @@
     }
   }
 
-  // ---- Thumbnail Polling ----
-  function startThumbnailPolling() {
-    stopThumbnailPolling();
-    thumbnailTimer = setInterval(refreshThumbnails, 2000);
-  }
-
-  function stopThumbnailPolling() {
-    clearInterval(thumbnailTimer);
-    thumbnailTimer = null;
-  }
-
-  function refreshThumbnails() {
-    if (!appState || currentView !== 'grid') return;
-    const images = document.querySelectorAll('.slot-thumb[data-tab][data-slot]');
-    images.forEach(img => {
-      const tab = img.dataset.tab;
-      const slot = img.dataset.slot;
-      img.src = `/api/thumbnail/${tab}/${slot}?t=${Date.now()}`;
-    });
-  }
-
   // ---- Connection status ----
   function setConnectionStatus(text, cls) {
     const el = document.getElementById('connection-status');
@@ -142,6 +149,7 @@
     renderMixer();
     renderParams();
     renderPlayback();
+    renderVP();
   }
 
   function renderGrid() {
@@ -200,7 +208,7 @@
       img.className = 'slot-thumb';
       img.dataset.tab = appState.activeTab;
       img.dataset.slot = slot.index;
-      img.src = `/api/thumbnail/${appState.activeTab}/${slot.index}?t=${Date.now()}`;
+      img.src = getThumbnailUrl(appState.activeTab, slot.index);
       img.alt = slot.label;
       img.loading = 'lazy';
       // Prevent broken image icon
@@ -583,6 +591,7 @@
     } else {
       wsSend('set-param', { name: paramName, value });
     }
+    scheduleActiveThumbnailRefresh();
   }
 
   function renderPresets() {
@@ -599,8 +608,69 @@
       btn.textContent = name;
       btn.addEventListener('click', () => {
         postAction('/api/preset/recall', { presetIndex: i });
+        scheduleActiveThumbnailRefresh();
       });
       container.appendChild(btn);
+    });
+  }
+
+  function renderVP() {
+    if (!appState) return;
+
+    const vpTabs = appState.vpTabs || [];
+    const activeVpTab = appState.activeVpTab || 0;
+
+    // Tab bar
+    const tabBar = document.getElementById('vp-tab-bar');
+    tabBar.innerHTML = '';
+    vpTabs.forEach((tab, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'tab-btn' + (i === activeVpTab ? ' active' : '');
+      btn.textContent = tab.name;
+      btn.addEventListener('click', () => {
+        appState.activeVpTab = i;
+        renderVP();
+      });
+      tabBar.appendChild(btn);
+    });
+
+    // Preset grid
+    const grid = document.getElementById('vp-grid');
+    grid.innerHTML = '';
+
+    const tab = vpTabs[activeVpTab];
+    if (!tab || !tab.presets || tab.presets.length === 0) {
+      grid.innerHTML = '<div class="empty-message">No visual presets</div>';
+      return;
+    }
+
+    tab.presets.forEach((preset, i) => {
+      const card = document.createElement('div');
+      card.className = 'vp-card';
+
+      if (preset.thumbnail) {
+        const img = document.createElement('img');
+        img.className = 'vp-thumb';
+        img.src = preset.thumbnail;
+        img.alt = preset.name;
+        img.onerror = function() { this.style.visibility = 'hidden'; };
+        card.appendChild(img);
+      } else {
+        const placeholder = document.createElement('div');
+        placeholder.className = 'vp-thumb-placeholder';
+        card.appendChild(placeholder);
+      }
+
+      const label = document.createElement('div');
+      label.className = 'vp-label';
+      label.textContent = preset.name;
+      card.appendChild(label);
+
+      card.addEventListener('click', () => {
+        postAction('/api/vp/recall', { vpTabIndex: activeVpTab, presetIndex: i });
+      });
+
+      grid.appendChild(card);
     });
   }
 
@@ -654,6 +724,7 @@
       const val = parseFloat(speedSlider.value);
       speedValue.textContent = val.toFixed(2);
       wsSend('set-param', { name: 'speed', value: val });
+      scheduleActiveThumbnailRefresh();
     });
     speedSlider.addEventListener('dblclick', () => {
       speedSlider.value = 1;
@@ -693,10 +764,6 @@
       b.classList.toggle('active', b.dataset.view === view);
     });
 
-    // Refresh thumbnails when switching to grid
-    if (view === 'grid') {
-      refreshThumbnails();
-    }
   }
 
   // ---- Init ----

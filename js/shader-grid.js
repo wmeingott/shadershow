@@ -995,6 +995,8 @@ function deleteMixPreset(presetIndex) {
 // =============================================================================
 
 export function rebuildVisualPresetsDOM() {
+  rebuildVpTabBar();
+
   const container = document.getElementById('visual-presets-container');
   if (!container) return;
 
@@ -1032,18 +1034,113 @@ export function rebuildVisualPresetsDOM() {
   }
 }
 
+function rebuildVpTabBar() {
+  const tabBar = document.querySelector('.vp-tabs');
+  if (!tabBar) return;
+
+  tabBar.innerHTML = '';
+  state.vpTabs.forEach((tab, index) => {
+    const tabEl = document.createElement('button');
+    tabEl.className = `vp-tab${index === state.activeVpTab ? ' active' : ''}`;
+    tabEl.dataset.vpTabIndex = index;
+    tabEl.textContent = tab.name;
+    tabEl.addEventListener('click', () => switchVpTab(index));
+    tabEl.addEventListener('dblclick', () => renameVpTab(index));
+    tabEl.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      showVpTabContextMenu(e.clientX, e.clientY, index);
+    });
+    tabBar.appendChild(tabEl);
+  });
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'vp-tab vp-tab-add';
+  addBtn.textContent = '+';
+  addBtn.title = 'Add VP tab';
+  addBtn.addEventListener('click', addVpTab);
+  tabBar.appendChild(addBtn);
+}
+
+function switchVpTab(index) {
+  if (index < 0 || index >= state.vpTabs.length) return;
+  state.activeVpTab = index;
+  rebuildVisualPresetsDOM();
+  saveGridState();
+}
+
+function addVpTab() {
+  const name = `VPs ${state.vpTabs.length + 1}`;
+  state.vpTabs.push({ name, presets: [] });
+  state.activeVpTab = state.vpTabs.length - 1;
+  rebuildVisualPresetsDOM();
+  saveGridState();
+}
+
+function renameVpTab(index) {
+  const tabBar = document.querySelector('.vp-tabs');
+  const tabEl = tabBar?.children[index];
+  if (!tabEl) return;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'shader-tab-rename-input';
+  input.value = state.vpTabs[index].name;
+
+  const finishRename = () => {
+    const newName = input.value.trim() || state.vpTabs[index].name;
+    state.vpTabs[index].name = newName;
+    rebuildVpTabBar();
+    saveGridState();
+  };
+
+  input.addEventListener('blur', finishRename);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    else if (e.key === 'Escape') { input.value = state.vpTabs[index].name; input.blur(); }
+  });
+
+  tabEl.textContent = '';
+  tabEl.appendChild(input);
+  input.focus();
+  input.select();
+}
+
+function showVpTabContextMenu(x, y, index) {
+  hideContextMenu();
+  const items = [
+    { label: 'Rename Tab', action: () => renameVpTab(index) }
+  ];
+  if (state.vpTabs.length > 1) {
+    items.push({ label: 'Delete Tab', action: () => deleteVpTab(index) });
+  }
+  showContextMenuHelper(x, y, items);
+}
+
+function deleteVpTab(index) {
+  if (state.vpTabs.length <= 1) return;
+  state.vpTabs.splice(index, 1);
+  if (state.activeVpTab >= state.vpTabs.length) {
+    state.activeVpTab = state.vpTabs.length - 1;
+  }
+  rebuildVisualPresetsDOM();
+  saveGridState();
+}
+
 export function toggleVisualPresetsPanel() {
   state.visualPresetsEnabled = !state.visualPresetsEnabled;
   log.debug('Grid', `toggleVisualPresetsPanel: ${state.visualPresetsEnabled ? 'open' : 'closed'}`);
   const panel = document.getElementById('visual-presets-panel');
+  const resizer = document.getElementById('resizer-visual-presets');
   const btn = document.getElementById('btn-visual-presets');
 
   if (state.visualPresetsEnabled) {
     panel.classList.remove('hidden');
+    resizer.classList.remove('hidden');
     btn.classList.add('active');
     rebuildVisualPresetsDOM();
   } else {
     panel.classList.add('hidden');
+    resizer.classList.add('hidden');
     btn.classList.remove('active');
   }
 
@@ -1057,6 +1154,10 @@ export function initVisualPresetsPanel() {
       saveVisualPreset();
     });
   }
+
+  // Activate the tab content (there's only one content div, shared across tabs)
+  const content = document.querySelector('.vp-tab-content');
+  if (content) content.classList.add('active');
 }
 
 function buildVisualPresetTooltip(preset) {
@@ -3370,8 +3471,8 @@ export function saveGridState() {
     };
   });
 
-  // Serialize visual presets at top level
-  const serializedVisualPresets = (state.visualPresets || []).map(preset => {
+  // Serialize visual presets tabs
+  const serializeVpPresets = (presets) => (presets || []).map(preset => {
     const saved = {
       name: preset.name,
       thumbnail: preset.thumbnail || null,
@@ -3402,12 +3503,18 @@ export function saveGridState() {
     return saved;
   });
 
+  const serializedVpTabs = state.vpTabs.map(tab => ({
+    name: tab.name,
+    presets: serializeVpPresets(tab.presets)
+  }));
+
   const gridState = {
     version: 2,
     activeTab: state.activeShaderTab,
     activeSection: state.activeSection || 'shaders',
     tabs: tabsState,
-    visualPresets: serializedVisualPresets
+    vpTabs: serializedVpTabs,
+    activeVpTab: state.activeVpTab
   };
 
   window.electronAPI.saveGridState(gridState);
@@ -3448,7 +3555,8 @@ export async function loadGridState() {
 // Load new tabbed format
 async function loadTabbedGridState(savedState) {
   state.shaderTabs = [];
-  state.visualPresets = [];
+  state.vpTabs = [{ name: 'My VPs', presets: [] }];
+  state.activeVpTab = 0;
   let totalLoaded = 0;
   const allFailedSlots = [];
 
@@ -3467,10 +3575,10 @@ async function loadTabbedGridState(savedState) {
       continue;
     }
 
-    // Migrate legacy presets tabs — merge into top-level state.visualPresets
+    // Migrate legacy presets tabs — merge into first VP tab
     if (tabData.type === 'presets') {
       const legacyPresets = tabData.visualPresets || [];
-      state.visualPresets.push(...legacyPresets);
+      state.vpTabs[0].presets.push(...legacyPresets);
       totalLoaded += legacyPresets.length;
       continue;
     }
@@ -3586,9 +3694,13 @@ async function loadTabbedGridState(savedState) {
     state.shaderTabs = [{ name: 'My Shaders', slots: [] }];
   }
 
-  // Load top-level visual presets (merge with any migrated from legacy tabs)
-  if (savedState.visualPresets && savedState.visualPresets.length > 0) {
-    state.visualPresets.push(...savedState.visualPresets);
+  // Load VP tabs (new format) or migrate flat visualPresets (old format)
+  if (savedState.vpTabs && savedState.vpTabs.length > 0) {
+    state.vpTabs = savedState.vpTabs.map(t => ({ name: t.name, presets: t.presets || [] }));
+    state.activeVpTab = Math.min(savedState.activeVpTab || 0, state.vpTabs.length - 1);
+  } else if (savedState.visualPresets && savedState.visualPresets.length > 0) {
+    // Migrate old flat format into first VP tab
+    state.vpTabs[0].presets.push(...savedState.visualPresets);
   }
 
   // Restore active section and tab

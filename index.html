@@ -224,15 +224,20 @@
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- Visual Presets Panel -->
-    <div id="visual-presets-panel" class="hidden">
-      <div class="visual-presets-header">
-        <span>Visual Presets</span>
-        <button id="visual-presets-save-btn" class="visual-presets-action" title="Save current state">+ Save</button>
+      <!-- Resizer between right panel and visual presets -->
+      <div id="resizer-visual-presets" class="hidden"></div>
+
+      <!-- Visual Presets Panel -->
+      <div id="visual-presets-panel" class="hidden">
+        <div class="vp-tabs"></div>
+        <div class="vp-tab-content">
+          <div class="visual-presets-header">
+            <button id="visual-presets-save-btn" class="visual-presets-action" title="Save current state">+ Save</button>
+          </div>
+          <div id="visual-presets-container" class="visual-presets-container"></div>
+        </div>
       </div>
-      <div id="visual-presets-container" class="visual-presets-container"></div>
     </div>
 
     <!-- Status Bar -->

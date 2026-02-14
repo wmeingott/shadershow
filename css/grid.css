@@ -453,30 +453,87 @@
 }
 
 /* =============================================================================
-   Visual Presets Top-Level Panel (between main-content and status-bar)
+   Visual Presets Panel (right sidebar inside main-content)
    ============================================================================= */
 
 #visual-presets-panel {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--border-color);
+  border-left: 1px solid var(--border-color);
   background-color: var(--bg-secondary);
-  max-height: 200px;
+  width: 180px;
   overflow-y: auto;
+  overflow-x: hidden;
   flex-shrink: 0;
+}
+
+.vp-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 4px 6px 0;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.vp-tab {
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  cursor: pointer;
+  transition: all 0.15s;
+  user-select: none;
+  margin-bottom: -1px;
+}
+
+.vp-tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--accent-color);
+}
+
+.vp-tab.active {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border-color: var(--accent-color);
+  z-index: 1;
+}
+
+.vp-tab-add {
+  font-size: 14px;
+  font-weight: 300;
+  color: var(--text-dim);
+  background: transparent;
+  border-style: dashed;
+}
+
+.vp-tab-add:hover {
+  color: var(--accent-color);
+  border-color: var(--accent-color);
+  background: rgba(0, 120, 212, 0.1);
+}
+
+.vp-tab-content {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.vp-tab-content.active {
+  display: flex;
 }
 
 .visual-presets-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 4px 12px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-secondary);
-  border-bottom: 1px solid var(--border-color);
+  justify-content: flex-end;
+  padding: 6px 10px;
   flex-shrink: 0;
 }
 
@@ -501,12 +558,12 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 8px 10px;
   align-items: flex-start;
 }
 
 .visual-presets-container .visual-preset-btn {
-  width: 160px;
+  width: var(--grid-slot-width, 150px);
   flex-shrink: 0;
 }
 

@@ -64,7 +64,10 @@ export const state = {
   mixerBlendMode: 'lighter',   // canvas globalCompositeOperation
 
   // Visual presets state
-  visualPresets: [],
+  vpTabs: [{ name: 'My VPs', presets: [] }],
+  activeVpTab: 0,
+  get visualPresets() { return this.vpTabs[this.activeVpTab]?.presets || []; },
+  set visualPresets(val) { if (this.vpTabs[this.activeVpTab]) this.vpTabs[this.activeVpTab].presets = val; },
   visualPresetsEnabled: false,
 
   // Tiled preview state

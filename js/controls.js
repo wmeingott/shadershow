@@ -176,12 +176,14 @@ export function initResizer() {
   const resizer = document.getElementById('resizer');
   const resizerVertical = document.getElementById('resizer-vertical');
   const resizerBottom = document.getElementById('resizer-bottom');
+  const resizerVisualPresets = document.getElementById('resizer-visual-presets');
   const editorPanel = document.getElementById('editor-panel');
   const previewPanel = document.getElementById('preview-panel');
   const bottomRow = document.getElementById('bottom-row');
   const gridPanel = document.getElementById('grid-panel');
   const paramsPanel = document.getElementById('params-panel');
   const rightPanel = document.getElementById('right-panel');
+  const visualPresetsPanel = document.getElementById('visual-presets-panel');
 
   let activeResizer = null;
 
@@ -203,6 +205,13 @@ export function initResizer() {
   resizerBottom.addEventListener('mousedown', (e) => {
     activeResizer = 'bottom';
     resizerBottom.classList.add('dragging');
+    e.preventDefault();
+  });
+
+  // Visual presets sidebar resizer
+  resizerVisualPresets.addEventListener('mousedown', (e) => {
+    activeResizer = 'visual-presets';
+    resizerVisualPresets.classList.add('dragging');
     e.preventDefault();
   });
 
@@ -237,6 +246,13 @@ export function initResizer() {
         gridPanel.style.flex = 'none';
         gridPanel.style.width = `${relativeX}px`;
       }
+    } else if (activeResizer === 'visual-presets') {
+      const mainContent = document.getElementById('main-content');
+      const mainRect = mainContent.getBoundingClientRect();
+      const newWidth = mainRect.right - e.clientX;
+      if (newWidth >= 120 && newWidth <= mainRect.width * 0.8) {
+        visualPresetsPanel.style.width = `${newWidth}px`;
+      }
     }
   });
 
@@ -245,6 +261,7 @@ export function initResizer() {
       resizer.classList.remove('dragging');
       resizerVertical.classList.remove('dragging');
       resizerBottom.classList.remove('dragging');
+      resizerVisualPresets.classList.remove('dragging');
       activeResizer = null;
       saveViewState();
     }

@@ -27,7 +27,8 @@ export function saveViewState() {
     customHeight: customHeight.value,
     consolePanelHeight: consoleState.height,
     consolePanelCollapsed: consoleState.collapsed,
-    visualPresetsEnabled: state.visualPresetsEnabled
+    visualPresetsEnabled: state.visualPresetsEnabled,
+    visualPresetsWidth: document.getElementById('visual-presets-panel')?.style.width || ''
   };
 
   log.debug('ViewState', 'Saving view state');
@@ -130,12 +131,17 @@ export async function restoreViewState() {
     }
   }
 
-  // Restore visual presets panel visibility
+  // Restore visual presets panel visibility and width
   if (viewState.visualPresetsEnabled) {
     state.visualPresetsEnabled = true;
     const vpPanel = document.getElementById('visual-presets-panel');
+    const vpResizer = document.getElementById('resizer-visual-presets');
     if (vpPanel) vpPanel.classList.remove('hidden');
+    if (vpResizer) vpResizer.classList.remove('hidden');
     document.getElementById('btn-visual-presets')?.classList.add('active');
+    if (viewState.visualPresetsWidth && vpPanel) {
+      vpPanel.style.width = viewState.visualPresetsWidth;
+    }
     rebuildVisualPresetsDOM();
   }
 

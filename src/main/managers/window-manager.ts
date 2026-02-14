@@ -77,14 +77,16 @@ export class WindowManager {
    * Create the main application BrowserWindow.
    * Loads `index.html` from the app directory and prevents automatic title updates.
    */
-  createWindow(): BrowserWindow {
+  createWindow(options?: { headless?: boolean }): BrowserWindow {
+    const headless = options?.headless ?? false;
     this.mainWindow = new BrowserWindow({
       width: 1400,
       height: 900,
       minWidth: 800,
       minHeight: 600,
+      show: !headless,
       webPreferences: {
-        preload: path.join(this.appDir, 'preload.js'),
+        preload: path.join(this.appDir, 'dist/preload/preload.js'),
         contextIsolation: true,
         nodeIntegration: false,
       },
@@ -167,7 +169,7 @@ export class WindowManager {
       frame: false,
       alwaysOnTop: true,
       webPreferences: {
-        preload: path.join(this.appDir, 'preload.js'),
+        preload: path.join(this.appDir, 'dist/preload/preload.js'),
         contextIsolation: true,
         nodeIntegration: false,
       },
@@ -238,7 +240,7 @@ export class WindowManager {
       frame: false,
       alwaysOnTop: true,
       webPreferences: {
-        preload: path.join(this.appDir, 'preload.js'),
+        preload: path.join(this.appDir, 'dist/preload/preload.js'),
         contextIsolation: true,
         nodeIntegration: false,
       },
@@ -289,7 +291,7 @@ export class WindowManager {
       minimizable: false,
       maximizable: false,
       webPreferences: {
-        preload: path.join(this.appDir, 'preload-dialog.js'),
+        preload: path.join(this.appDir, 'dist/preload/preload-dialog.js'),
         contextIsolation: true,
         nodeIntegration: false,
       },
@@ -390,7 +392,7 @@ export class WindowManager {
       minimizable: false,
       maximizable: false,
       webPreferences: {
-        preload: path.join(this.appDir, 'preload-texture-dialog.js'),
+        preload: path.join(this.appDir, 'dist/preload/preload-texture-dialog.js'),
         contextIsolation: true,
         nodeIntegration: false,
       },

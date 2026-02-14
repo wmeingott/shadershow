@@ -8,26 +8,70 @@ import { Logger } from '@shared/logger.js';
 
 const log = new Logger('Remote');
 
+const MAX_THUMBNAIL_CACHE = 200;
+
+const WS_ACTIONS: Record<string, string> = {
+  'select-tab': 'remote-select-tab',
+  'select-slot': 'remote-select-slot',
+  'set-param': 'remote-set-param',
+  'recall-preset': 'remote-recall-preset',
+  'mixer-assign': 'remote-mixer-assign',
+  'mixer-clear': 'remote-mixer-clear',
+  'mixer-alpha': 'remote-mixer-alpha',
+  'mixer-select': 'remote-mixer-select',
+  'mixer-blend': 'remote-mixer-blend',
+  'mixer-reset': 'remote-mixer-reset',
+  'mixer-toggle': 'remote-mixer-toggle',
+  'recall-mix-preset': 'remote-recall-mix-preset',
+  'toggle-playback': 'remote-toggle-playback',
+  'reset-time': 'remote-reset-time',
+  'blackout': 'remote-blackout',
+  'recall-visual-preset': 'remote-recall-visual-preset',
+  'reorder-visual-preset': 'remote-reorder-visual-preset',
+};
+
 export type QueryRendererFn = (channel: string, data?: unknown) => Promise<unknown>;
 export type DispatchActionFn = (channel: string, data: unknown) => void;
+
+export interface DisplayInfoDTO {
+  id: number;
+  label: string;
+  primary: boolean;
+  hasFullscreen: boolean;
+  bounds: { x: number; y: number; width: number; height: number };
+}
 
 export interface RemoteServerOptions {
   queryRenderer: QueryRendererFn;
   dispatchAction: DispatchActionFn;
+  getDisplays?: () => DisplayInfoDTO[];
+  openFullscreenOnDisplay?: (displayId: number) => void;
+  closeFullscreen?: () => void;
+  getPreviewFrame?: () => Promise<Buffer | null>;
 }
 
 export class RemoteServer {
   private queryRenderer: QueryRendererFn;
   private dispatchAction: DispatchActionFn;
+  private getDisplays?: () => DisplayInfoDTO[];
+  private openFullscreenOnDisplay?: (displayId: number) => void;
+  private closeFullscreen?: () => void;
+  private getPreviewFrame?: () => Promise<Buffer | null>;
   private server: http.Server | null = null;
   private wss: WebSocketServer | null = null;
   private app: Express | null = null;
   private thumbnailCache = new Map<string, Buffer>();
+  private previewClients = new Set<Response>();
+  private previewTimer: ReturnType<typeof setInterval> | null = null;
   port = 9876;
 
-  constructor({ queryRenderer, dispatchAction }: RemoteServerOptions) {
-    this.queryRenderer = queryRenderer;
-    this.dispatchAction = dispatchAction;
+  constructor(opts: RemoteServerOptions) {
+    this.queryRenderer = opts.queryRenderer;
+    this.dispatchAction = opts.dispatchAction;
+    this.getDisplays = opts.getDisplays;
+    this.openFullscreenOnDisplay = opts.openFullscreenOnDisplay;
+    this.closeFullscreen = opts.closeFullscreen;
+    this.getPreviewFrame = opts.getPreviewFrame;
   }
 
   start(port = 9876): void {
@@ -51,6 +95,11 @@ export class RemoteServer {
   }
 
   stop(): void {
+    this.stopPreviewTimer();
+    for (const client of this.previewClients) {
+      try { client.end(); } catch { /* ignore */ }
+    }
+    this.previewClients.clear();
     if (this.wss) {
       for (const client of this.wss.clients) {
         client.close();
@@ -63,11 +112,16 @@ export class RemoteServer {
       this.server = null;
     }
     this.app = null;
+    this.thumbnailCache.clear();
     log.info('Server stopped');
   }
 
   broadcast(type: string, data: unknown): void {
     if (!this.wss) return;
+    // Clear thumbnail cache on state updates so stale images are re-fetched
+    if (type === 'state-update') {
+      this.thumbnailCache.clear();
+    }
     const msg = JSON.stringify({ type, data });
     for (const client of this.wss.clients) {
       if (client.readyState === WebSocket.OPEN) {
@@ -99,7 +153,7 @@ export class RemoteServer {
         const cached = this.thumbnailCache.get(cacheKey);
         if (cached) {
           res.set('Content-Type', 'image/jpeg');
-          res.set('Cache-Control', 'public, max-age=86400');
+          res.set('Cache-Control', 'no-cache');
           res.send(cached);
           return;
         }
@@ -109,9 +163,14 @@ export class RemoteServer {
         if (result && result.dataUrl) {
           const base64 = result.dataUrl.replace(/^data:image\/\w+;base64,/, '');
           const buf = Buffer.from(base64, 'base64');
+          if (this.thumbnailCache.size >= MAX_THUMBNAIL_CACHE) {
+            // Evict oldest entry (first key in Map iteration order)
+            const oldest = this.thumbnailCache.keys().next().value;
+            if (oldest !== undefined) this.thumbnailCache.delete(oldest);
+          }
           this.thumbnailCache.set(cacheKey, buf);
           res.set('Content-Type', 'image/jpeg');
-          res.set('Cache-Control', 'public, max-age=86400');
+          res.set('Cache-Control', 'no-cache');
           res.send(buf);
         } else {
           res.status(404).json({ error: 'No thumbnail available' });
@@ -139,6 +198,7 @@ export class RemoteServer {
       '/api/playback/reset': 'remote-reset-time',
       '/api/blackout': 'remote-blackout',
       '/api/vp/recall': 'remote-recall-visual-preset',
+      '/api/vp/reorder': 'remote-reorder-visual-preset',
     };
 
     for (const [route, channel] of Object.entries(actions)) {
@@ -147,6 +207,72 @@ export class RemoteServer {
         res.json({ ok: true });
       });
     }
+
+    // ---- Display / fullscreen management ----
+
+    app.get('/api/displays', (_req: Request, res: Response) => {
+      if (!this.getDisplays) {
+        res.status(501).json({ error: 'Not available' });
+        return;
+      }
+      res.json(this.getDisplays());
+    });
+
+    app.post('/api/fullscreen/open', (req: Request, res: Response) => {
+      if (!this.openFullscreenOnDisplay) {
+        res.status(501).json({ error: 'Not available' });
+        return;
+      }
+      const { displayId } = req.body || {};
+      if (typeof displayId !== 'number') {
+        res.status(400).json({ error: 'displayId required' });
+        return;
+      }
+      this.openFullscreenOnDisplay(displayId);
+      res.json({ ok: true });
+    });
+
+    app.post('/api/fullscreen/close', (_req: Request, res: Response) => {
+      if (!this.closeFullscreen) {
+        res.status(501).json({ error: 'Not available' });
+        return;
+      }
+      this.closeFullscreen();
+      res.json({ ok: true });
+    });
+
+    // ---- Live MJPEG preview stream ----
+
+    app.get('/api/preview/stream', (req: Request, res: Response) => {
+      if (!this.getPreviewFrame) {
+        res.status(501).json({ error: 'Not available' });
+        return;
+      }
+
+      res.writeHead(200, {
+        'Content-Type': 'multipart/x-mixed-replace; boundary=frame',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Connection': 'close',
+      });
+
+      this.previewClients.add(res);
+      this.startPreviewTimer();
+
+      req.on('close', () => {
+        this.previewClients.delete(res);
+        if (this.previewClients.size === 0) {
+          this.stopPreviewTimer();
+        }
+      });
+    });
+
+    app.get('/api/preview/status', (_req: Request, res: Response) => {
+      res.json({
+        streaming: this.previewClients.size > 0,
+        clients: this.previewClients.size,
+      });
+    });
   }
 
   private setupWebSocket(): void {
@@ -170,27 +296,51 @@ export class RemoteServer {
     });
   }
 
+  private startPreviewTimer(): void {
+    if (this.previewTimer) return;
+    this.previewTimer = setInterval(() => this.pushPreviewFrame(), 100); // ~10fps
+  }
+
+  private stopPreviewTimer(): void {
+    if (this.previewTimer) {
+      clearInterval(this.previewTimer);
+      this.previewTimer = null;
+    }
+  }
+
+  private async pushPreviewFrame(): Promise<void> {
+    if (this.previewClients.size === 0 || !this.getPreviewFrame) return;
+
+    try {
+      const buf = await this.getPreviewFrame();
+      if (!buf || buf.length === 0) return;
+
+      const header = `--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${buf.length}\r\n\r\n`;
+      const dead: Response[] = [];
+
+      for (const client of this.previewClients) {
+        try {
+          client.write(header);
+          client.write(buf);
+          client.write('\r\n');
+        } catch {
+          dead.push(client);
+        }
+      }
+
+      for (const d of dead) {
+        this.previewClients.delete(d);
+      }
+      if (this.previewClients.size === 0) {
+        this.stopPreviewTimer();
+      }
+    } catch (err: any) {
+      log.warn(`Preview frame error: ${err.message}`);
+    }
+  }
+
   private handleWsMessage(msg: { type?: string; data?: unknown }): void {
     if (!msg || !msg.type) return;
-
-    const wsActions: Record<string, string> = {
-      'select-tab': 'remote-select-tab',
-      'select-slot': 'remote-select-slot',
-      'set-param': 'remote-set-param',
-      'recall-preset': 'remote-recall-preset',
-      'mixer-assign': 'remote-mixer-assign',
-      'mixer-clear': 'remote-mixer-clear',
-      'mixer-alpha': 'remote-mixer-alpha',
-      'mixer-select': 'remote-mixer-select',
-      'mixer-blend': 'remote-mixer-blend',
-      'mixer-reset': 'remote-mixer-reset',
-      'mixer-toggle': 'remote-mixer-toggle',
-      'recall-mix-preset': 'remote-recall-mix-preset',
-      'toggle-playback': 'remote-toggle-playback',
-      'reset-time': 'remote-reset-time',
-      'blackout': 'remote-blackout',
-      'recall-visual-preset': 'remote-recall-visual-preset',
-    };
 
     // Handle thumbnail cache invalidation
     if (msg.type === 'invalidate-thumbnail') {
@@ -199,7 +349,7 @@ export class RemoteServer {
       return;
     }
 
-    const channel = wsActions[msg.type];
+    const channel = WS_ACTIONS[msg.type];
     if (channel) {
       this.dispatchAction(channel, msg.data || {});
     }

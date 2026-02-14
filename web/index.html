@@ -60,18 +60,52 @@
     <div id="app-main">
       <header id="status-bar">
         <span id="connection-status">Connecting...</span>
+        <span id="display-bar">
+          <select id="display-select" title="Select Display">
+            <option value="">No Fullscreen</option>
+          </select>
+          <button id="btn-fullscreen" class="ctrl-btn" title="Open Fullscreen">&#9635;</button>
+          <button id="btn-fs-close" class="ctrl-btn" title="Close Fullscreen">&#10005;</button>
+        </span>
         <span id="playback-bar">
+          <button id="btn-preview" class="ctrl-btn" title="Toggle Preview">&#9673;</button>
           <button id="btn-blackout" class="ctrl-btn" title="Blackout">&#9679;</button>
           <button id="btn-play" class="ctrl-btn" title="Play/Pause">&#9654;</button>
           <button id="btn-reset" class="ctrl-btn" title="Reset Time">&#8634;</button>
         </span>
       </header>
+      <div id="preview-container" class="hidden">
+        <img id="preview-stream" alt="Preview">
+        <button id="preview-close" title="Close Preview">&#10005;</button>
+      </div>
 
       <div id="content">
         <!-- Grid View -->
         <div id="view-grid" class="view active">
-          <div id="tab-bar"></div>
-          <div id="slot-grid"></div>
+          <div id="grid-layout">
+            <div id="grid-main">
+              <div id="tab-bar"></div>
+              <div id="slot-grid"></div>
+              <div id="grid-vp-section">
+                <div id="grid-vp-tab-bar"></div>
+                <div id="grid-vp-grid"></div>
+              </div>
+            </div>
+            <div id="grid-sidebar">
+              <div id="sidebar-params">
+                <div class="param-group">
+                  <label>Speed</label>
+                  <input type="range" id="sidebar-speed" min="0" max="5" step="0.01" value="1">
+                  <span id="sidebar-speed-value">1.00</span>
+                </div>
+                <div id="sidebar-custom-params"></div>
+              </div>
+              <div id="sidebar-presets">
+                <h3>Presets</h3>
+                <div id="sidebar-preset-list"></div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Mixer View -->

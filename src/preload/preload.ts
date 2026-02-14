@@ -197,6 +197,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onRemoteTogglePlayback: (callback: () => void) => onIPC('remote-toggle-playback', () => callback()),
   onRemoteResetTime: (callback: () => void) => onIPC('remote-reset-time', () => callback()),
   onRemoteBlackout: (callback: (data: any) => void) => onIPC('remote-blackout', (_event: any, data: any) => callback(data)),
+  onRemoteRecallVisualPreset: (callback: (data: any) => void) => onIPC('remote-recall-visual-preset', (_event: any, data: any) => callback(data)),
+  onRemoteReorderVisualPreset: (callback: (data: any) => void) => onIPC('remote-reorder-visual-preset', (_event: any, data: any) => callback(data)),
+  onRemoteGetPreviewFrame: (callback: (data: any) => void) => onIPC('remote-get-preview-frame', (_event: any, data: any) => callback(data)),
+  sendRemoteGetPreviewFrameResponse: (data: any) => ipcRenderer.send('remote-get-preview-frame-response', data),
 
   // File textures
   loadFileTexture: (name: string) => ipcRenderer.invoke('load-file-texture', name),

@@ -83,48 +83,23 @@ interface EditorTabInfo {
   type?: string;
 }
 
-// ---------------------------------------------------------------------------
-// External module stubs (imported at runtime from JS modules)
-// These declare the shapes we need for the TS compiler.
-// ---------------------------------------------------------------------------
+import { setStatus, updateChannelSlot } from '../ui/utils.js';
+import { compileShader, setEditorMode } from '../ui/editor.js';
+import { togglePlayback, resetTime, resetFullscreenSelect } from '../ui/controls.js';
+import { loadGridPresetsFromData, saveGridState } from '../grid/grid-persistence.js';
+import { selectGridSlot } from '../grid/shader-grid.js';
+import { switchShaderTab } from '../grid/grid-tabs.js';
+import { recallLocalPreset, updateLocalPresetsUI } from '../ui/presets.js';
+import { loadParamsToSliders, generateCustomParamUI } from '../ui/params.js';
+import { updatePreviewFrameLimit } from '../core/render-loop.js';
+import { setRenderMode, detectRenderMode, restartRender } from '../core/renderer-manager.js';
+import { createTab, openInTab, activeTabHasChanges, markTabSaved, getActiveTab } from '../ui/tabs.js';
+import { isMixerActive, assignShaderToMixer, clearMixerChannel, resetMixer, recallMixState } from '../ui/mixer.js';
+import { recallVisualPreset, rebuildVisualPresetsDOM } from '../grid/visual-presets.js';
+import { tileState } from '../tiles/tile-state.js';
 
-declare function setStatus(message: string, type: 'success' | 'error'): void;
-declare function updateChannelSlot(
-  channel: number,
-  type: string,
-  label?: string,
-  width?: number,
-  height?: number,
-  dataUrl?: string,
-): void;
-declare function compileShader(): void;
-declare function setEditorMode(mode: string): void;
-declare function togglePlayback(): void;
-declare function resetTime(): void;
-declare function resetFullscreenSelect(): void;
-declare function runBenchmark(): void;
-declare function loadGridPresetsFromData(gridState: unknown, filePath: string): void;
-declare function saveGridState(): void;
-declare function selectGridSlot(index: number): void;
-declare function switchShaderTab(index: number): void;
-declare function recallLocalPreset(index: number): void;
-declare function loadParamsToSliders(params: ParamValues): void;
-declare function updatePreviewFrameLimit(): void;
-declare function setRenderMode(mode: string): void;
-declare function detectRenderMode(filePath: string, content: string): RenderMode;
-declare function restartRender(): void;
-declare function createTab(opts: { content: string; type: string; title: string; activate: boolean }): void;
-declare function openInTab(opts: { content: string; filePath: string; type: string | RenderMode; activate: boolean }): void;
-declare function activeTabHasChanges(): boolean;
-declare function markTabSaved(id: string): void;
-declare function getActiveTab(): EditorTabInfo | null;
-declare function isMixerActive(): boolean;
-declare function assignShaderToMixer(channelIndex: number, slotIndex: number): void;
-declare function clearMixerChannel(channelIndex: number): void;
-declare function resetMixer(): void;
-declare function recallMixState(preset: { name: string }): void;
-
-declare const tileState: TileStateObj;
+/** Benchmark not yet ported to TS — no-op stub */
+function runBenchmark(): void { /* no-op */ }
 
 // ---------------------------------------------------------------------------
 // ElectronAPI type — shape of window.electronAPI used in this file
@@ -148,7 +123,7 @@ interface ElectronAPI {
   sendMixerBlendMode(data: { blendMode: string }): void;
   sendRemoteStateChanged(data: unknown): void;
   sendRemoteGetStateResponse(data: unknown): void;
-  sendRemoteGetThumbnailResponse(data: { tabIndex: number; slotIndex: number; dataUrl: string | null }): void;
+  sendRemoteGetThumbnailResponse(data: { tabIndex: number; slotIndex: number; dataUrl: string | null; _queryId?: number }): void;
   sendBlackout(enabled: boolean): void;
 
   // On listeners (main → renderer)
@@ -201,6 +176,10 @@ interface ElectronAPI {
   onRemoteTogglePlayback(cb: (data: unknown) => void): void;
   onRemoteResetTime(cb: (data: unknown) => void): void;
   onRemoteBlackout(cb: (data: { enabled: boolean }) => void): void;
+  onRemoteRecallVisualPreset(cb: (data: { vpTabIndex: number; presetIndex: number }) => void): void;
+  onRemoteReorderVisualPreset(cb: (data: { vpTabIndex: number; fromIndex: number; toIndex: number }) => void): void;
+  onRemoteGetPreviewFrame(cb: (data: unknown) => void): void;
+  sendRemoteGetPreviewFrameResponse(data: unknown): void;
 }
 
 declare const window: Window & { electronAPI: ElectronAPI };
@@ -232,6 +211,11 @@ interface RemoteMixerChannelInfo {
   label: string | null;
 }
 
+interface RemoteVpTab {
+  name: string;
+  presets: Array<{ name: string; thumbnail: string | null }>;
+}
+
 interface RemoteStateSnapshot {
   tabs: RemoteTabInfo[];
   activeTab: number;
@@ -245,6 +229,8 @@ interface RemoteStateSnapshot {
   params: ParamValues;
   customParamDefs: RemoteParamDef[];
   presets: string[];
+  vpTabs: RemoteVpTab[];
+  activeVpTab: number;
   playback: {
     isPlaying: boolean;
     time: number;
@@ -854,6 +840,11 @@ function buildRemoteStateSnapshot(): RemoteStateSnapshot {
     params: buildCurrentParams(),
     customParamDefs: getCustomParamDefs(),
     presets: getCurrentSlotPresetNames(),
+    vpTabs: (state.vpTabs as Array<{ name: string; presets: Array<{ name: string; thumbnail: string | null }> }>).map(t => ({
+      name: t.name,
+      presets: (t.presets || []).map(p => ({ name: p.name, thumbnail: p.thumbnail })),
+    })),
+    activeVpTab: state.activeVpTab as number,
     playback: {
       isPlaying: (state.renderer as ShaderRendererLike | null)?.getStats?.()?.isPlaying ?? true,
       time: (state.renderer as ShaderRendererLike | null)?.getStats?.()?.time || 0,
@@ -912,13 +903,14 @@ export function sendRemoteStateUpdate(): void {
 function initRemoteHandlers(): void {
   // ---- State queries (request -> response) ----
 
-  window.electronAPI.onRemoteGetState(() => {
+  window.electronAPI.onRemoteGetState((req: { _queryId?: number } | null) => {
     const snapshot: RemoteStateSnapshot = buildRemoteStateSnapshot();
-    window.electronAPI.sendRemoteGetStateResponse(snapshot);
+    const response = { ...snapshot, _queryId: req?._queryId } as unknown;
+    window.electronAPI.sendRemoteGetStateResponse(response);
   });
 
-  window.electronAPI.onRemoteGetThumbnail((req: { tabIndex: number; slotIndex: number }) => {
-    const { tabIndex, slotIndex } = req || {};
+  window.electronAPI.onRemoteGetThumbnail((req: { tabIndex: number; slotIndex: number; _queryId?: number }) => {
+    const { tabIndex, slotIndex, _queryId } = req || {};
     let dataUrl: string | null = null;
 
     try {
@@ -927,7 +919,9 @@ function initRemoteHandlers(): void {
       if (tab && tab.type !== 'mix') {
         const slot = tab.slots?.[slotIndex];
         if (slot && slot.renderer) {
-          // Use existing canvas to capture thumbnail
+          // Render a fresh frame before capturing to ensure canvas is up-to-date
+          if (slot.renderer.setSpeed) slot.renderer.setSpeed(slot.params?.speed ?? 1);
+          if (slot.renderer.render) slot.renderer.render();
           const canvas: HTMLCanvasElement = slot.renderer.canvas;
           if (canvas && canvas.width > 0) {
             dataUrl = canvas.toDataURL('image/jpeg', 0.6);
@@ -942,6 +936,7 @@ function initRemoteHandlers(): void {
       tabIndex,
       slotIndex,
       dataUrl,
+      _queryId,
     });
   });
 
@@ -1086,5 +1081,74 @@ function initRemoteHandlers(): void {
     if (canvas) canvas.style.opacity = state.blackoutEnabled ? '0' : '1';
 
     sendRemoteStateUpdate();
+  });
+
+  window.electronAPI.onRemoteRecallVisualPreset(({ vpTabIndex, presetIndex }: { vpTabIndex: number; presetIndex: number }) => {
+    if (typeof vpTabIndex === 'number' && typeof presetIndex === 'number') {
+      // Switch to the requested VP tab before recalling
+      const vpTabs = state.vpTabs as Array<{ name: string; presets: unknown[] }>;
+      if (vpTabIndex >= 0 && vpTabIndex < vpTabs.length) {
+        state.activeVpTab = vpTabIndex;
+      }
+      recallVisualPreset(presetIndex).then(() => {
+        sendRemoteStateUpdate();
+      });
+    }
+  });
+
+  // ---- Reorder visual presets ----
+
+  window.electronAPI.onRemoteReorderVisualPreset(({ vpTabIndex, fromIndex, toIndex }: { vpTabIndex: number; fromIndex: number; toIndex: number }) => {
+    if (typeof vpTabIndex !== 'number' || typeof fromIndex !== 'number' || typeof toIndex !== 'number') return;
+    const vpTabs = state.vpTabs as Array<{ name: string; presets: unknown[] }>;
+    const tab = vpTabs[vpTabIndex];
+    if (!tab || !tab.presets) return;
+    if (fromIndex < 0 || fromIndex >= tab.presets.length || toIndex < 0 || toIndex >= tab.presets.length) return;
+    if (fromIndex === toIndex) return;
+
+    // Move the preset from fromIndex to toIndex
+    const [item] = tab.presets.splice(fromIndex, 1);
+    tab.presets.splice(toIndex, 0, item);
+
+    // If this is the active VP tab, rebuild the DOM
+    if (vpTabIndex === (state.activeVpTab as number)) {
+      rebuildVisualPresetsDOM();
+    }
+    saveGridState();
+    sendRemoteStateUpdate();
+  });
+
+  // ---- Preview frame capture for MJPEG stream ----
+
+  window.electronAPI.onRemoteGetPreviewFrame((req: unknown) => {
+    const _queryId = (req as { _queryId?: number } | null)?._queryId;
+    try {
+      const canvas = document.getElementById('shader-canvas') as HTMLCanvasElement | null;
+      if (!canvas || canvas.width === 0) {
+        window.electronAPI.sendRemoteGetPreviewFrameResponse({ _queryId });
+        return;
+      }
+
+      // Downscale to max 640px width for bandwidth efficiency
+      const maxW = 640;
+      let w = canvas.width;
+      let h = canvas.height;
+      if (w > maxW) {
+        const scale = maxW / w;
+        w = maxW;
+        h = Math.round(h * scale);
+      }
+
+      const offscreen = document.createElement('canvas');
+      offscreen.width = w;
+      offscreen.height = h;
+      const ctx = offscreen.getContext('2d')!;
+      ctx.drawImage(canvas, 0, 0, w, h);
+      const dataUrl = offscreen.toDataURL('image/jpeg', 0.5);
+      window.electronAPI.sendRemoteGetPreviewFrameResponse({ dataUrl, _queryId });
+    } catch (err: unknown) {
+      log.error('IPC', 'Preview frame capture error:', err);
+      window.electronAPI.sendRemoteGetPreviewFrameResponse({ _queryId });
+    }
   });
 }

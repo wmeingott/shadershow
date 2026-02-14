@@ -41,6 +41,26 @@ const appDir = __dirname.endsWith(path.join('dist', 'main'))
   : __dirname;
 
 // ---------------------------------------------------------------------------
+// Parse CLI options
+// ---------------------------------------------------------------------------
+
+const cliOptions = {
+  headless: process.argv.includes('--headless'),
+  port: (() => {
+    const idx = process.argv.indexOf('--port');
+    if (idx !== -1 && process.argv[idx + 1]) {
+      const p = parseInt(process.argv[idx + 1], 10);
+      return Number.isFinite(p) && p > 0 && p < 65536 ? p : undefined;
+    }
+    return undefined;
+  })(),
+};
+
+if (cliOptions.headless) {
+  log.info(`Headless mode enabled${cliOptions.port ? `, port ${cliOptions.port}` : ''}`);
+}
+
+// ---------------------------------------------------------------------------
 // Instantiate all managers
 // ---------------------------------------------------------------------------
 
@@ -51,6 +71,7 @@ const recordingManager = new RecordingManager();
 const windowManager = new WindowManager(appDir);
 const remoteManager = new RemoteManager({
   getMainWindow: () => windowManager.getMainWindow(),
+  getWindowManager: () => windowManager,
 });
 const exportManager = new ExportManager({
   dataDir: fileManager.dataDir,
@@ -371,12 +392,13 @@ app.whenReady().then(async () => {
   fullscreenRelay.registerAll();
 
   // Create main window
-  windowManager.createWindow();
+  windowManager.createWindow({ headless: cliOptions.headless });
   menuBuilder.buildMenu();
 
-  // Start remote control server if enabled
-  if (settingsManager.remoteEnabled) {
-    remoteManager.start(settingsManager.remotePort);
+  // Start remote control server if enabled (forced in headless mode)
+  if (settingsManager.remoteEnabled || cliOptions.headless) {
+    const port = cliOptions.port ?? settingsManager.remotePort;
+    remoteManager.start(port);
   }
 
   app.on('activate', () => {

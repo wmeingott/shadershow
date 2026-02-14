@@ -10,20 +10,19 @@
   let assigningChannel = null; // When non-null, next slot tap assigns to this mixer channel
 
   // ---- Thumbnail versioning ----
-  const thumbnailVersions = {}; // key: 'tab-slot' → version counter
+  let thumbnailRevision = 0; // global revision — bumped on every state-update
   let thumbnailRefreshTimer = null;
 
   function getThumbnailUrl(tab, slot) {
-    const key = `${tab}-${slot}`;
-    if (thumbnailVersions[key] === undefined) thumbnailVersions[key] = 0;
-    return `/api/thumbnail/${tab}/${slot}?v=${thumbnailVersions[key]}`;
+    return `/api/thumbnail/${tab}/${slot}?v=${thumbnailRevision}`;
+  }
+
+  function bumpAllThumbnails() {
+    thumbnailRevision++;
   }
 
   function bumpSlotThumbnail(tab, slot) {
-    const key = `${tab}-${slot}`;
-    thumbnailVersions[key] = (thumbnailVersions[key] || 0) + 1;
-    // Tell server to clear its cache for this slot
-    wsSend('invalidate-thumbnail', { tab, slot });
+    thumbnailRevision++;
   }
 
   function scheduleActiveThumbnailRefresh() {
@@ -49,6 +48,7 @@
       setConnectionStatus('Connected', 'connected');
       clearTimeout(reconnectTimer);
       fetchState();
+      fetchDisplays();
     };
 
     ws.onmessage = (event) => {
@@ -111,6 +111,7 @@
     switch (msg.type) {
       case 'state-update':
         appState = msg.data;
+        bumpAllThumbnails();
         renderAll();
         break;
       case 'param-changed':
@@ -360,45 +361,28 @@
   function renderParams() {
     if (!appState) return;
 
-    // Speed slider
-    const speedSlider = document.getElementById('remote-speed');
-    const speedValue = document.getElementById('remote-speed-value');
-    if (appState.params && appState.params.speed !== undefined) {
-      speedSlider.value = appState.params.speed;
-      speedValue.textContent = parseFloat(appState.params.speed).toFixed(2);
-    }
-
-    // Custom params
-    const container = document.getElementById('custom-params');
-    container.innerHTML = '';
-
-    const defs = appState.customParamDefs || [];
-    if (defs.length === 0) return;
-
-    defs.forEach(param => {
-      if (param.isArray) {
-        // Array params
-        const title = document.createElement('div');
-        title.className = 'param-section-title';
-        title.textContent = param.description || param.name;
-        container.appendChild(title);
-
-        const values = appState.params[param.name];
-        if (!Array.isArray(values)) return;
-        for (let i = 0; i < param.arraySize; i++) {
-          const val = values[i];
-          const control = createParamControl(param, val, param.name, i);
-          if (control) container.appendChild(control);
-        }
-      } else {
-        const val = appState.params[param.name];
-        const control = createParamControl(param, val, param.name, null);
-        if (control) container.appendChild(control);
+    // Speed sliders — sync both standalone and sidebar
+    [['remote-speed', 'remote-speed-value'], ['sidebar-speed', 'sidebar-speed-value']].forEach(([sliderId, displayId]) => {
+      const slider = document.getElementById(sliderId);
+      const display = document.getElementById(displayId);
+      if (!slider || !display) return;
+      if (appState.params && appState.params.speed !== undefined) {
+        slider.value = appState.params.speed;
+        display.textContent = parseFloat(appState.params.speed).toFixed(2);
       }
     });
 
-    // Presets
-    renderPresets();
+    // Custom params — render into both standalone and sidebar
+    ['custom-params', 'sidebar-custom-params'].forEach(id => {
+      const container = document.getElementById(id);
+      if (container) renderCustomParamsInto(container);
+    });
+
+    // Presets — render into both standalone and sidebar
+    ['preset-list', 'sidebar-preset-list'].forEach(id => {
+      const container = document.getElementById(id);
+      if (container) renderPresetsInto(container);
+    });
   }
 
   function createParamControl(def, value, paramName, arrayIndex) {
@@ -594,11 +578,39 @@
     scheduleActiveThumbnailRefresh();
   }
 
-  function renderPresets() {
-    const container = document.getElementById('preset-list');
+  function renderCustomParamsInto(container) {
+    container.innerHTML = '';
+    if (!appState) return;
+
+    const defs = appState.customParamDefs || [];
+    if (defs.length === 0) return;
+
+    defs.forEach(param => {
+      if (param.isArray) {
+        const title = document.createElement('div');
+        title.className = 'param-section-title';
+        title.textContent = param.description || param.name;
+        container.appendChild(title);
+
+        const values = appState.params[param.name];
+        if (!Array.isArray(values)) return;
+        for (let i = 0; i < param.arraySize; i++) {
+          const val = values[i];
+          const control = createParamControl(param, val, param.name, i);
+          if (control) container.appendChild(control);
+        }
+      } else {
+        const val = appState.params[param.name];
+        const control = createParamControl(param, val, param.name, null);
+        if (control) container.appendChild(control);
+      }
+    });
+  }
+
+  function renderPresetsInto(container) {
     container.innerHTML = '';
     if (!appState || !appState.presets || appState.presets.length === 0) {
-      container.innerHTML = '<span style="color:var(--text-secondary);font-size:13px">No presets for this shader</span>';
+      container.innerHTML = '<span style="color:var(--text-secondary);font-size:13px">No presets</span>';
       return;
     }
 
@@ -614,14 +626,30 @@
     });
   }
 
+  // ---- VP drag-and-drop state ----
+  let vpDragFrom = null;
+  let vpDragEl = null;
+  let vpDragGhost = null;
+  let vpDragStartPos = null;
+  let vpDragActive = false;
+  const VP_DRAG_THRESHOLD = 8; // px before drag activates
+
   function renderVP() {
     if (!appState) return;
+
+    // Render into standalone VP view
+    renderVPInto(document.getElementById('vp-tab-bar'), document.getElementById('vp-grid'));
+    // Render into inline grid VP section
+    renderVPInto(document.getElementById('grid-vp-tab-bar'), document.getElementById('grid-vp-grid'));
+  }
+
+  function renderVPInto(tabBar, grid) {
+    if (!tabBar || !grid) return;
 
     const vpTabs = appState.vpTabs || [];
     const activeVpTab = appState.activeVpTab || 0;
 
     // Tab bar
-    const tabBar = document.getElementById('vp-tab-bar');
     tabBar.innerHTML = '';
     vpTabs.forEach((tab, i) => {
       const btn = document.createElement('button');
@@ -635,7 +663,6 @@
     });
 
     // Preset grid
-    const grid = document.getElementById('vp-grid');
     grid.innerHTML = '';
 
     const tab = vpTabs[activeVpTab];
@@ -647,12 +674,15 @@
     tab.presets.forEach((preset, i) => {
       const card = document.createElement('div');
       card.className = 'vp-card';
+      card.dataset.vpIndex = String(i);
+      card.draggable = true;
 
       if (preset.thumbnail) {
         const img = document.createElement('img');
         img.className = 'vp-thumb';
         img.src = preset.thumbnail;
         img.alt = preset.name;
+        img.draggable = false;
         img.onerror = function() { this.style.visibility = 'hidden'; };
         card.appendChild(img);
       } else {
@@ -666,12 +696,143 @@
       label.textContent = preset.name;
       card.appendChild(label);
 
-      card.addEventListener('click', () => {
+      // --- HTML5 drag-and-drop (desktop) ---
+      card.addEventListener('dragstart', (e) => {
+        vpDragFrom = i;
+        card.classList.add('vp-dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(i));
+      });
+
+      card.addEventListener('dragend', () => {
+        card.classList.remove('vp-dragging');
+        vpDragFrom = null;
+        grid.querySelectorAll('.vp-drag-over').forEach(el => el.classList.remove('vp-drag-over'));
+      });
+
+      card.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+      });
+
+      card.addEventListener('dragenter', (e) => {
+        e.preventDefault();
+        if (vpDragFrom !== null && vpDragFrom !== i) {
+          card.classList.add('vp-drag-over');
+        }
+      });
+
+      card.addEventListener('dragleave', (e) => {
+        if (!card.contains(e.relatedTarget)) {
+          card.classList.remove('vp-drag-over');
+        }
+      });
+
+      card.addEventListener('drop', (e) => {
+        e.preventDefault();
+        card.classList.remove('vp-drag-over');
+        const from = parseInt(e.dataTransfer.getData('text/plain'), 10);
+        if (!isNaN(from) && from !== i) {
+          vpReorder(activeVpTab, from, i);
+        }
+      });
+
+      // --- Touch drag-and-drop (mobile) ---
+      card.addEventListener('touchstart', (e) => {
+        if (e.touches.length !== 1) return;
+        const touch = e.touches[0];
+        vpDragStartPos = { x: touch.clientX, y: touch.clientY };
+        vpDragFrom = i;
+        vpDragActive = false;
+        vpDragEl = card;
+      }, { passive: true });
+
+      card.addEventListener('touchmove', (e) => {
+        if (vpDragFrom === null || vpDragEl !== card) return;
+        const touch = e.touches[0];
+
+        if (!vpDragActive) {
+          const dx = touch.clientX - vpDragStartPos.x;
+          const dy = touch.clientY - vpDragStartPos.y;
+          if (Math.sqrt(dx * dx + dy * dy) < VP_DRAG_THRESHOLD) return;
+          vpDragActive = true;
+          card.classList.add('vp-dragging');
+
+          vpDragGhost = card.cloneNode(true);
+          vpDragGhost.classList.add('vp-drag-ghost');
+          const rect = card.getBoundingClientRect();
+          vpDragGhost.style.width = rect.width + 'px';
+          document.body.appendChild(vpDragGhost);
+        }
+
+        if (vpDragActive) {
+          e.preventDefault();
+          vpDragGhost.style.left = (touch.clientX - vpDragGhost.offsetWidth / 2) + 'px';
+          vpDragGhost.style.top = (touch.clientY - vpDragGhost.offsetHeight / 2) + 'px';
+
+          grid.querySelectorAll('.vp-drag-over').forEach(el => el.classList.remove('vp-drag-over'));
+          const target = document.elementFromPoint(touch.clientX, touch.clientY);
+          if (target) {
+            const targetCard = target.closest('.vp-card');
+            if (targetCard && targetCard !== card && targetCard.dataset.vpIndex !== undefined) {
+              targetCard.classList.add('vp-drag-over');
+            }
+          }
+        }
+      }, { passive: false });
+
+      card.addEventListener('touchend', (e) => {
+        if (vpDragFrom === null || vpDragEl !== card) return;
+
+        if (vpDragActive) {
+          const touch = e.changedTouches[0];
+          const target = document.elementFromPoint(touch.clientX, touch.clientY);
+          if (target) {
+            const targetCard = target.closest('.vp-card');
+            if (targetCard && targetCard.dataset.vpIndex !== undefined) {
+              const toIdx = parseInt(targetCard.dataset.vpIndex, 10);
+              if (!isNaN(toIdx) && toIdx !== vpDragFrom) {
+                vpReorder(activeVpTab, vpDragFrom, toIdx);
+              }
+            }
+          }
+
+          if (vpDragGhost && vpDragGhost.parentNode) {
+            vpDragGhost.parentNode.removeChild(vpDragGhost);
+          }
+        } else if (!vpDragActive) {
+          postAction('/api/vp/recall', { vpTabIndex: activeVpTab, presetIndex: i });
+        }
+
+        card.classList.remove('vp-dragging');
+        grid.querySelectorAll('.vp-drag-over').forEach(el => el.classList.remove('vp-drag-over'));
+        vpDragFrom = null;
+        vpDragEl = null;
+        vpDragGhost = null;
+        vpDragStartPos = null;
+        vpDragActive = false;
+      });
+
+      card.addEventListener('click', (e) => {
+        if (e.detail === 0) return;
         postAction('/api/vp/recall', { vpTabIndex: activeVpTab, presetIndex: i });
       });
 
       grid.appendChild(card);
     });
+  }
+
+  function vpReorder(vpTabIndex, fromIndex, toIndex) {
+    // Update local state immediately for responsiveness
+    const tab = appState.vpTabs[vpTabIndex];
+    if (tab && tab.presets) {
+      const [item] = tab.presets.splice(fromIndex, 1);
+      tab.presets.splice(toIndex, 0, item);
+    }
+    renderVP();
+
+    // Send to server
+    postAction('/api/vp/reorder', { vpTabIndex, fromIndex, toIndex });
   }
 
   function renderPlayback() {
@@ -707,6 +868,67 @@
     return [1, 1, 1];
   }
 
+  // ---- Display management ----
+  let displayRefreshTimer = null;
+
+  async function fetchDisplays() {
+    try {
+      const res = await fetch('/api/displays');
+      if (!res.ok) return;
+      const displays = await res.json();
+      const select = document.getElementById('display-select');
+      const currentValue = select.value;
+      select.innerHTML = '<option value="">No Fullscreen</option>';
+      displays.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.id;
+        opt.textContent = d.label;
+        if (d.hasFullscreen) opt.selected = true;
+        select.appendChild(opt);
+      });
+      // Restore selection if still valid
+      if (currentValue && !select.value) {
+        select.value = currentValue;
+      }
+    } catch (err) {
+      console.warn('Failed to fetch displays:', err);
+    }
+  }
+
+  function startDisplayRefresh() {
+    clearInterval(displayRefreshTimer);
+    displayRefreshTimer = setInterval(fetchDisplays, 10000);
+  }
+
+  // ---- Preview stream ----
+  let previewActive = false;
+
+  function togglePreview() {
+    previewActive = !previewActive;
+    const container = document.getElementById('preview-container');
+    const img = document.getElementById('preview-stream');
+    const btn = document.getElementById('btn-preview');
+
+    if (previewActive) {
+      img.src = '/api/preview/stream';
+      container.classList.remove('hidden');
+      btn.classList.add('active');
+    } else {
+      img.src = '';
+      container.classList.add('hidden');
+      btn.classList.remove('active');
+    }
+    try { localStorage.setItem('shadershow-preview', previewActive ? '1' : '0'); } catch {}
+  }
+
+  function restorePreviewState() {
+    try {
+      if (localStorage.getItem('shadershow-preview') === '1') {
+        togglePreview();
+      }
+    } catch {}
+  }
+
   // ---- Event handlers ----
   function initEventHandlers() {
     // Bottom nav
@@ -717,20 +939,41 @@
       });
     });
 
-    // Speed slider
+    // Speed sliders — standalone + sidebar synced
+    function syncSpeedSliders(val) {
+      [['remote-speed', 'remote-speed-value'], ['sidebar-speed', 'sidebar-speed-value']].forEach(([sid, did]) => {
+        const sl = document.getElementById(sid);
+        const dv = document.getElementById(did);
+        if (sl) sl.value = val;
+        if (dv) dv.textContent = parseFloat(val).toFixed(2);
+      });
+    }
+
     const speedSlider = document.getElementById('remote-speed');
-    const speedValue = document.getElementById('remote-speed-value');
     speedSlider.addEventListener('input', () => {
       const val = parseFloat(speedSlider.value);
-      speedValue.textContent = val.toFixed(2);
+      syncSpeedSliders(val);
       wsSend('set-param', { name: 'speed', value: val });
       scheduleActiveThumbnailRefresh();
     });
     speedSlider.addEventListener('dblclick', () => {
-      speedSlider.value = 1;
-      speedValue.textContent = '1.00';
+      syncSpeedSliders(1);
       wsSend('set-param', { name: 'speed', value: 1 });
     });
+
+    const sidebarSpeed = document.getElementById('sidebar-speed');
+    if (sidebarSpeed) {
+      sidebarSpeed.addEventListener('input', () => {
+        const val = parseFloat(sidebarSpeed.value);
+        syncSpeedSliders(val);
+        wsSend('set-param', { name: 'speed', value: val });
+        scheduleActiveThumbnailRefresh();
+      });
+      sidebarSpeed.addEventListener('dblclick', () => {
+        syncSpeedSliders(1);
+        wsSend('set-param', { name: 'speed', value: 1 });
+      });
+    }
 
     // Playback controls
     document.getElementById('btn-play').addEventListener('click', () => {
@@ -754,6 +997,26 @@
     document.getElementById('btn-mixer-reset').addEventListener('click', () => {
       postAction('/api/mixer/reset');
     });
+
+    // Display / fullscreen controls
+    document.getElementById('btn-fullscreen').addEventListener('click', () => {
+      const select = document.getElementById('display-select');
+      const displayId = parseInt(select.value, 10);
+      if (displayId) {
+        postAction('/api/fullscreen/open', { displayId });
+        setTimeout(fetchDisplays, 1000);
+      }
+    });
+    document.getElementById('btn-fs-close').addEventListener('click', () => {
+      postAction('/api/fullscreen/close');
+      setTimeout(fetchDisplays, 1000);
+    });
+
+    // Preview toggle
+    document.getElementById('btn-preview').addEventListener('click', togglePreview);
+    document.getElementById('preview-close').addEventListener('click', () => {
+      if (previewActive) togglePreview();
+    });
   }
 
   function switchView(view) {
@@ -769,4 +1032,7 @@
   // ---- Init ----
   initEventHandlers();
   connect();
+  fetchDisplays();
+  startDisplayRefresh();
+  restorePreviewState();
 })();

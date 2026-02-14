@@ -95,6 +95,7 @@ export interface IPCSendChannels {
   'remote-state-changed': unknown;
   'remote-get-state-response': unknown;
   'remote-get-thumbnail-response': unknown;
+  'remote-get-preview-frame-response': { dataUrl: string } | null;
   'save-grid-presets-to-file': unknown;
   'open-fullscreen-with-shader': unknown;
   'claude-prompt': { prompt: string; shaderCode?: string; systemPrompt?: string };
@@ -169,6 +170,9 @@ export interface IPCOnChannels {
   'remote-toggle-playback': void;
   'remote-reset-time': void;
   'remote-blackout': { enabled: boolean };
+  'remote-recall-visual-preset': { vpTabIndex: number; presetIndex: number };
+  'remote-get-preview-frame': void;
+  'remote-reorder-visual-preset': { vpTabIndex: number; fromIndex: number; toIndex: number };
   'claude-stream-chunk': { text: string };
   'claude-stream-end': { text: string };
   'claude-error': { error: string };

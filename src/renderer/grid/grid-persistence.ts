@@ -28,29 +28,12 @@ declare const window: Window & {
   };
 };
 
-// ---------------------------------------------------------------------------
-// External function stubs — implemented elsewhere, resolved at runtime
-// ---------------------------------------------------------------------------
-
-declare function rebuildGridDOM(): void;
-declare function rebuildMixPanelDOM(): void;
-declare function rebuildAssetGridDOM(): void;
-declare function rebuildVisualPresetsDOM(): void;
-declare function assignShaderToSlot(
-  slotIndex: number, code: string, filePath: string | null,
-  skipSave?: boolean, params?: unknown, presets?: unknown, customParams?: unknown,
-): Promise<void>;
-declare function assignSceneToSlot(
-  slotIndex: number, code: string, filePath: string | null,
-  skipSave?: boolean, params?: unknown, presets?: unknown, customParams?: unknown,
-  thumbnail?: string | null,
-): Promise<void>;
-declare function assignFailedShaderToSlot(
-  slotIndex: number, code: string, filePath: string | null,
-  savedData?: Record<string, unknown>,
-): void;
-declare function detectRenderMode(filePath: string | null, code: string): string | null;
-declare function setStatus(msg: string, type?: string): void;
+import { rebuildGridDOM, assignShaderToSlot, assignSceneToSlot, assignFailedShaderToSlot } from './shader-grid.js';
+import { rebuildMixPanelDOM } from './mix-presets.js';
+import { rebuildAssetGridDOM } from './asset-grid.js';
+import { rebuildVisualPresetsDOM } from './visual-presets.js';
+import { detectRenderMode } from '../core/renderer-manager.js';
+import { setStatus } from '../ui/utils.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,12 +46,19 @@ interface ShaderTabLike {
   mixPresets?: unknown[];
 }
 
+interface SavedVpTab {
+  name: string;
+  presets: unknown[];
+}
+
 interface SavedGridState {
   version: number;
   activeTab: number;
   activeSection: string;
   tabs: SavedTabData[];
-  visualPresets: unknown[];
+  visualPresets?: unknown[];
+  vpTabs?: SavedVpTab[];
+  activeVpTab?: number;
 }
 
 interface SavedTabData {
@@ -225,44 +215,51 @@ export function saveGridState(): void {
     };
   });
 
-  // Serialize visual presets at top level
-  const serializedVisualPresets = ((state.visualPresets || []) as VisualPresetData[]).map((preset) => {
-    const saved: Record<string, unknown> = {
-      name: preset.name,
-      thumbnail: preset.thumbnail || null,
-      renderMode: preset.renderMode,
-      shaderCode: preset.shaderCode,
-      params: preset.params,
-      customParams: preset.customParams || {},
-      mixerEnabled: preset.mixerEnabled || false,
-    };
-    if (preset.mixerEnabled) {
-      saved.mixerBlendMode = preset.mixerBlendMode;
-      saved.mixerChannels = (preset.mixerChannels || []).map((ch) => {
-        if (!ch) return null;
-        const chSaved: Record<string, unknown> = {
-          alpha: ch.alpha,
-          params: ch.params,
-          customParams: ch.customParams || {},
-        };
-        if (ch.assetType) {
-          chSaved.assetType = ch.assetType;
-          chSaved.mediaPath = ch.mediaPath;
-        } else {
-          chSaved.shaderCode = ch.shaderCode;
-        }
-        return chSaved;
-      });
-    }
-    return saved;
-  });
+  // Serialize visual presets tabs
+  const serializeVpPresets = (presets: unknown[]): Record<string, unknown>[] =>
+    ((presets || []) as VisualPresetData[]).map((preset) => {
+      const saved: Record<string, unknown> = {
+        name: preset.name,
+        thumbnail: preset.thumbnail || null,
+        renderMode: preset.renderMode,
+        shaderCode: preset.shaderCode,
+        params: preset.params,
+        customParams: preset.customParams || {},
+        mixerEnabled: preset.mixerEnabled || false,
+      };
+      if (preset.mixerEnabled) {
+        saved.mixerBlendMode = preset.mixerBlendMode;
+        saved.mixerChannels = (preset.mixerChannels || []).map((ch) => {
+          if (!ch) return null;
+          const chSaved: Record<string, unknown> = {
+            alpha: ch.alpha,
+            params: ch.params,
+            customParams: ch.customParams || {},
+          };
+          if (ch.assetType) {
+            chSaved.assetType = ch.assetType;
+            chSaved.mediaPath = ch.mediaPath;
+          } else {
+            chSaved.shaderCode = ch.shaderCode;
+          }
+          return chSaved;
+        });
+      }
+      return saved;
+    });
+
+  const serializedVpTabs = state.vpTabs.map((tab: { name: string; presets: unknown[] }) => ({
+    name: tab.name,
+    presets: serializeVpPresets(tab.presets),
+  }));
 
   const gridState = {
     version: 2,
     activeTab: state.activeShaderTab,
     activeSection: getActiveSection(),
     tabs: tabsState,
-    visualPresets: serializedVisualPresets,
+    vpTabs: serializedVpTabs,
+    activeVpTab: state.activeVpTab,
   };
 
   window.electronAPI.saveGridState(gridState);
@@ -313,7 +310,8 @@ export async function loadGridState(): Promise<void> {
 
 async function loadTabbedGridState(savedState: SavedGridState): Promise<void> {
   state.shaderTabs = [];
-  state.visualPresets = [];
+  state.vpTabs = [{ name: 'My VPs', presets: [] }];
+  state.activeVpTab = 0;
   let totalLoaded = 0;
   const allFailedSlots: string[] = [];
 
@@ -332,10 +330,10 @@ async function loadTabbedGridState(savedState: SavedGridState): Promise<void> {
       continue;
     }
 
-    // Migrate legacy presets tabs — merge into top-level state.visualPresets
+    // Migrate legacy presets tabs — merge into first VP tab
     if (tabData.type === 'presets') {
       const legacyPresets = tabData.visualPresets || [];
-      (state.visualPresets as unknown[]).push(...legacyPresets);
+      (state.vpTabs[0].presets as unknown[]).push(...legacyPresets);
       totalLoaded += legacyPresets.length;
       continue;
     }
@@ -488,9 +486,13 @@ async function loadTabbedGridState(savedState: SavedGridState): Promise<void> {
     state.shaderTabs = [{ name: 'My Shaders', slots: [] }];
   }
 
-  // Load top-level visual presets (merge with any migrated from legacy tabs)
-  if (savedState.visualPresets && savedState.visualPresets.length > 0) {
-    (state.visualPresets as unknown[]).push(...savedState.visualPresets);
+  // Load VP tabs (new format) or migrate flat visualPresets (old format)
+  if (savedState.vpTabs && savedState.vpTabs.length > 0) {
+    state.vpTabs = savedState.vpTabs.map((t: SavedVpTab) => ({ name: t.name, presets: t.presets || [] }));
+    state.activeVpTab = Math.min(savedState.activeVpTab || 0, state.vpTabs.length - 1);
+  } else if (savedState.visualPresets && savedState.visualPresets.length > 0) {
+    // Migrate old flat format into first VP tab
+    (state.vpTabs[0].presets as unknown[]).push(...savedState.visualPresets);
   }
 
   // Restore active section and tab

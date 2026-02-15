@@ -17,11 +17,7 @@ import {
 } from './tile-state.js';
 import type { TileLayoutConfig, TileConfig, TilePreset } from './tile-state.js';
 
-// ---------------------------------------------------------------------------
-// External declarations (not yet converted)
-// ---------------------------------------------------------------------------
-
-declare function setStatus(message: string, type?: 'success' | 'error' | 'info'): void;
+import { setStatus } from '../ui/utils.js';
 
 // ---------------------------------------------------------------------------
 // electronAPI — only the methods used by this module

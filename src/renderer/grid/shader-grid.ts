@@ -129,30 +129,18 @@ declare const window: Window & {
   };
 };
 
-// ---------------------------------------------------------------------------
-// Stubs for cross-module functions not yet converted
-// ---------------------------------------------------------------------------
-
-declare function buildTabBar(): void;
-declare function rebuildMixPanelDOM(): void;
-declare function rebuildAssetGridDOM(): void;
-declare function cleanupGridVisibilityObserver(): void;
-declare function initGridVisibilityObserver(): void;
-declare function loadGridState(): Promise<void>;
-declare function saveGridState(): void;
-declare function resaveAllShaderFiles(): Promise<void>;
-declare function setStatus(msg: string, type?: string): void;
-declare function loadParamsToSliders(params: Record<string, unknown>): void;
-declare function generateCustomParamUI(): void;
-declare function updateLocalPresetsUI(): void;
-declare function compileShader(): Promise<void>;
-declare function setRenderMode(mode: string): Promise<void>;
-declare function ensureSceneRenderer(): Promise<MainRendererLike | null>;
-declare function detectRenderMode(filePath: string | null, code: string): string | null;
-declare function hideAssetOverlay(): void;
-declare function openInTab(opts: unknown): void;
-declare function setEditorMode(mode: string): void;
-declare function selectAssetSlot(index: number): void;
+import { buildTabBar } from './grid-tabs.js';
+import { rebuildMixPanelDOM } from './mix-presets.js';
+import { rebuildAssetGridDOM, selectAssetSlot } from './asset-grid.js';
+import { cleanupGridVisibilityObserver, initGridVisibilityObserver } from './grid-renderer.js';
+import { loadGridState, saveGridState, resaveAllShaderFiles } from './grid-persistence.js';
+import { setStatus } from '../ui/utils.js';
+import { loadParamsToSliders, generateCustomParamUI } from '../ui/params.js';
+import { updateLocalPresetsUI } from '../ui/presets.js';
+import { compileShader, setEditorMode } from '../ui/editor.js';
+import { setRenderMode, ensureSceneRenderer, detectRenderMode } from '../core/renderer-manager.js';
+import { hideAssetOverlay } from '../core/render-loop.js';
+import { openInTab } from '../ui/tabs.js';
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -160,6 +148,10 @@ declare function selectAssetSlot(index: number): void;
 
 /** Index of the slot currently being dragged */
 export let dragSourceIndex: number | null = null;
+
+export function setDragSourceIndex(value: number | null): void {
+  dragSourceIndex = value;
+}
 
 /**
  * Map from slot DOM element to its registered event listeners.
@@ -793,7 +785,7 @@ function showGridContextMenu(x: number, y: number, slotIndex: number): void {
     for (let i = 0; i < state.shaderTabs.length; i++) {
       if (i === state.activeShaderTab) continue;
       const tab = state.shaderTabs[i] as { type?: string };
-      if (tab.type === 'mix') continue;
+      if (tab.type === 'mix' || tab.type === 'assets') continue;
       otherShaderTabs.push(i);
     }
 
@@ -1004,7 +996,7 @@ function showGridContextMenu(x: number, y: number, slotIndex: number): void {
 /**
  * Remove the grid context menu from the DOM if present.
  */
-function hideContextMenu(): void {
+export function hideContextMenu(): void {
   const menu = document.getElementById('grid-context-menu');
   if (menu) {
     menu.remove();
@@ -1103,7 +1095,7 @@ function setCurrentParamsAsDefault(slotIndex: number): void {
  * Swap two grid slots: exchange data in state, recreate renderers for
  * both slots on their new canvases, update visual state, and persist.
  */
-async function swapGridSlots(fromIndex: number, toIndex: number): Promise<void> {
+export async function swapGridSlots(fromIndex: number, toIndex: number): Promise<void> {
   const fromSlot = document.querySelector(`.grid-slot[data-slot="${fromIndex}"]`) as HTMLElement;
   const toSlot = document.querySelector(`.grid-slot[data-slot="${toIndex}"]`) as HTMLElement;
   const fromCanvas = fromSlot.querySelector('canvas') as HTMLCanvasElement;
@@ -1622,7 +1614,7 @@ export function assignFailedShaderToSlot(
 /**
  * Show an inline rename input in the slot label area.
  */
-function renameGridSlot(slotIndex: number): void {
+export function renameGridSlot(slotIndex: number): void {
   const data = state.gridSlots[slotIndex] as GridSlotData | null;
   if (!data) return;
 

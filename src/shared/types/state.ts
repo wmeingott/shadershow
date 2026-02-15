@@ -103,6 +103,12 @@ export interface TileLayout {
   gap: number;
 }
 
+/** Visual presets tab (groups presets) */
+export interface VpTab {
+  name: string;
+  presets: VisualPreset[];
+}
+
 /** Visual preset (full-state snapshot) */
 export interface VisualPreset {
   name: string;
@@ -179,6 +185,8 @@ export interface AppState {
   mixerSelectedChannel: number | null;
   mixerBlendMode: BlendMode;
   visualPresets: VisualPreset[];
+  vpTabs: VpTab[];
+  activeVpTab: number;
   visualPresetsEnabled: boolean;
   tiledPreviewEnabled: boolean;
   tileRenderers: IRenderer[];

@@ -3,7 +3,7 @@
   "previewEnabled": true,
   "gridEnabled": true,
   "paramsEnabled": true,
-  "editorWidth": "46.3632%",
+  "editorWidth": "27.9053%",
   "previewHeight": "",
   "gridWidth": "787.969px",
   "resolution": "1536x864",
@@ -11,5 +11,6 @@
   "customHeight": "720",
   "consolePanelHeight": 196.66670989990234,
   "consolePanelCollapsed": false,
-  "visualPresetsEnabled": true
+  "visualPresetsEnabled": true,
+  "visualPresetsWidth": "366px"
 }

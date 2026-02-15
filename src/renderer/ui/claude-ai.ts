@@ -28,12 +28,8 @@ declare const window: Window & {
   };
 };
 
-// ---------------------------------------------------------------------------
-// External module stubs (not yet converted to TS)
-// ---------------------------------------------------------------------------
-
-declare function setStatus(msg: string, type?: string): void;
-declare function compileShader(): void;
+import { setStatus } from './utils.js';
+import { compileShader } from './editor.js';
 
 // ---------------------------------------------------------------------------
 // Editor type used via state.editor

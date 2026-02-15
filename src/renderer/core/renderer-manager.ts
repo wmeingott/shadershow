@@ -24,14 +24,9 @@ declare const window: Window & {
   loadBabel?: () => Promise<void>;
 };
 
-// ---------------------------------------------------------------------------
-// Stubs for functions from other modules not yet wired
-// ---------------------------------------------------------------------------
-
-declare function compileShader(): void;
-declare function cacheRenderLoopElements(): void;
-declare function renderLoop(): void;
-declare function setStatus(msg: string, type?: string): void;
+import { compileShader } from '../ui/editor.js';
+import { cacheRenderLoopElements, renderLoop } from './render-loop.js';
+import { setStatus } from '../ui/utils.js';
 
 // ---------------------------------------------------------------------------
 // Minimal Ace editor interface (only what setRenderMode needs)
@@ -97,7 +92,7 @@ export function restartRender(): void {
 
   // Restart render loop
   cacheRenderLoopElements();
-  renderLoop();
+  renderLoop(performance.now());
 
   setStatus('Render restarted', 'success');
 }

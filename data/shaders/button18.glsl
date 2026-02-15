@@ -17,7 +17,7 @@ function setup(THREE, canvas, params, channels, mouse) {
   scene.background = new THREE.Color(0x050508);
   scene.fog = new THREE.FogExp2(0x050508, 0.015);
 
-  const camera = new THREE.PerspectiveCamera(params.cameraAngle, canvas.width / canvas.height, 0.1, 1000);
+  const camera = new THREE.PerspectiveCamera(cameraAngle, canvas.width / canvas.height, 0.1, 1000);
   camera.position.set(0, 8, 25);
   camera.lookAt(0, 3, 0);
 

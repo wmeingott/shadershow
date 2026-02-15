@@ -35,11 +35,7 @@ declare const window: Window & {
   };
 };
 
-// ---------------------------------------------------------------------------
-// External module stubs (not yet converted to TS)
-// ---------------------------------------------------------------------------
-
-declare function setStatus(message: string, type?: 'success' | 'error' | 'info'): void;
+import { setStatus } from './utils.js';
 
 // ---------------------------------------------------------------------------
 // Module state

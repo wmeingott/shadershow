@@ -14,12 +14,8 @@ import { initMixer } from './ui/mixer.js';
 import { initSettingsOnLoad } from './ui/settings-dialog.js';
 import { initConsolePanel } from './ui/console-panel.js';
 import { createTaggedLogger, LOG_LEVEL } from '../shared/logger.js';
-
-// --- Stubs for modules not yet ported to TypeScript ---
-// These will be replaced by real imports once the modules are created.
-declare function initRenderer(): void;
-declare function cacheRenderLoopElements(): void;
-declare function renderLoop(): void;
+import { initRenderer } from './core/renderer-manager.js';
+import { cacheRenderLoopElements, renderLoop } from './core/render-loop.js';
 
 // --- ElectronAPI type for IPC handlers used in this file ---
 declare const window: Window & {
@@ -73,7 +69,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Cache DOM elements and start render loop
     cacheRenderLoopElements();
-    renderLoop();
+    renderLoop(performance.now());
 
     log.info('Renderer', 'Initialization complete');
   } catch (err) {

@@ -32,32 +32,95 @@ npm run dev        # Launch with logging enabled
 2. The NDI runtime DLLs are included with NDI Tools
 3. The app will gracefully degrade if NDI is unavailable
 
+## UI Parts & Abbreviations
+
+### Main Electron App
+
+| Part | Abbr | Description |
+|---|---|---|
+| Toolbar | TB | Top bar: file ops, playback, channels, stats |
+| Editor Panel | EP | Left side, Ace code editor with tabs |
+| Preview Panel | PP | Right side top, WebGL canvas showing active shader |
+| Shader Grid | SG | Bottom-left, grid of slot thumbnails with tabs |
+| Parameter Panel | PAR | Bottom-right, speed + custom param sliders + presets |
+| Visual Presets Sidebar | VP | Right edge, resizable sidebar with tabbed preset groups |
+| Mixer Bar | MIX | Horizontal row between preview and grid, channel buttons + alpha sliders |
+| Status Bar | SB | Bottom strip, status messages + cursor position |
+| State Presets Row | SP | Below toolbar, 8 numbered recall buttons |
+| Channel Slots | CH | In toolbar, 4 iChannel indicators |
+
+### Grid-specific terms
+
+| Term | Abbr | Description |
+|---|---|---|
+| Grid Tab | GT | Named tab in SG (e.g. "My Shaders", "Saved") |
+| Grid Slot | GS | Single cell in SG with thumbnail canvas + label |
+| Mix Tab | MT | Special tab type showing composition presets |
+| Asset Tab | AT | Special tab type for image/video assets |
+
+### Preset types
+
+| Term | Abbr | Description |
+|---|---|---|
+| Local Presets | LP | Per-shader param presets (shown in PAR) |
+| Visual Presets | VP | Full-state snapshots with thumbnails |
+| VP Tab/Group | VPG | Named group within VP (e.g. "Favorites") |
+| Mix/Composition Presets | CMP | Saved mixer channel configurations |
+| State Presets | SP | Global 1-8 quick-recall slots |
+
+### Web Remote UI
+
+| Part | Abbr | Description |
+|---|---|---|
+| Status Bar | WSB | Top bar: connection, display select, playback, preview toggle |
+| Preview Stream | WPV | Floating PiP MJPEG preview |
+| Mixer Section | WMIX | Desktop: compact bar above grid. Mobile: separate view |
+| Slot Grid | WSG | Shader thumbnail grid with tab bar |
+| Params Sidebar | WPAR | Desktop: right sidebar with speed, params, presets |
+| Inline VP | WVP | Desktop: VP buttons below slot grid |
+| Bottom Nav | WNAV | Mobile only: Grid / Mixer / Params / Presets tabs |
+
+### Processes
+
+| Term | Abbr | Description |
+|---|---|---|
+| Main Process | MAIN | Electron main, file I/O, IPC routing, NDI |
+| Renderer Process | REN | UI + WebGL rendering |
+| Fullscreen Process | FS | Separate window for output display |
+| Remote Server | RS | Express + WebSocket server for web remote |
+
+### Other
+
+- **T3S** — Three.js Scene
+- **GS** — GLSL Shaders
+
 ## Architecture Overview
 
 ShaderShow is an Electron-based GLSL shader editor with Shadertoy compatibility. It uses WebGL2 for real-time rendering and supports multi-channel inputs (textures, video, camera, audio FFT, NDI).
 
 ### Process Model
 
-- **Main Process** (`main.js`) - Handles file I/O, menus, dialogs, NDI management, fullscreen windows
-- **Renderer Process** (`js/` modules) - UI, WebGL rendering, parameter controls
-- **Preload Bridge** (`preload.js`) - Exposes `electronAPI` to renderer via context bridge
+- **Main Process** (`src/main/app.ts` → `dist/main/app.js`) - File I/O, menus, dialogs, NDI, fullscreen windows
+- **Renderer Process** (`src/renderer/` → `dist/renderer/app.js`) - UI, WebGL rendering, parameter controls
+- **Fullscreen Process** (`src/fullscreen/` → `dist/fullscreen/app.js`) - Fullscreen/tiled output window
+- **Preload Bridge** (`src/preload/` → `dist/preload/`) - Exposes `electronAPI` to renderer via context bridge
 
-### Renderer Modules (ES6)
+### TypeScript Source Layout (`src/`)
 
-The renderer uses modular architecture with a shared state object:
-
-- `state.js` - Single source of truth for editor, renderer, UI state, channels, grid slots
-- `ipc.js` - IPC handlers for Electron communication
-- `editor.js` - Ace editor setup and shader compilation with error annotations
-- `shader-grid.js` - 16-slot shader grid with thumbnails and context menus
-- `params.js` - Parameter sliders (speed, P0-P4, 10 RGB colors)
-- `presets.js` - Local (per-shader) and global parameter presets
-- `controls.js` - Toolbar button handlers
-- `view-state.js` - Persistent UI layout (editor width, panel visibility)
+- `src/renderer/core/` — state, render loop, renderer manager
+- `src/renderer/ui/` — editor, controls, params, presets, mixer, tabs, view-state, settings, console
+- `src/renderer/grid/` — shader-grid, grid-persistence, grid-tabs, grid-renderer, visual-presets, mix-presets, asset-grid
+- `src/renderer/ipc/` — IPC handlers, frame sender
+- `src/renderer/renderers/` — ShaderRenderer, MiniShaderRenderer, AssetRenderer, ThreeSceneRenderer, BeatDetector, TileRenderer
+- `src/renderer/tiles/` — tile-config, tile-state
+- `src/main/managers/` — window-manager, menu-manager, ndi-manager, recording-manager, settings-manager
+- `src/shared/` — logger, param-parser, shared types
 
 ### Key Classes
 
-- `ShaderRenderer` (`shader-renderer.js`) - WebGL2 rendering pipeline, uniform management, channel textures
+- `ShaderRenderer` (`src/renderer/renderers/shader-renderer.ts`) - WebGL2 rendering pipeline, uniform management, channel textures
+- `MiniShaderRenderer` (`src/renderer/renderers/mini-shader-renderer.ts`) - Lightweight renderer for SG thumbnails
+- `AssetRenderer` (`src/renderer/renderers/asset-renderer.ts`) - Image/video asset renderer
 - `NDISender` / `NDIReceiver` - NDI streaming via grandiose-mac SDK
 
 ### Data Storage

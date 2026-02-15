@@ -5,18 +5,10 @@ import type { ParamDef, ParamValue, ParamArrayValue } from '@shared/types/params
 import { state } from '../core/state.js';
 import { tileState } from '../tiles/tile-state.js';
 
-// ---------------------------------------------------------------------------
-// Stubs for unconverted modules
-// ---------------------------------------------------------------------------
-
-declare function setStatus(msg: string, type?: string): void;
-declare function saveGridState(): void;
-declare function loadParamsToSliders(
-  params: Record<string, unknown>,
-  opts?: { skipMixerSync?: boolean },
-): void;
-declare function generateCustomParamUI(): void;
-declare function updateMixerChannelParam(name: string, value: unknown): void;
+import { setStatus } from './utils.js';
+import { saveGridState } from '../grid/grid-persistence.js';
+import { loadParamsToSliders, generateCustomParamUI } from './params.js';
+import { updateMixerChannelParam } from './mixer.js';
 
 // ---------------------------------------------------------------------------
 // window.electronAPI subset used in this module

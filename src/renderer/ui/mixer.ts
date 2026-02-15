@@ -92,26 +92,11 @@ interface MixPresetChannel {
   mediaPath?: string;
 }
 
-// ---------------------------------------------------------------------------
-// External module stubs (not yet converted or circular)
-// ---------------------------------------------------------------------------
-
-declare function loadParamsToSliders(
-  params: Record<string, ParamValue>,
-  options?: { skipMixerSync?: boolean }
-): void;
-declare function generateCustomParamUI(): void;
-declare function updateLocalPresetsUI(): void;
-declare function setStatus(message: string, type: 'success' | 'error' | 'info'): void;
-
-/** MiniShaderRenderer constructor (imported at runtime) */
-declare function MiniShaderRendererCtor(canvas: HTMLCanvasElement): MiniRendererLike;
-declare function AssetRendererCtor(canvas: HTMLCanvasElement): AssetRendererLike;
-
-/** Static method on MiniShaderRenderer class */
-declare const MiniShaderRendererClass: {
-  ensureSharedCanvasSize?: (w: number, h: number) => void;
-};
+import { loadParamsToSliders, generateCustomParamUI } from './params.js';
+import { updateLocalPresetsUI } from './presets.js';
+import { setStatus } from './utils.js';
+import { MiniShaderRenderer } from '../renderers/mini-shader-renderer.js';
+import { AssetRenderer } from '../renderers/asset-renderer.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -637,7 +622,7 @@ export function renderMixerComposite(): { time: number; frame: number; fps: numb
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
   ctx.globalCompositeOperation = state.mixerBlendMode;
 
-  MiniShaderRendererClass.ensureSharedCanvasSize?.(canvasWidth, canvasHeight);
+  MiniShaderRenderer.ensureSharedCanvasSize?.(canvasWidth, canvasHeight);
 
   const mainStats = (mainRenderer() as { getStats?: () => { time: number; frame: number; fps: number } })
     .getStats?.() || { time: 0, frame: 0, fps: 60 };
@@ -746,7 +731,7 @@ export function recallMixState(preset: MixPreset): void {
       tempCanvas.width = 160;
       tempCanvas.height = 90;
 
-      const assetRenderer = AssetRendererCtor(tempCanvas);
+      const assetRenderer = new AssetRenderer(tempCanvas) as unknown as AssetRendererLike;
       assetRenderer.mediaPath = presetCh.mediaPath;
       if (presetCh.customParams) assetRenderer.setParams(presetCh.customParams);
 
@@ -791,7 +776,7 @@ export function recallMixState(preset: MixPreset): void {
     tempCanvas.width = 160;
     tempCanvas.height = 90;
     try {
-      const miniRenderer = MiniShaderRendererCtor(tempCanvas);
+      const miniRenderer = new MiniShaderRenderer(tempCanvas) as unknown as MiniRendererLike;
       miniRenderer.compile(presetCh.shaderCode);
 
       if (presetCh.customParams) {

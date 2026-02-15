@@ -9,7 +9,7 @@ import { tileState, calculateTileBounds } from '../tiles/tile-state.js';
 // ---------------------------------------------------------------------------
 
 /** Resizer panel currently being dragged */
-type ActiveResizer = 'editor' | 'vertical' | 'bottom' | null;
+type ActiveResizer = 'editor' | 'vertical' | 'bottom' | 'visual-presets' | null;
 
 /** Display descriptor returned by electronAPI.getDisplays */
 interface DisplayInfo {
@@ -98,24 +98,20 @@ declare const window: Window & {
   };
 };
 
-// ---------------------------------------------------------------------------
-// External module stubs (not yet converted to TS)
-// ---------------------------------------------------------------------------
+import { saveActiveSlotShader } from '../grid/shader-grid.js';
+import { startGridAnimation, stopGridAnimation } from '../grid/grid-renderer.js';
+import { toggleVisualPresetsPanel, initVisualPresetsPanel } from '../grid/visual-presets.js';
+import { saveViewState } from './view-state.js';
+import { showSettingsDialog } from './settings-dialog.js';
+import { showTileConfigDialog, initToolbarPresetsPanel, togglePresetsPanel } from '../tiles/tile-config.js';
+import { toggleRecording } from '../ipc/frame-sender.js';
+import { showAIAssistantDialog, initAIShortcut } from './claude-ai.js';
+import { setStatus } from './utils.js';
 
-declare function saveActiveSlotShader(): void;
-declare function startGridAnimation(): void;
-declare function stopGridAnimation(): void;
-declare function toggleVisualPresetsPanel(): void;
-declare function initVisualPresetsPanel(): void;
-declare function saveViewState(): void;
-declare function showSettingsDialog(): void;
-declare function showTileConfigDialog(): void;
-declare function initToolbarPresetsPanel(): void;
-declare function togglePresetsPanel(): void;
-declare function toggleRecording(): void;
-declare function showAIAssistantDialog(): void;
-declare function initAIShortcut(): void;
-declare function runBenchmark(): void;
+/** Benchmark not yet ported to TS — no-op stub */
+function runBenchmark(): void {
+  setStatus('Benchmark not available in TS build', 'error');
+}
 
 const log = {
   debug(..._a: unknown[]): void { /* noop */ },
@@ -219,7 +215,7 @@ export function initControls(): void {
 
   // Recording toggle button
   const btnRecord = document.getElementById('btn-record') as HTMLButtonElement;
-  btnRecord.addEventListener('click', toggleRecording);
+  btnRecord.addEventListener('click', () => toggleRecording(setStatus));
 
   // Fullscreen display selector
   const fullscreenSelect = document.getElementById('fullscreen-select') as HTMLSelectElement;
@@ -314,12 +310,14 @@ export function initResizer(): void {
   const resizer = document.getElementById('resizer') as HTMLElement;
   const resizerVertical = document.getElementById('resizer-vertical') as HTMLElement;
   const resizerBottom = document.getElementById('resizer-bottom') as HTMLElement;
+  const resizerVisualPresets = document.getElementById('resizer-visual-presets') as HTMLElement;
   const editorPanel = document.getElementById('editor-panel') as HTMLElement;
   const previewPanel = document.getElementById('preview-panel') as HTMLElement;
   const bottomRow = document.getElementById('bottom-row') as HTMLElement;
   const gridPanel = document.getElementById('grid-panel') as HTMLElement;
   const _paramsPanel = document.getElementById('params-panel') as HTMLElement;
   const rightPanel = document.getElementById('right-panel') as HTMLElement;
+  const visualPresetsPanel = document.getElementById('visual-presets-panel') as HTMLElement;
 
   let activeResizer: ActiveResizer = null;
 
@@ -341,6 +339,13 @@ export function initResizer(): void {
   resizerBottom.addEventListener('mousedown', (e: MouseEvent): void => {
     activeResizer = 'bottom';
     resizerBottom.classList.add('dragging');
+    e.preventDefault();
+  });
+
+  // Visual presets sidebar resizer
+  resizerVisualPresets.addEventListener('mousedown', (e: MouseEvent): void => {
+    activeResizer = 'visual-presets';
+    resizerVisualPresets.classList.add('dragging');
     e.preventDefault();
   });
 
@@ -375,6 +380,13 @@ export function initResizer(): void {
         gridPanel.style.flex = 'none';
         gridPanel.style.width = `${relativeX}px`;
       }
+    } else if (activeResizer === 'visual-presets') {
+      const mainContent = document.getElementById('main-content') as HTMLElement;
+      const mainRect = mainContent.getBoundingClientRect();
+      const newWidth = mainRect.right - e.clientX;
+      if (newWidth >= 120 && newWidth <= mainRect.width * 0.8) {
+        visualPresetsPanel.style.width = `${newWidth}px`;
+      }
     }
   });
 
@@ -383,6 +395,7 @@ export function initResizer(): void {
       resizer.classList.remove('dragging');
       resizerVertical.classList.remove('dragging');
       resizerBottom.classList.remove('dragging');
+      resizerVisualPresets.classList.remove('dragging');
       activeResizer = null;
       saveViewState();
     }

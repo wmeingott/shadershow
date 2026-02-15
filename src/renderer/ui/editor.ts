@@ -5,18 +5,11 @@ import { state } from '../core/state.js';
 import type { RenderMode } from '../core/state.js';
 import { setRenderMode } from '../core/renderer-manager.js';
 
-// ---------------------------------------------------------------------------
-// Stubs for unconverted modules
-// ---------------------------------------------------------------------------
-
-declare function setStatus(msg: string, type?: string): void;
-declare function updateChannelSlot(ch: number, type: string, source: string, w: number, h: number, dataUrl?: string | null): void;
-declare function saveActiveSlotShader(): void;
-declare function generateCustomParamUI(): void;
-declare function initTabs(): Promise<void>;
-declare function markTabSaved(id: string): void;
-declare function getActiveTab(): { id: string; type?: string } | null;
-declare function toggleConsolePanel(): void;
+import { setStatus, updateChannelSlot } from './utils.js';
+import { saveActiveSlotShader } from '../grid/shader-grid.js';
+import { generateCustomParamUI } from './params.js';
+import { initTabs, markTabSaved, getActiveTab } from './tabs.js';
+import { toggleConsolePanel } from './console-panel.js';
 
 /** Logger stub. */
 const log = {

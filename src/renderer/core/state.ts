@@ -112,7 +112,10 @@ export const state = {
   mixerBlendMode: 'lighter' as BlendMode,
 
   // Visual presets
-  visualPresets: [] as unknown[],
+  vpTabs: [{ name: 'My VPs', presets: [] }] as { name: string; presets: unknown[] }[],
+  activeVpTab: 0,
+  get visualPresets(): unknown[] { return this.vpTabs[this.activeVpTab]?.presets || []; },
+  set visualPresets(val: unknown[]) { if (this.vpTabs[this.activeVpTab]) this.vpTabs[this.activeVpTab].presets = val; },
   visualPresetsEnabled: false,
 
   // Tiled preview

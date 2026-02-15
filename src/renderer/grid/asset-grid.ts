@@ -70,27 +70,12 @@ interface ListenerEntry {
   handler: EventListener;
 }
 
-// ---------------------------------------------------------------------------
-// External functions (defined in other grid / UI modules, declared here)
-// ---------------------------------------------------------------------------
-
-declare function buildTabBar(): void;
-declare function cleanupGridVisibilityObserver(): void;
-declare function initGridVisibilityObserver(): void;
-declare function applyMaxContainerHeight(): void;
-declare function hideContextMenu(): void;
-declare function saveGridState(): void;
-declare function swapGridSlots(from: number, to: number): Promise<void>;
-declare function renameGridSlot(index: number): void;
-declare function setStatus(msg: string, type?: string): void;
-declare function generateCustomParamUI(): void;
-
-// ---------------------------------------------------------------------------
-// Shared mutable state (shared with shader-grid.ts)
-// ---------------------------------------------------------------------------
-
-declare let dragSourceIndex: number | null;
-declare const slotEventListeners: Map<HTMLElement, ListenerEntry[]>;
+import { buildTabBar } from './grid-tabs.js';
+import { cleanupGridVisibilityObserver, initGridVisibilityObserver, applyMaxContainerHeight } from './grid-renderer.js';
+import { hideContextMenu, swapGridSlots, renameGridSlot, dragSourceIndex, setDragSourceIndex, slotEventListeners } from './shader-grid.js';
+import { saveGridState } from './grid-persistence.js';
+import { setStatus } from '../ui/utils.js';
+import { generateCustomParamUI } from '../ui/params.js';
 
 // =============================================================================
 // Asset Grid DOM
@@ -197,7 +182,7 @@ function createAssetSlotElement(index: number): HTMLDivElement {
 
   // Drag start
   const dragstartHandler = (e: DragEvent): void => {
-    dragSourceIndex = index;
+    setDragSourceIndex(index);
     slot.classList.add('dragging');
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = 'move';
@@ -210,7 +195,7 @@ function createAssetSlotElement(index: number): HTMLDivElement {
   // Drag end
   const dragendHandler = (): void => {
     slot.classList.remove('dragging');
-    dragSourceIndex = null;
+    setDragSourceIndex(null);
     document.querySelectorAll('.grid-slot.drag-over').forEach((s) => s.classList.remove('drag-over'));
   };
   slot.addEventListener('dragend', dragendHandler);

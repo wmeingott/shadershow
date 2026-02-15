@@ -33,22 +33,12 @@ declare const window: Window & {
   };
 };
 
-// ---------------------------------------------------------------------------
-// External module stubs (not yet converted or circular)
-// ---------------------------------------------------------------------------
-
-declare function saveGridState(): void;
-declare function hideContextMenu(): void;
-declare function setStatus(msg: string, type?: string): void;
-declare function compileShader(): Promise<void>;
-declare function setRenderMode(mode: string): Promise<void>;
-declare function ensureSceneRenderer(): Promise<unknown>;
-declare function detectRenderMode(filePath: string | null, code: string): string | null;
-declare function loadParamsToSliders(
-  params: Record<string, unknown>,
-  opts?: { skipMixerSync?: boolean },
-): void;
-declare function generateCustomParamUI(): void;
+import { saveGridState } from './grid-persistence.js';
+import { hideContextMenu } from './shader-grid.js';
+import { setStatus } from '../ui/utils.js';
+import { compileShader } from '../ui/editor.js';
+import { setRenderMode, ensureSceneRenderer, detectRenderMode } from '../core/renderer-manager.js';
+import { loadParamsToSliders, generateCustomParamUI } from '../ui/params.js';
 
 // ---------------------------------------------------------------------------
 // Local interfaces
@@ -206,6 +196,8 @@ export function serializeMixerChannels(): (SerializedMixerChannel | null)[] {
 // ---------------------------------------------------------------------------
 
 export function rebuildVisualPresetsDOM(): void {
+  rebuildVpTabBar();
+
   const container = document.getElementById('visual-presets-container');
   if (!container) return;
 
@@ -244,6 +236,102 @@ export function rebuildVisualPresetsDOM(): void {
 }
 
 // ---------------------------------------------------------------------------
+// VP Tab Bar
+// ---------------------------------------------------------------------------
+
+function rebuildVpTabBar(): void {
+  const tabBar = document.querySelector('.vp-tabs');
+  if (!tabBar) return;
+
+  tabBar.innerHTML = '';
+  state.vpTabs.forEach((tab: { name: string; presets: unknown[] }, index: number) => {
+    const tabEl = document.createElement('button');
+    tabEl.className = `vp-tab${index === state.activeVpTab ? ' active' : ''}`;
+    tabEl.dataset.vpTabIndex = String(index);
+    tabEl.textContent = tab.name;
+    tabEl.addEventListener('click', () => switchVpTab(index));
+    tabEl.addEventListener('dblclick', () => renameVpTab(index));
+    tabEl.addEventListener('contextmenu', (e: MouseEvent) => {
+      e.preventDefault();
+      showVpTabContextMenu(e.clientX, e.clientY, index);
+    });
+    tabBar.appendChild(tabEl);
+  });
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'vp-tab vp-tab-add';
+  addBtn.textContent = '+';
+  addBtn.title = 'Add VP tab';
+  addBtn.addEventListener('click', addVpTab);
+  tabBar.appendChild(addBtn);
+}
+
+function switchVpTab(index: number): void {
+  if (index < 0 || index >= state.vpTabs.length) return;
+  state.activeVpTab = index;
+  rebuildVisualPresetsDOM();
+  saveGridState();
+}
+
+function addVpTab(): void {
+  const name = `VPs ${state.vpTabs.length + 1}`;
+  state.vpTabs.push({ name, presets: [] });
+  state.activeVpTab = state.vpTabs.length - 1;
+  rebuildVisualPresetsDOM();
+  saveGridState();
+}
+
+function renameVpTab(index: number): void {
+  const tabBar = document.querySelector('.vp-tabs');
+  const tabEl = tabBar?.children[index] as HTMLElement | undefined;
+  if (!tabEl) return;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'shader-tab-rename-input';
+  input.value = state.vpTabs[index].name;
+
+  const finishRename = (): void => {
+    const newName = input.value.trim() || state.vpTabs[index].name;
+    state.vpTabs[index].name = newName;
+    rebuildVpTabBar();
+    saveGridState();
+  };
+
+  input.addEventListener('blur', finishRename);
+  input.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    else if (e.key === 'Escape') { input.value = state.vpTabs[index].name; input.blur(); }
+  });
+
+  tabEl.textContent = '';
+  tabEl.appendChild(input);
+  input.focus();
+  input.select();
+}
+
+function showVpTabContextMenu(x: number, y: number, index: number): void {
+  hideContextMenu();
+  const items: { label: string; action: () => void }[] = [
+    { label: 'Rename Tab', action: () => renameVpTab(index) },
+  ];
+  if (state.vpTabs.length > 1) {
+    items.push({ label: 'Delete Tab', action: () => deleteVpTab(index) });
+  }
+  showContextMenuHelper(x, y, items);
+}
+
+function deleteVpTab(index: number): void {
+  if (state.vpTabs.length <= 1) return;
+  state.vpTabs.splice(index, 1);
+  if (state.activeVpTab >= state.vpTabs.length) {
+    state.activeVpTab = state.vpTabs.length - 1;
+  }
+  rebuildVisualPresetsDOM();
+  saveGridState();
+}
+
+// ---------------------------------------------------------------------------
 // Panel toggle & init
 // ---------------------------------------------------------------------------
 
@@ -251,14 +339,17 @@ export function toggleVisualPresetsPanel(): void {
   state.visualPresetsEnabled = !state.visualPresetsEnabled;
   log.debug('Grid', `toggleVisualPresetsPanel: ${state.visualPresetsEnabled ? 'open' : 'closed'}`);
   const panel = document.getElementById('visual-presets-panel');
+  const resizer = document.getElementById('resizer-visual-presets');
   const btn = document.getElementById('btn-visual-presets');
 
   if (state.visualPresetsEnabled) {
     panel?.classList.remove('hidden');
+    resizer?.classList.remove('hidden');
     btn?.classList.add('active');
     rebuildVisualPresetsDOM();
   } else {
     panel?.classList.add('hidden');
+    resizer?.classList.add('hidden');
     btn?.classList.remove('active');
   }
 
@@ -272,6 +363,10 @@ export function initVisualPresetsPanel(): void {
       saveVisualPreset();
     });
   }
+
+  // Activate the tab content (there's only one content div, shared across tabs)
+  const content = document.querySelector('.vp-tab-content');
+  if (content) content.classList.add('active');
 }
 
 // ---------------------------------------------------------------------------
@@ -332,7 +427,7 @@ async function saveVisualPreset(): Promise<void> {
 // Recall
 // ---------------------------------------------------------------------------
 
-async function recallVisualPreset(presetIndex: number): Promise<void> {
+export async function recallVisualPreset(presetIndex: number): Promise<void> {
   const preset = presets()?.[presetIndex];
   if (!preset) return;
   log.info('Grid', `recallVisualPreset: "${preset.name}" index=${presetIndex}`);

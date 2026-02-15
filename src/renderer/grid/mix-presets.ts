@@ -31,19 +31,11 @@ declare const window: Window & {
   };
 };
 
-/** External functions wired up by the app entry point */
-declare function buildTabBar(): void;
-declare function cleanupGridVisibilityObserver(): void;
-declare function applyMaxContainerHeight(): void;
-declare function hideContextMenu(): void;
-declare function saveGridState(): void;
-declare function setStatus(msg: string, type?: string): void;
-
-/** Slot event listener tracking (owned by grid-renderer, declared here) */
-declare const slotEventListeners: Map<
-  HTMLElement,
-  Array<{ event: string; handler: EventListener }>
->;
+import { buildTabBar } from './grid-tabs.js';
+import { cleanupGridVisibilityObserver, applyMaxContainerHeight } from './grid-renderer.js';
+import { hideContextMenu, slotEventListeners } from './shader-grid.js';
+import { saveGridState } from './grid-persistence.js';
+import { setStatus } from '../ui/utils.js';
 
 // ---------------------------------------------------------------------------
 // Local interfaces

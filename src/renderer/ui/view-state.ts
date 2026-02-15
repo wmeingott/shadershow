@@ -22,6 +22,7 @@ interface ViewState {
   consolePanelHeight?: number;
   consolePanelCollapsed?: boolean;
   visualPresetsEnabled?: boolean;
+  visualPresetsWidth?: string;
 }
 
 /** Console panel state returned by getConsolePanelState */
@@ -38,20 +39,9 @@ declare const window: Window & {
   };
 };
 
-// ---------------------------------------------------------------------------
-// External module stubs (not yet converted to TS)
-// ---------------------------------------------------------------------------
-
-declare function startGridAnimation(): void;
-declare function rebuildVisualPresetsDOM(): void;
-declare function getConsolePanelState(): ConsolePanelState;
-declare function restoreConsolePanelState(saved: Partial<ConsolePanelState>): void;
-
-// In the real build these come from sibling JS modules. For type-checking
-// purposes we declare them above and import at runtime via dynamic import or
-// a future TS conversion.  When the peer modules are converted, replace the
-// declares with proper imports:
-//   import { startGridAnimation, rebuildVisualPresetsDOM } from '../grid/shader-grid.js';
+import { startGridAnimation } from '../grid/grid-renderer.js';
+import { rebuildVisualPresetsDOM } from '../grid/visual-presets.js';
+import { getConsolePanelState, restoreConsolePanelState } from './console-panel.js';
 //   import { getConsolePanelState, restoreConsolePanelState } from './console-panel.js';
 
 // ---------------------------------------------------------------------------
@@ -93,6 +83,7 @@ export function saveViewState(): void {
     consolePanelHeight: consoleState.height,
     consolePanelCollapsed: consoleState.collapsed,
     visualPresetsEnabled: state.visualPresetsEnabled,
+    visualPresetsWidth: document.getElementById('visual-presets-panel')?.style.width || '',
   };
 
   log.debug('ViewState', 'Saving view state');
@@ -207,12 +198,17 @@ export async function restoreViewState(): Promise<void> {
     }
   }
 
-  // Restore visual presets panel visibility
+  // Restore visual presets panel visibility and width
   if (viewState.visualPresetsEnabled) {
     state.visualPresetsEnabled = true;
     const vpPanel = document.getElementById('visual-presets-panel');
+    const vpResizer = document.getElementById('resizer-visual-presets');
     if (vpPanel) vpPanel.classList.remove('hidden');
+    if (vpResizer) vpResizer.classList.remove('hidden');
     document.getElementById('btn-visual-presets')?.classList.add('active');
+    if (viewState.visualPresetsWidth && vpPanel) {
+      vpPanel.style.width = viewState.visualPresetsWidth;
+    }
     rebuildVisualPresetsDOM();
   }
 

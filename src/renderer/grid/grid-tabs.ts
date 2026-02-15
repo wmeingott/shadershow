@@ -121,40 +121,13 @@ declare const window: Window & {
   };
 };
 
-// ---------------------------------------------------------------------------
-// Stubs for unconverted modules
-// ---------------------------------------------------------------------------
-
-declare function stopGridAnimation(): void;
-declare function cleanupGridVisibilityObserver(): void;
-declare function startGridAnimation(): void;
-declare function rebuildMixPanelDOM(): void;
-declare function rebuildAssetGridDOM(): void;
-declare function rebuildGridDOM(): void;
-declare function saveGridState(): void;
-declare function hideContextMenu(): void;
-declare function updateSaveButtonState(): void;
-declare function isSceneCode(code: string): boolean;
-declare function assignShaderToSlot(
-  slotIndex: number,
-  code: string,
-  filePath: string | null,
-  isInitialLoad: boolean,
-  params?: Record<string, unknown>,
-  presets?: unknown[],
-  customParams?: Record<string, unknown>,
-): Promise<void>;
-declare function assignSceneToSlot(
-  slotIndex: number,
-  code: string,
-  filePath: string | null,
-  isInitialLoad: boolean,
-  params?: Record<string, unknown>,
-  presets?: unknown[],
-  customParams?: Record<string, unknown>,
-): Promise<void>;
-declare function setStatus(msg: string, type?: string): void;
-declare function updateLocalPresetsUI(): void;
+import { stopGridAnimation, startGridAnimation, cleanupGridVisibilityObserver } from './grid-renderer.js';
+import { rebuildMixPanelDOM } from './mix-presets.js';
+import { rebuildAssetGridDOM } from './asset-grid.js';
+import { rebuildGridDOM, hideContextMenu, assignShaderToSlot, assignSceneToSlot, isSceneCode, updateSaveButtonState } from './shader-grid.js';
+import { saveGridState } from './grid-persistence.js';
+import { setStatus } from '../ui/utils.js';
+import { updateLocalPresetsUI } from '../ui/presets.js';
 
 // ---------------------------------------------------------------------------
 // Helpers — cast state.shaderTabs to runtime shape

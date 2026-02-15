@@ -18,21 +18,11 @@ declare const window: Window & {
   _previewTileDbg?: boolean;
 };
 
-// ---------------------------------------------------------------------------
-// External module stubs (not yet converted or circular)
-// ---------------------------------------------------------------------------
-
-declare function isMixerActive(): boolean;
-declare function renderMixerComposite(): RenderStats;
-declare function hideMixerOverlay(): void;
-declare function loadParamsToSliders(
-  params: Record<string, ParamValue>,
-  options?: { skipMixerSync?: boolean },
-): void;
-declare function generateCustomParamUI(): void;
-declare function updateLocalPresetsUI(): void;
-declare function setStatus(message: string, type: 'success' | 'error' | 'info'): void;
-declare function compileShader(): void;
+import { isMixerActive, renderMixerComposite, hideMixerOverlay } from '../ui/mixer.js';
+import { loadParamsToSliders, generateCustomParamUI } from '../ui/params.js';
+import { updateLocalPresetsUI } from '../ui/presets.js';
+import { setStatus } from '../ui/utils.js';
+import { compileShader } from '../ui/editor.js';
 
 // ---------------------------------------------------------------------------
 // Logger

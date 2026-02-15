@@ -132,7 +132,7 @@ const visibleSlots = new Set<number>();
 
 let gridIntersectionObserver: IntersectionObserver | null = null;
 
-function cleanupGridVisibilityObserver(): void {
+export function cleanupGridVisibilityObserver(): void {
   if (gridIntersectionObserver) {
     gridIntersectionObserver.disconnect();
     gridIntersectionObserver = null;
@@ -140,7 +140,7 @@ function cleanupGridVisibilityObserver(): void {
   visibleSlots.clear();
 }
 
-function initGridVisibilityObserver(): void {
+export function initGridVisibilityObserver(): void {
   // Cleanup existing observer first
   cleanupGridVisibilityObserver();
 

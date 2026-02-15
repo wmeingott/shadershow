@@ -65,14 +65,10 @@ interface ColorPickerInput extends HTMLInputElement {
   _colorSwapApply: (rgb: number[]) => void;
 }
 
-// ---------------------------------------------------------------------------
-// External module stubs
-// ---------------------------------------------------------------------------
-
-declare function updateMixerChannelParam(paramName: string, value: ParamValue): void;
-declare function saveGridState(): void;
-declare function setStatus(message: string, type: 'success' | 'error' | 'info'): void;
-declare function parseShaderParams(source: string): ParamDef[];
+import { updateMixerChannelParam } from './mixer.js';
+import { saveGridState } from '../grid/grid-persistence.js';
+import { setStatus } from './utils.js';
+import { parseShaderParams } from '@shared/param-parser.js';
 
 // ---------------------------------------------------------------------------
 // Module state

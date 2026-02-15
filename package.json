@@ -2,15 +2,13 @@
   "name": "shadershow",
   "version": "1.0.0",
   "description": "A VS Code-like GLSL shader editor with Shadertoy compatibility",
-  "main": "main.js",
+  "main": "dist/main/app.js",
   "scripts": {
     "build": "node esbuild.config.mjs",
     "build:watch": "node esbuild.config.mjs --watch",
     "typecheck": "tsc -b",
-    "start": "electron .",
-    "dev": "electron . --enable-logging",
-    "start:ts": "npm run build && electron . --main dist/main/app.js",
-    "dev:ts": "npm run build && electron . --main dist/main/app.js --enable-logging"
+    "start": "npm run build && electron .",
+    "dev": "npm run build && electron . --enable-logging"
   },
   "keywords": [
     "glsl",

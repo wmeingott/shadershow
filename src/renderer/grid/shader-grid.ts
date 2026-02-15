@@ -374,14 +374,10 @@ function createGridSlotElement(index: number): HTMLDivElement {
   slot.addEventListener('drop', dropHandler as EventListener);
   listeners.push({ event: 'drop', handler: dropHandler as EventListener });
 
-  // Left click - select slot and load parameters (or assign to mixer if armed)
+  // Left click - select slot and load parameters
   const clickHandler = (): void => {
     if (state.gridSlots[index]) {
-      if (state.mixerArmedChannel !== null) {
-        assignShaderToMixer(state.mixerArmedChannel, index);
-      } else {
-        selectGridSlot(index);
-      }
+      selectGridSlot(index);
     }
   };
   slot.addEventListener('click', clickHandler);

@@ -86,6 +86,8 @@ declare const window: Window & {
     newFile(kind: string): void;
     openFile(): void;
     toggleNDI(): void;
+    toggleRemote(): void;
+    getRemoteStatus(): Promise<{ enabled: boolean; url?: string; port?: number }>;
     openFullscreen(): void;
     openFullscreenOnDisplay(displayId: number): void;
     closeFullscreen(): void;
@@ -212,6 +214,11 @@ export function initControls(): void {
   // NDI toggle button
   const btnNdi = document.getElementById('btn-ndi') as HTMLButtonElement;
   btnNdi.addEventListener('click', toggleNDI);
+
+  // Web Remote toggle button
+  const btnRemote = document.getElementById('btn-remote') as HTMLButtonElement;
+  btnRemote.addEventListener('click', toggleRemote);
+  initRemoteButtonState();
 
   // Recording toggle button
   const btnRecord = document.getElementById('btn-record') as HTMLButtonElement;
@@ -581,6 +588,23 @@ export function updatePanelVisibility(): void {
 export function toggleNDI(): void {
   log.info('Controls', 'Toggling NDI output');
   window.electronAPI.toggleNDI();
+}
+
+export function toggleRemote(): void {
+  window.electronAPI.toggleRemote();
+}
+
+async function initRemoteButtonState(): Promise<void> {
+  try {
+    const status = await window.electronAPI.getRemoteStatus();
+    const btn = document.getElementById('btn-remote') as HTMLElement | null;
+    if (btn && status.enabled) {
+      btn.classList.add('active');
+      btn.title = `Web Remote Active (${status.url})`;
+    }
+  } catch {
+    // Ignore — remote may not be available
+  }
 }
 
 export function openFullscreenPreview(): void {

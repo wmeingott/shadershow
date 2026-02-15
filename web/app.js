@@ -176,19 +176,38 @@
     if (!tab) return;
 
     if (tab.type === 'mix') {
-      // Show mix presets
+      // Show mix presets as cards with thumbnails
       if (tab.mixPresets && tab.mixPresets.length > 0) {
         tab.mixPresets.forEach(p => {
-          const btn = document.createElement('button');
-          btn.className = 'mix-preset-btn';
-          btn.textContent = p.name || `Mix ${p.index + 1}`;
-          btn.addEventListener('click', () => {
+          const card = document.createElement('div');
+          card.className = 'mix-preset-card';
+
+          if (p.thumbnail) {
+            const img = document.createElement('img');
+            img.className = 'mix-preset-thumb';
+            img.src = p.thumbnail;
+            img.alt = p.name || `Mix ${p.index + 1}`;
+            img.draggable = false;
+            img.onerror = function() { this.style.visibility = 'hidden'; };
+            card.appendChild(img);
+          } else {
+            const placeholder = document.createElement('div');
+            placeholder.className = 'mix-preset-thumb-placeholder';
+            card.appendChild(placeholder);
+          }
+
+          const label = document.createElement('div');
+          label.className = 'mix-preset-label';
+          label.textContent = p.name || `Mix ${p.index + 1}`;
+          card.appendChild(label);
+
+          card.addEventListener('click', () => {
             postAction('/api/mixer/recall-preset', {
               tabIndex: appState.activeTab,
               presetIndex: p.index
             });
           });
-          grid.appendChild(btn);
+          grid.appendChild(card);
         });
       } else {
         grid.innerHTML = '<div class="empty-message">No mix presets on this tab</div>';
@@ -256,9 +275,30 @@
       const btn = document.createElement('button');
       btn.className = 'mixer-ch-btn';
       if (ch.hasShader) btn.classList.add('assigned');
+      if (ch.hasShader && ch.enabled === false) btn.classList.add('disabled');
       if (i === mixer.selectedChannel) btn.classList.add('selected');
       if (i === assigningChannel) btn.classList.add('selected');
-      btn.textContent = ch.hasShader ? (ch.label || (ch.slotIndex !== null ? String(ch.slotIndex + 1) : 'M')) : '\u2014';
+
+      // Thumbnail
+      const thumbDiv = document.createElement('div');
+      thumbDiv.className = 'mixer-ch-thumb';
+      if (ch.hasShader) {
+        let thumbSrc = null;
+        if (ch.thumbnail) {
+          thumbSrc = ch.thumbnail;
+        } else if (ch.slotIndex !== null && ch.tabIndex !== null && ch.tabIndex !== undefined) {
+          thumbSrc = getThumbnailUrl(ch.tabIndex, ch.slotIndex);
+        }
+        if (thumbSrc) {
+          thumbDiv.style.backgroundImage = `url(${thumbSrc})`;
+        }
+      }
+      btn.appendChild(thumbDiv);
+
+      const btnLabel = document.createElement('span');
+      btnLabel.className = 'mixer-ch-btn-label';
+      btnLabel.textContent = ch.hasShader ? (ch.label || (ch.slotIndex !== null ? String(ch.slotIndex + 1) : 'M')) : '\u2014';
+      btn.appendChild(btnLabel);
 
       btn.addEventListener('click', () => {
         if (ch.hasShader) {
@@ -344,16 +384,35 @@
     appState.tabs.forEach((tab, tabIdx) => {
       if (tab.type !== 'mix' || !tab.mixPresets) return;
       tab.mixPresets.forEach(p => {
-        const btn = document.createElement('button');
-        btn.className = 'mix-preset-btn';
-        btn.textContent = p.name || `Mix ${p.index + 1}`;
-        btn.addEventListener('click', () => {
+        const card = document.createElement('div');
+        card.className = 'mix-preset-card';
+
+        if (p.thumbnail) {
+          const img = document.createElement('img');
+          img.className = 'mix-preset-thumb';
+          img.src = p.thumbnail;
+          img.alt = p.name || `Mix ${p.index + 1}`;
+          img.draggable = false;
+          img.onerror = function() { this.style.visibility = 'hidden'; };
+          card.appendChild(img);
+        } else {
+          const placeholder = document.createElement('div');
+          placeholder.className = 'mix-preset-thumb-placeholder';
+          card.appendChild(placeholder);
+        }
+
+        const label = document.createElement('div');
+        label.className = 'mix-preset-label';
+        label.textContent = p.name || `Mix ${p.index + 1}`;
+        card.appendChild(label);
+
+        card.addEventListener('click', () => {
           postAction('/api/mixer/recall-preset', {
             tabIndex: tabIdx,
             presetIndex: p.index
           });
         });
-        container.appendChild(btn);
+        container.appendChild(card);
       });
     });
   }

@@ -56,6 +56,8 @@ interface MixerChannelRuntime {
   assetType?: string | null;
   mediaPath?: string;
   _ownsRenderer?: boolean;
+  enabled: boolean;
+  thumbnail: string | null;
 }
 
 /** Grid slot data (runtime shape) */
@@ -90,11 +92,13 @@ interface MixPresetChannel {
   shaderCode?: string | null;
   assetType?: string | null;
   mediaPath?: string;
+  enabled?: boolean;
 }
 
 import { loadParamsToSliders, generateCustomParamUI } from './params.js';
 import { updateLocalPresetsUI } from './presets.js';
 import { setStatus } from './utils.js';
+import { showContextMenu as showContextMenuHelper } from './context-menu.js';
 import { MiniShaderRenderer } from '../renderers/mini-shader-renderer.js';
 import { AssetRenderer } from '../renderers/asset-renderer.js';
 
@@ -110,6 +114,7 @@ const MAX_MIXER_CHANNELS = 8;
 
 let mixerOverlayCanvas: HTMLCanvasElement | null = null;
 let mixerOverlayCtx: CanvasRenderingContext2D | null = null;
+let thumbnailRefreshTimer: ReturnType<typeof setInterval> | null = null;
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -131,6 +136,73 @@ function mainRenderer(): MiniRendererLike {
   return state.renderer as MiniRendererLike;
 }
 
+// Capture a small thumbnail from a channel's renderer canvas
+function captureChannelThumbnail(ch: MixerChannelRuntime): string | null {
+  let canvas: HTMLCanvasElement | null = null;
+
+  // Grid-assigned channel: use the slot's mini renderer canvas
+  if (ch.slotIndex !== null && ch.tabIndex != null) {
+    const tab = tabs()[ch.tabIndex];
+    const slot = tab?.slots?.[ch.slotIndex];
+    const renderer = slot?.renderer as { canvas?: HTMLCanvasElement } | null;
+    if (renderer?.canvas && renderer.canvas.width > 0) {
+      canvas = renderer.canvas;
+    }
+  }
+
+  // Owns-renderer channel (mix preset): use its own renderer canvas
+  if (!canvas && ch.renderer) {
+    const renderer = ch.renderer as { canvas?: HTMLCanvasElement };
+    if (renderer.canvas && renderer.canvas.width > 0) {
+      canvas = renderer.canvas;
+    }
+  }
+
+  if (!canvas) return null;
+
+  try {
+    const tmp = document.createElement('canvas');
+    tmp.width = 96;
+    tmp.height = 54;
+    const ctx = tmp.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(canvas, 0, 0, 96, 54);
+    return tmp.toDataURL('image/jpeg', 0.6);
+  } catch {
+    return null;
+  }
+}
+
+// Refresh thumbnails for all assigned channels
+function refreshChannelThumbnails(): void {
+  const btns = document.querySelectorAll('#mixer-channels .mixer-btn');
+  for (let i = 0; i < channels().length; i++) {
+    const ch = channels()[i];
+    if ((ch.slotIndex !== null && ch.tabIndex != null) || ch.renderer) {
+      const thumb = captureChannelThumbnail(ch);
+      if (thumb) {
+        ch.thumbnail = thumb;
+        const thumbEl = btns[i]?.querySelector('.mixer-btn-thumb') as HTMLElement | null;
+        if (thumbEl) thumbEl.style.backgroundImage = `url(${thumb})`;
+      }
+    }
+  }
+}
+
+// Start periodic thumbnail refresh
+function startThumbnailRefresh(): void {
+  if (thumbnailRefreshTimer) return;
+  thumbnailRefreshTimer = setInterval(refreshChannelThumbnails, 2000);
+}
+
+// Stop periodic thumbnail refresh
+function stopThumbnailRefresh(): void {
+  if (thumbnailRefreshTimer) {
+    clearInterval(thumbnailRefreshTimer);
+    thumbnailRefreshTimer = null;
+  }
+}
+
 // Create a mixer channel DOM element and attach event handlers
 function createChannelElement(index: number): HTMLDivElement {
   const channelEl = document.createElement('div');
@@ -139,8 +211,16 @@ function createChannelElement(index: number): HTMLDivElement {
 
   const btn = document.createElement('button');
   btn.className = 'mixer-btn';
-  btn.title = 'Click to arm, then click a grid shader to assign. Right-click to clear.';
-  btn.textContent = '\u2014';
+  btn.title = 'Drag a shader here to assign. Click to toggle enable/disable.';
+
+  const thumbDiv = document.createElement('div');
+  thumbDiv.className = 'mixer-btn-thumb';
+  btn.appendChild(thumbDiv);
+
+  const labelSpan = document.createElement('span');
+  labelSpan.className = 'mixer-btn-label';
+  labelSpan.textContent = '\u2014';
+  btn.appendChild(labelSpan);
 
   const slider = document.createElement('input');
   slider.type = 'range';
@@ -153,27 +233,72 @@ function createChannelElement(index: number): HTMLDivElement {
   channelEl.appendChild(btn);
   channelEl.appendChild(slider);
 
-  // Left click: if assigned, select for param editing; if not, arm/disarm
+  // Left click: toggle enable/disable for assigned channels
   btn.addEventListener('click', () => {
     const ch = channels()[index];
-    if (state.mixerArmedChannel === index) {
-      state.mixerArmedChannel = null;
-      btn.classList.remove('armed');
-      setStatus('Mixer channel disarmed', 'success');
-    } else if ((ch.slotIndex !== null && ch.tabIndex != null) || ch.renderer) {
-      disarmAll();
-      selectMixerChannel(index);
+    const isAssigned = (ch.slotIndex !== null && ch.tabIndex != null) || ch.renderer;
+    if (!isAssigned) return;
+
+    ch.enabled = !ch.enabled;
+    btn.classList.toggle('disabled', !ch.enabled);
+    notifyRemoteStateChanged();
+
+    // Send enabled state to fullscreen
+    window.electronAPI.sendMixerChannelUpdate({
+      channelIndex: index,
+      enabled: ch.enabled,
+    });
+
+    setStatus(`Mixer channel ${index + 1} ${ch.enabled ? 'enabled' : 'disabled'}`, 'success');
+  });
+
+  // Right-click: context menu for assigned channels, clear for empty
+  btn.addEventListener('contextmenu', (e: MouseEvent) => {
+    e.preventDefault();
+    const ch = channels()[index];
+    const isAssigned = (ch.slotIndex !== null && ch.tabIndex != null) || ch.renderer;
+
+    if (isAssigned) {
+      showContextMenuHelper(e.clientX, e.clientY, [
+        { label: 'Edit Params', action: () => selectMixerChannel(index) },
+        { separator: true },
+        { label: 'Clear Channel', action: () => clearMixerChannel(index) },
+      ], { menuId: 'mixer-channel-context-menu' });
     } else {
-      disarmAll();
-      state.mixerArmedChannel = index;
-      btn.classList.add('armed');
-      setStatus(`Mixer channel ${index + 1} armed \u2014 click a grid shader to assign`, 'success');
+      clearMixerChannel(index);
     }
   });
 
-  btn.addEventListener('contextmenu', (e: MouseEvent) => {
+  // Drop target: accept grid slot drags
+  btn.addEventListener('dragover', (e: DragEvent) => {
     e.preventDefault();
-    clearMixerChannel(index);
+    e.dataTransfer!.dropEffect = 'move';
+  });
+
+  btn.addEventListener('dragenter', (e: DragEvent) => {
+    e.preventDefault();
+    btn.classList.add('drag-over');
+  });
+
+  btn.addEventListener('dragleave', (e: DragEvent) => {
+    if (!btn.contains(e.relatedTarget as Node)) {
+      btn.classList.remove('drag-over');
+    }
+  });
+
+  btn.addEventListener('drop', (e: DragEvent) => {
+    e.preventDefault();
+    btn.classList.remove('drag-over');
+    const slotIndex = parseInt(e.dataTransfer!.getData('text/plain'), 10);
+    if (!isNaN(slotIndex)) {
+      // Check if slot is an asset type
+      const slotData = slots()[slotIndex] as GridSlotLike | null;
+      if (slotData?.type?.startsWith('asset-')) {
+        assignAssetToMixer(index, slotIndex);
+      } else {
+        assignShaderToMixer(index, slotIndex);
+      }
+    }
   });
 
   slider.addEventListener('input', () => {
@@ -201,21 +326,38 @@ function rebuildChannelElements(): void {
     const ch = channels()[i];
     const el = createChannelElement(i);
     const btn = el.querySelector('.mixer-btn') as HTMLButtonElement;
+    const labelSpan = btn.querySelector('.mixer-btn-label') as HTMLElement;
+    const thumbDiv = btn.querySelector('.mixer-btn-thumb') as HTMLElement;
     const slider = el.querySelector('.mixer-slider') as HTMLInputElement;
 
-    if ((ch.slotIndex !== null && ch.tabIndex != null) || ch.renderer) {
+    const isAssigned = (ch.slotIndex !== null && ch.tabIndex != null) || ch.renderer;
+    if (isAssigned) {
       if (ch.assetType) {
-        btn.textContent = ch.slotIndex !== null ? 'A' + String(ch.slotIndex + 1) : 'A';
+        labelSpan.textContent = ch.slotIndex !== null ? 'A' + String(ch.slotIndex + 1) : 'A';
       } else {
-        btn.textContent = ch.renderer && ch.slotIndex === null ? 'M' : String((ch.slotIndex ?? 0) + 1);
+        labelSpan.textContent = ch.renderer && ch.slotIndex === null ? 'M' : String((ch.slotIndex ?? 0) + 1);
       }
       btn.classList.add('assigned');
+
+      // Restore thumbnail
+      if (ch.thumbnail) {
+        thumbDiv.style.backgroundImage = `url(${ch.thumbnail})`;
+      } else {
+        // Try to capture one now
+        const thumb = captureChannelThumbnail(ch);
+        if (thumb) {
+          ch.thumbnail = thumb;
+          thumbDiv.style.backgroundImage = `url(${thumb})`;
+        }
+      }
+
+      // Restore enabled state
+      if (!ch.enabled) {
+        btn.classList.add('disabled');
+      }
     }
     if (state.mixerSelectedChannel === i) {
       btn.classList.add('selected');
-    }
-    if (state.mixerArmedChannel === i) {
-      btn.classList.add('armed');
     }
     slider.value = String(ch.alpha);
 
@@ -227,12 +369,6 @@ function rebuildChannelElements(): void {
 function syncToggleButton(): void {
   const btn = document.getElementById('mixer-toggle-btn');
   if (btn) btn.classList.toggle('active', state.mixerEnabled);
-}
-
-function disarmAll(): void {
-  state.mixerArmedChannel = null;
-  const btns = document.querySelectorAll('#mixer-channels .mixer-btn');
-  btns.forEach(b => b.classList.remove('armed'));
 }
 
 // Select a mixer channel for parameter editing
@@ -296,7 +432,8 @@ export function addMixerChannel(): number | null {
 
   const newIndex = state.mixerChannels.length;
   (state.mixerChannels as MixerChannelRuntime[]).push({
-    slotIndex: null, alpha: 1.0, params: {}, customParams: {}, renderer: null, shaderCode: null
+    slotIndex: null, alpha: 1.0, params: {}, customParams: {}, renderer: null, shaderCode: null,
+    enabled: true, thumbnail: null,
   });
 
   const container = document.getElementById('mixer-channels');
@@ -347,15 +484,14 @@ export function initMixer(): void {
     addBtn.addEventListener('click', () => {
       const newIndex = addMixerChannel();
       if (newIndex !== null) {
-        disarmAll();
-        state.mixerArmedChannel = newIndex;
-        const btns = document.querySelectorAll('#mixer-channels .mixer-btn');
-        btns[newIndex]?.classList.add('armed');
-        setStatus(`Mixer channel ${newIndex + 1} added and armed`, 'success');
+        setStatus(`Mixer channel ${newIndex + 1} added — drag a shader to assign`, 'success');
       }
     });
     updateAddButtonVisibility();
   }
+
+  // Start periodic thumbnail refresh for mixer channel buttons
+  startThumbnailRefresh();
 }
 
 export function assignShaderToMixer(channelIndex: number, slotIndex: number): void {
@@ -370,6 +506,7 @@ export function assignShaderToMixer(channelIndex: number, slotIndex: number): vo
 
   ch.slotIndex = slotIndex;
   ch.tabIndex = state.activeShaderTab;
+  ch.enabled = true;
 
   const slotData = slots()[slotIndex];
 
@@ -389,11 +526,17 @@ export function assignShaderToMixer(channelIndex: number, slotIndex: number): vo
     }
   }
 
+  // Capture thumbnail
+  ch.thumbnail = captureChannelThumbnail(ch);
+
   const btn = document.querySelectorAll('#mixer-channels .mixer-btn')[channelIndex];
   if (btn) {
-    btn.textContent = String(slotIndex + 1);
+    const labelSpan = btn.querySelector('.mixer-btn-label');
+    const thumbDiv = btn.querySelector('.mixer-btn-thumb') as HTMLElement | null;
+    if (labelSpan) labelSpan.textContent = String(slotIndex + 1);
+    if (thumbDiv && ch.thumbnail) thumbDiv.style.backgroundImage = `url(${ch.thumbnail})`;
     btn.classList.add('assigned');
-    btn.classList.remove('armed');
+    btn.classList.remove('disabled');
   }
 
   state.mixerArmedChannel = null;
@@ -424,17 +567,24 @@ export function assignAssetToMixer(channelIndex: number, slotIndex: number): voi
 
   ch.slotIndex = slotIndex;
   ch.tabIndex = state.activeShaderTab;
+  ch.enabled = true;
 
   const slotData = slots()[slotIndex];
   ch.assetType = slotData?.type || null;
   ch.params = {};
   ch.customParams = { ...(slotData?.customParams || {}) };
 
+  // Capture thumbnail
+  ch.thumbnail = captureChannelThumbnail(ch);
+
   const btn = document.querySelectorAll('#mixer-channels .mixer-btn')[channelIndex];
   if (btn) {
-    btn.textContent = 'A' + String(slotIndex + 1);
+    const labelSpan = btn.querySelector('.mixer-btn-label');
+    const thumbDiv = btn.querySelector('.mixer-btn-thumb') as HTMLElement | null;
+    if (labelSpan) labelSpan.textContent = 'A' + String(slotIndex + 1);
+    if (thumbDiv && ch.thumbnail) thumbDiv.style.backgroundImage = `url(${ch.thumbnail})`;
     btn.classList.add('assigned');
-    btn.classList.remove('armed');
+    btn.classList.remove('disabled');
   }
 
   state.mixerArmedChannel = null;
@@ -517,11 +667,16 @@ export function clearMixerChannel(channelIndex: number): void {
   ch.alpha = 1.0;
   ch.params = {};
   ch.customParams = {};
+  ch.enabled = true;
+  ch.thumbnail = null;
 
   const btn = document.querySelectorAll('#mixer-channels .mixer-btn')[channelIndex];
   if (btn) {
-    btn.textContent = '\u2014';
-    btn.classList.remove('assigned', 'armed', 'selected');
+    const labelSpan = btn.querySelector('.mixer-btn-label');
+    const thumbDiv = btn.querySelector('.mixer-btn-thumb') as HTMLElement | null;
+    if (labelSpan) labelSpan.textContent = '\u2014';
+    if (thumbDiv) thumbDiv.style.backgroundImage = '';
+    btn.classList.remove('assigned', 'armed', 'selected', 'disabled');
   }
 
   const slider = document.querySelectorAll('#mixer-channels .mixer-slider')[channelIndex] as HTMLInputElement | undefined;
@@ -564,7 +719,8 @@ export function resetMixer(): void {
 
   state.mixerChannels.length = 0;
   (state.mixerChannels as MixerChannelRuntime[]).push({
-    slotIndex: null, alpha: 1.0, params: {}, customParams: {}, renderer: null, shaderCode: null
+    slotIndex: null, alpha: 1.0, params: {}, customParams: {}, renderer: null, shaderCode: null,
+    enabled: true, thumbnail: null,
   });
   state.mixerArmedChannel = null;
   state.mixerSelectedChannel = null;
@@ -629,6 +785,7 @@ export function renderMixerComposite(): { time: number; frame: number; fps: numb
 
   for (const ch of channels()) {
     if (ch.alpha <= 0) continue;
+    if (!ch.enabled) continue;
 
     let chRenderer: MiniRendererLike | AssetRendererLike | null = null;
     if (ch.slotIndex !== null && ch.tabIndex != null) {
@@ -698,7 +855,8 @@ export function recallMixState(preset: MixPreset): void {
   state.mixerChannels.length = 0;
   for (let i = 0; i < targetCount; i++) {
     (state.mixerChannels as MixerChannelRuntime[]).push({
-      slotIndex: null, alpha: 1.0, params: {}, customParams: {}, renderer: null, shaderCode: null
+      slotIndex: null, alpha: 1.0, params: {}, customParams: {}, renderer: null, shaderCode: null,
+      enabled: true, thumbnail: null,
     });
   }
 
@@ -719,6 +877,7 @@ export function recallMixState(preset: MixPreset): void {
     ch.params = { ...(presetCh.params || {}) };
     ch.customParams = { ...(presetCh.customParams || {}) };
     ch.slotIndex = null;
+    ch.enabled = presetCh.enabled !== false;
 
     // Handle asset channels
     if (presetCh.assetType && presetCh.mediaPath) {

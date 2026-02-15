@@ -62,6 +62,7 @@ interface MixPresetChannel {
   alpha: number;
   params: Record<string, unknown>;
   customParams: Record<string, unknown>;
+  enabled?: boolean;
 }
 
 interface MixerChannelLike {
@@ -74,6 +75,7 @@ interface MixerChannelLike {
   shaderCode?: string | null;
   assetType?: string;
   mediaPath?: string;
+  enabled?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -215,6 +217,7 @@ function saveMixPreset(): void {
         alpha: ch.alpha,
         params: { ...ch.params },
         customParams: { ...ch.customParams },
+        enabled: ch.enabled !== false,
       };
     }
 
@@ -230,6 +233,7 @@ function saveMixPreset(): void {
       alpha: ch.alpha,
       params: { ...ch.params },
       customParams: { ...ch.customParams },
+      enabled: ch.enabled !== false,
     };
   });
 
@@ -311,6 +315,7 @@ function updateMixPreset(presetIndex: number): void {
       alpha: ch.alpha,
       params: { ...ch.params },
       customParams: { ...ch.customParams },
+      enabled: ch.enabled !== false,
     };
   });
 

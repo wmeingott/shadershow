@@ -61,7 +61,7 @@ interface ShaderTabRuntime {
   name: string;
   type?: string;
   slots?: Array<GridSlot | null>;
-  mixPresets?: Array<{ name: string }>;
+  mixPresets?: Array<{ name: string; thumbnail?: string | null }>;
 }
 
 // Tile state object (from js/tile-state.js)
@@ -146,6 +146,7 @@ interface ElectronAPI {
   onGridPresetsSaved(cb: (data: { filePath: string }) => void): void;
   onLoadGridPresets(cb: (data: { gridState: unknown; filePath: string }) => void): void;
   onNDIStatus(cb: (data: { enabled: boolean; width?: number; height?: number }) => void): void;
+  onRemoteStatus(cb: (data: { enabled: boolean; url?: string; port?: number }) => void): void;
   onNDIFrameSkipChanged?(cb: (frameSkip: number) => void): void;
   onRecordingStatus(cb: (data: { enabled: boolean; filePath?: string; exitCode?: number; error?: string }) => void): void;
   onRequestPreviewResolutionForRecording?(cb: () => void): void;
@@ -200,7 +201,7 @@ interface RemoteTabInfo {
   name: string;
   type: string;
   slots?: RemoteSlotInfo[];
-  mixPresets?: Array<{ index: number; name: string }>;
+  mixPresets?: Array<{ index: number; name: string; thumbnail?: string | null }>;
 }
 
 interface RemoteMixerChannelInfo {
@@ -209,6 +210,8 @@ interface RemoteMixerChannelInfo {
   alpha: number;
   hasShader: boolean;
   label: string | null;
+  enabled: boolean;
+  thumbnail: string | null;
 }
 
 interface RemoteVpTab {
@@ -270,6 +273,7 @@ interface MixerChannelConfig {
   shaderCode: string;
   alpha: number;
   params: ParamValues;
+  enabled: boolean;
 }
 
 interface MixerConfig {
@@ -531,6 +535,7 @@ export async function initIPC(): Promise<void> {
               shaderCode: slotData.shaderCode!,
               alpha: ch.alpha,
               params: { speed: ch.params.speed ?? slotData.params?.speed ?? 1, ...ch.customParams },
+              enabled: (ch as { enabled?: boolean }).enabled !== false,
             };
           }
           // Recalled mix preset: use stored shaderCode
@@ -539,6 +544,7 @@ export async function initIPC(): Promise<void> {
               shaderCode: ch.shaderCode,
               alpha: ch.alpha,
               params: { speed: ch.params.speed ?? 1, ...ch.customParams },
+              enabled: (ch as { enabled?: boolean }).enabled !== false,
             };
           }
           return null;
@@ -602,6 +608,21 @@ export async function initIPC(): Promise<void> {
       if (btnNdi) btnNdi.title = 'Toggle NDI Output';
       log.info('IPC', 'NDI output stopped');
       setStatus('NDI output stopped', 'success');
+    }
+  });
+
+  // ---------- Remote server status ----------
+
+  window.electronAPI.onRemoteStatus(({ enabled, url }: { enabled: boolean; url?: string }) => {
+    const btnRemote = document.getElementById('btn-remote') as HTMLElement | null;
+    if (enabled) {
+      btnRemote?.classList.add('active');
+      if (btnRemote) btnRemote.title = `Web Remote Active (${url})`;
+      setStatus(`Web remote started at ${url}`, 'success');
+    } else {
+      btnRemote?.classList.remove('active');
+      if (btnRemote) btnRemote.title = 'Toggle Web Remote UI';
+      setStatus('Web remote stopped', 'success');
     }
   });
 
@@ -817,9 +838,10 @@ function buildRemoteStateSnapshot(): RemoteStateSnapshot {
           : undefined,
       mixPresets:
         tab.type === 'mix'
-          ? (tab.mixPresets || []).map((p: { name: string }, j: number) => ({
+          ? (tab.mixPresets || []).map((p, j: number) => ({
               index: j,
               name: p.name,
+              thumbnail: p.thumbnail ?? null,
             }))
           : undefined,
     })),
@@ -835,6 +857,8 @@ function buildRemoteStateSnapshot(): RemoteStateSnapshot {
         alpha: ch.alpha,
         hasShader: ch.slotIndex !== null || !!ch.renderer,
         label: ch.slotIndex !== null ? `Slot ${ch.slotIndex + 1}` : ch.renderer ? 'Mix' : null,
+        enabled: (ch as { enabled?: boolean }).enabled !== false,
+        thumbnail: (ch as { thumbnail?: string | null }).thumbnail ?? null,
       })),
     },
     params: buildCurrentParams(),

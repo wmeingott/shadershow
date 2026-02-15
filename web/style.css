@@ -635,9 +635,14 @@ body {
   }
 
   .mixer-ch-btn {
-    width: 36px;
+    width: 56px;
     height: 36px;
-    font-size: 12px;
+    font-size: 11px;
+  }
+
+  .mixer-ch-thumb {
+    width: 32px;
+    height: 32px;
   }
 
   #mixer-controls {
@@ -666,24 +671,50 @@ body {
   background: var(--bg-hover);
   border: 1px solid var(--border-light);
   color: var(--text-2);
-  width: 44px;
+  width: 64px;
   height: 44px;
   border-radius: var(--radius-sm);
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
   transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.mixer-ch-thumb {
+  width: 36px;
+  height: 40px;
+  flex-shrink: 0;
+  background-size: cover;
+  background-position: center;
+  background-color: var(--bg-active);
+}
+
+.mixer-ch-btn-label {
+  flex: 1;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  padding: 0 2px;
 }
 
 .mixer-ch-btn.assigned {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+}
+
+.mixer-ch-btn.assigned.disabled {
+  opacity: 0.4;
+  filter: grayscale(0.6);
 }
 
 .mixer-ch-btn.selected {
@@ -810,6 +841,53 @@ body {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+}
+
+.mix-preset-card {
+  background: var(--bg-raised);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+  display: inline-block;
+}
+
+.mix-preset-card:active {
+  border-color: var(--accent);
+  transform: scale(0.97);
+}
+
+@media (hover: hover) {
+  .mix-preset-card:hover {
+    border-color: var(--border-light);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    transform: translateY(-1px);
+  }
+}
+
+.mix-preset-thumb {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: var(--bg-base);
+  display: block;
+  object-fit: cover;
+}
+
+.mix-preset-thumb-placeholder {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: var(--bg-base);
+}
+
+.mix-preset-label {
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ============================================

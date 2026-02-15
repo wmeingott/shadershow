@@ -178,6 +178,23 @@ export class IPCRegistry {
       ndiManager.toggleNDIOutput();
     });
 
+    // 11b. toggle-remote — start/stop the web remote server
+    ipcMain.on('toggle-remote', () => {
+      if (remoteManager.isRunning()) {
+        remoteManager.stop();
+        settingsManager.remoteEnabled = false;
+        windowManager.sendToMain('remote-status', { enabled: false });
+      } else {
+        const port = settingsManager.remotePort;
+        remoteManager.start(port);
+        settingsManager.remoteEnabled = true;
+        const ips = remoteManager.getLocalIPs();
+        const url = ips.length > 0 ? `http://${ips[0]}:${port}` : `http://localhost:${port}`;
+        windowManager.sendToMain('remote-status', { enabled: true, url, port });
+      }
+      settingsManager.save();
+    });
+
     // 12. syphon-frame
     ipcMain.on('syphon-frame', (_event, frameData) => {
       void syphonManager.sendFrame(frameData);
@@ -383,6 +400,18 @@ export class IPCRegistry {
     // 9. get-settings
     ipcMain.handle('get-settings', async () => {
       return settingsManager.getSettings();
+    });
+
+    // 9b. get-remote-status
+    ipcMain.handle('get-remote-status', () => {
+      const { remoteManager, settingsManager } = this.deps;
+      if (remoteManager.isRunning()) {
+        const port = settingsManager.remotePort;
+        const ips = remoteManager.getLocalIPs();
+        const url = ips.length > 0 ? `http://${ips[0]}:${port}` : `http://localhost:${port}`;
+        return { enabled: true, url, port };
+      }
+      return { enabled: false };
     });
 
     // 10. save-shader-to-slot

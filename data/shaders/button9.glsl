@@ -1,52 +1,48 @@
-/*
- * ShaderShow - Available Uniforms
- * ================================
- * vec3  iResolution      - Viewport resolution (width, height, 1.0)
- * float iTime            - Playback time in seconds
- * float iTimeDelta       - Time since last frame in seconds
- * int   iFrame           - Current frame number
- * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)
- * vec4  iDate            - (year, month, day, time in seconds)
- *
- * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)
- * vec3  iChannelResolution[4] - Resolution of each channel
- *
- * Custom Parameters (@param)
- * --------------------------
- * Define custom uniforms with UI controls using @param comments:
- *   // @param name type [default] [min, max] "description"
- * Types: int, float, vec2, vec3, vec4, color
- */
 
-/*
-    "Artifacts" by @XorDev
+// @param cColor color[10] [[1.0, 0.0, 0.0],[0.0, 1.0, 0.0],[0.0, 0.0, 1.0],[1.0, 1.0, 0.1],[0.0, 0.5, 1.0],[1.0, 0.5, 0.0],[0.0, 1.0, 0.5],[1.0, 0.0, 1.0],[1.0, 1.0, 1.0],[0.5, 0.0, 1.0]] "Fire color"
+// @param colors vec2 [3.0,3.0] [1,10]
+// @param rradius float 0.5 [0.0, 1.0] "radius halo"
+// @param mradius float 0.1 [0.0, 1.0] "Radius voll"
+// @param gridsize int 10 [0,100] "Anzahl"
+// @param xspeed vec2 [0.0,0.0] [-2.0,2.0] "Geschwindigkeit"
+// @param cspeed vec2 [0.0,0.0] [-2.0,2.0] "Geschwindigkeit"
+// @param pos vec2 [0.0,0.0] [-2.0,2.0] "Geschwindigkeit"
+
+
+
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+    // Normalize coordinates to 0-1 range
+    vec2 uv = fragCoord.xy / iResolution.xy;
     
-    https://x.com/XorDev/status/2008361514684539306
-*/
-void mainImage( out vec4 O, vec2 I)
-{
-    //Iterator, raymarch depth and step distance
-    float i, z, d;
+    vec2 t = vec2(mod(iTime, iResolution.x), mod(iTime, iResolution.y));
     
-    //Raymarch sample point
-    vec3 p;
+    uv = uv + (t * xspeed) + pos;
+
+    // Grid parameters
+    float gridSize = float(gridsize);
+    float radius = rradius * (1.0 / gridSize);
     
-    //Clear fragColor and raymarch 77 steps
-    for(O*=i; i++<77.;
-        //Slowly step forward using the distance to a distorted z-plane
-        z += d = abs(p.z/30.+.2),
-        //Add color (attenuating with distance to surface)
-        O += vec4(z,z,9,1) / d,
-        //Compute the next sample point
-        p = z * normalize(vec3(I+I,0) - iResolution.xyy),
-        //Shift diagonally
-        p.xy += iTime)
-        
-        //Use blocky "turbulence" for the distortion
-        //https://mini.gmshaders.com/p/turbulence
-        for(d=0.; d++<9.; p+=sin(round(p)+d*3.).zxy);
-        
-    //Tanh tonemapping
-    //https://mini.gmshaders.com/p/func-tanh
-    O = tanh(O/8e4);
+    // Scale UV to grid space (0 to 10)
+    vec2 gridUV = uv * gridSize;
+    
+    // Get the cell index (0-9) and position within cell (0-1)
+    vec2 cellIndex = floor(gridUV);
+    vec2 cellUV = fract(gridUV);
+    
+    // Center of each cell is at (0.5, 0.5) in cell space
+    // Convert radius to cell space (cell is 1/10 of screen, so radius * 10)
+    float cellRadius = radius * gridSize;
+    
+    // Distance from center of cell
+    float dist = distance(cellUV, vec2(0.5));
+    
+    // Draw circle: white inside, black outside
+    float circle = smoothstep(mradius, cellRadius, dist);
+    
+    // Output color
+    vec2 c = cellIndex + t * cspeed;
+    int ci = int(mod(mod(c.x,colors.x) + mod(c.y,colors.y), 10.0));
+    vec3 color = cColor[ci] - vec3(circle);
+    
+    fragColor = vec4(color, 1.0);
 }

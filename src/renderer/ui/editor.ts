@@ -116,9 +116,10 @@ interface ShaderRendererSurface {
 // Compile error type
 // ---------------------------------------------------------------------------
 
-interface CompileError extends Error {
+interface CompileError {
+  message: string;
   raw?: string;
-  line?: number;
+  line?: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -304,16 +305,31 @@ export async function compileShader(): Promise<void> {
     const compileErr = err as CompileError;
     const message: string = compileErr.message || compileErr.raw || String(err);
     log.error('Editor', 'Compile error:', message);
-    setStatus(`Compile error: ${message}`, 'error');
 
-    // Add error annotation to editor
-    if (compileErr.line) {
-      editor.session.setAnnotations([{
-        row: compileErr.line - 1,
-        column: 0,
-        text: compileErr.message,
-        type: 'error',
-      }]);
+    // Build status message with line number
+    const lineInfo = compileErr.line ? ` (line ${compileErr.line})` : '';
+    setStatus(`Compile error${lineInfo}: ${message}`, 'error');
+
+    // Parse all errors from raw WebGL log for editor annotations
+    const annotations: Array<{ row: number; column: number; text: string; type: string }> = [];
+    if (compileErr.raw) {
+      const errorRegex = /ERROR:\s*\d+:(\d+):\s*(.+)/g;
+      let m;
+      // Get wrapper line count from the renderer
+      const sr = state.renderer as any;
+      const baseWrapperLines = 18;
+      const customUniformLines = sr?.customParams ? sr.customParams.length : 0;
+      const wrapperLines = baseWrapperLines + customUniformLines + 3;
+      while ((m = errorRegex.exec(compileErr.raw)) !== null) {
+        const line = Math.max(1, parseInt(m[1]) - wrapperLines);
+        annotations.push({ row: line - 1, column: 0, text: m[2], type: 'error' });
+      }
+    }
+    if (annotations.length === 0 && compileErr.line) {
+      annotations.push({ row: compileErr.line - 1, column: 0, text: message, type: 'error' });
+    }
+    if (annotations.length > 0) {
+      editor.session.setAnnotations(annotations);
     }
   }
 }

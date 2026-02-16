@@ -228,11 +228,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   importTexturesFromFolder: (sourceFolder: string) => ipcRenderer.invoke('import-textures-from-folder', sourceFolder),
 
   // Claude AI
-  sendClaudePrompt: (data: any) => ipcRenderer.send('claude-prompt', data),
+  sendClaudePrompt: (data: any) => ipcRenderer.send('stream-claude-prompt', data),
   onClaudeStreamChunk: (callback: (data: any) => void) => onIPC('claude-stream-chunk', (_event: any, data: any) => callback(data)),
   onClaudeStreamEnd: (callback: (data: any) => void) => onIPC('claude-stream-end', (_event: any, data: any) => callback(data)),
   onClaudeError: (callback: (data: any) => void) => onIPC('claude-error', (_event: any, data: any) => callback(data)),
-  cancelClaudeRequest: () => ipcRenderer.send('claude-cancel'),
+  cancelClaudeRequest: () => ipcRenderer.send('cancel-claude-request'),
   saveClaudeKey: (key: string | null, model: string) => ipcRenderer.invoke('save-claude-key', key, model),
   hasClaudeKey: () => ipcRenderer.invoke('has-claude-key'),
   getClaudeSettings: () => ipcRenderer.invoke('get-claude-settings'),

@@ -162,11 +162,11 @@ function captureChannelThumbnail(ch: MixerChannelRuntime): string | null {
 
   try {
     const tmp = document.createElement('canvas');
-    tmp.width = 96;
+    tmp.width = 54;
     tmp.height = 54;
     const ctx = tmp.getContext('2d');
     if (!ctx) return null;
-    ctx.drawImage(canvas, 0, 0, 96, 54);
+    ctx.drawImage(canvas, 0, 0, 54, 54);
     return tmp.toDataURL('image/jpeg', 0.6);
   } catch {
     return null;
@@ -217,11 +217,6 @@ function createChannelElement(index: number): HTMLDivElement {
   thumbDiv.className = 'mixer-btn-thumb';
   btn.appendChild(thumbDiv);
 
-  const labelSpan = document.createElement('span');
-  labelSpan.className = 'mixer-btn-label';
-  labelSpan.textContent = '\u2014';
-  btn.appendChild(labelSpan);
-
   const slider = document.createElement('input');
   slider.type = 'range';
   slider.className = 'mixer-slider';
@@ -232,6 +227,50 @@ function createChannelElement(index: number): HTMLDivElement {
 
   channelEl.appendChild(btn);
   channelEl.appendChild(slider);
+
+  // Drag start: allow dragging assigned channels to grid slots
+  btn.setAttribute('draggable', 'true');
+  btn.addEventListener('dragstart', (e: DragEvent) => {
+    const ch = channels()[index];
+    const isAssigned = (ch.slotIndex !== null && ch.tabIndex != null) || ch.renderer;
+    if (!isAssigned) {
+      e.preventDefault();
+      return;
+    }
+
+    // Get shader code — from grid slot or stored on channel
+    let code: string | null = null;
+    let params: Record<string, ParamValue> | null = null;
+    let customParams: Record<string, ParamValue> | null = null;
+    if (ch.slotIndex !== null && ch.tabIndex != null) {
+      const tab = (state.shaderTabs as ShaderTabLike[])[ch.tabIndex];
+      const slotData = tab?.slots?.[ch.slotIndex];
+      if (slotData?.shaderCode) {
+        code = slotData.shaderCode;
+        params = slotData.params as Record<string, ParamValue> | null;
+        customParams = slotData.customParams as Record<string, ParamValue> | null;
+      }
+    }
+    if (!code && ch.shaderCode) {
+      code = ch.shaderCode;
+      params = ch.params;
+      customParams = ch.customParams;
+    }
+    if (!code) {
+      e.preventDefault();
+      return;
+    }
+
+    e.dataTransfer!.effectAllowed = 'copy';
+    e.dataTransfer!.setData('application/x-mixer-channel', JSON.stringify({
+      channelIndex: index,
+      shaderCode: code,
+      params,
+      customParams,
+    }));
+    // Also set text/plain so the drop effect works across targets
+    e.dataTransfer!.setData('text/plain', '');
+  });
 
   // Left click: toggle enable/disable for assigned channels
   btn.addEventListener('click', () => {
@@ -269,13 +308,15 @@ function createChannelElement(index: number): HTMLDivElement {
     }
   });
 
-  // Drop target: accept grid slot drags
+  // Drop target: accept grid slot drags (not mixer-to-mixer)
   btn.addEventListener('dragover', (e: DragEvent) => {
+    if (e.dataTransfer!.types.includes('application/x-mixer-channel')) return;
     e.preventDefault();
     e.dataTransfer!.dropEffect = 'move';
   });
 
   btn.addEventListener('dragenter', (e: DragEvent) => {
+    if (e.dataTransfer!.types.includes('application/x-mixer-channel')) return;
     e.preventDefault();
     btn.classList.add('drag-over');
   });
@@ -326,17 +367,11 @@ function rebuildChannelElements(): void {
     const ch = channels()[i];
     const el = createChannelElement(i);
     const btn = el.querySelector('.mixer-btn') as HTMLButtonElement;
-    const labelSpan = btn.querySelector('.mixer-btn-label') as HTMLElement;
     const thumbDiv = btn.querySelector('.mixer-btn-thumb') as HTMLElement;
     const slider = el.querySelector('.mixer-slider') as HTMLInputElement;
 
     const isAssigned = (ch.slotIndex !== null && ch.tabIndex != null) || ch.renderer;
     if (isAssigned) {
-      if (ch.assetType) {
-        labelSpan.textContent = ch.slotIndex !== null ? 'A' + String(ch.slotIndex + 1) : 'A';
-      } else {
-        labelSpan.textContent = ch.renderer && ch.slotIndex === null ? 'M' : String((ch.slotIndex ?? 0) + 1);
-      }
       btn.classList.add('assigned');
 
       // Restore thumbnail
@@ -531,9 +566,7 @@ export function assignShaderToMixer(channelIndex: number, slotIndex: number): vo
 
   const btn = document.querySelectorAll('#mixer-channels .mixer-btn')[channelIndex];
   if (btn) {
-    const labelSpan = btn.querySelector('.mixer-btn-label');
     const thumbDiv = btn.querySelector('.mixer-btn-thumb') as HTMLElement | null;
-    if (labelSpan) labelSpan.textContent = String(slotIndex + 1);
     if (thumbDiv && ch.thumbnail) thumbDiv.style.backgroundImage = `url(${ch.thumbnail})`;
     btn.classList.add('assigned');
     btn.classList.remove('disabled');
@@ -579,9 +612,7 @@ export function assignAssetToMixer(channelIndex: number, slotIndex: number): voi
 
   const btn = document.querySelectorAll('#mixer-channels .mixer-btn')[channelIndex];
   if (btn) {
-    const labelSpan = btn.querySelector('.mixer-btn-label');
     const thumbDiv = btn.querySelector('.mixer-btn-thumb') as HTMLElement | null;
-    if (labelSpan) labelSpan.textContent = 'A' + String(slotIndex + 1);
     if (thumbDiv && ch.thumbnail) thumbDiv.style.backgroundImage = `url(${ch.thumbnail})`;
     btn.classList.add('assigned');
     btn.classList.remove('disabled');
@@ -672,9 +703,7 @@ export function clearMixerChannel(channelIndex: number): void {
 
   const btn = document.querySelectorAll('#mixer-channels .mixer-btn')[channelIndex];
   if (btn) {
-    const labelSpan = btn.querySelector('.mixer-btn-label');
     const thumbDiv = btn.querySelector('.mixer-btn-thumb') as HTMLElement | null;
-    if (labelSpan) labelSpan.textContent = '\u2014';
     if (thumbDiv) thumbDiv.style.backgroundImage = '';
     btn.classList.remove('assigned', 'armed', 'selected', 'disabled');
   }

@@ -78,41 +78,24 @@
 }
 
 .mixer-btn {
-  width: 96px;
+  width: 54px;
   height: 54px;
   border-radius: 6px;
   border: 2px solid var(--border-color);
   background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
   padding: 0;
-  display: flex;
-  align-items: center;
-  gap: 0;
   overflow: hidden;
   user-select: none;
 }
 
 .mixer-btn-thumb {
-  width: 54px;
-  height: 50px;
-  flex-shrink: 0;
+  width: 100%;
+  height: 100%;
   background-size: cover;
   background-position: center;
   background-color: var(--bg-hover);
-}
-
-.mixer-btn-label {
-  flex: 1;
-  text-align: center;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  padding: 0 4px;
 }
 
 .mixer-btn:hover {

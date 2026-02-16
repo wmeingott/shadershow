@@ -161,7 +161,8 @@ export class FileManager {
           activeTab: gridState.activeTab,
           activeSection: gridState.activeSection || 'shaders',
           tabs,
-          visualPresets: gridState.visualPresets || [],
+          vpTabs: gridState.vpTabs || gridState.visualPresets || [],
+          activeVpTab: gridState.activeVpTab ?? 0,
         };
         await fsPromises.writeFile(this.gridStateFile, JSON.stringify(saveData, null, 2), 'utf-8');
         log.debug('Grid state saved', String(tabs.length), 'tabs');

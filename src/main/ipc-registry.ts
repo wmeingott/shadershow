@@ -637,6 +637,16 @@ export class IPCRegistry {
       return claudeManager.getSettings();
     });
 
+    // 32b. has-claude-key
+    ipcMain.handle('has-claude-key', () => {
+      return claudeManager.hasKey();
+    });
+
+    // 32c. get-claude-settings
+    ipcMain.handle('get-claude-settings', () => {
+      return claudeManager.getSettings();
+    });
+
     // 33. save-claude-key
     ipcMain.handle('save-claude-key', async (_event, apiKey: string, model: string) => {
       return claudeManager.saveKey(apiKey, model);
@@ -650,6 +660,11 @@ export class IPCRegistry {
     // 35. set-claude-model
     ipcMain.handle('set-claude-model', async (_event, model: string) => {
       return claudeManager.saveKey(null, model);
+    });
+
+    // 35b. test-claude-key
+    ipcMain.handle('test-claude-key', async (_event, key: string | null) => {
+      return claudeManager.testKey(key);
     });
 
     // 36. stream-claude-prompt

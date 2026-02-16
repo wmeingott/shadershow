@@ -170,6 +170,26 @@ let documentClickHandler: ((e: Event) => void) | null = null;
 let gridIntersectionObserver: IntersectionObserver | null = null;
 
 // ---------------------------------------------------------------------------
+// Global slot index helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a local slot index (within the active tab) to a global slot index
+ * used for buttonX.glsl file naming. Sums up slot counts of all preceding
+ * shader/default tabs (skipping mix/asset tabs which have no .glsl files).
+ */
+function toGlobalSlotIndex(localIndex: number): number {
+  const tabs = state.shaderTabs as Array<{ type?: string; slots?: unknown[] }>;
+  let globalOffset = 0;
+  for (let t = 0; t < state.activeShaderTab; t++) {
+    const tab = tabs[t];
+    if (tab.type === 'mix' || tab.type === 'assets') continue;
+    globalOffset += (tab.slots || []).length;
+  }
+  return globalOffset + localIndex;
+}
+
+// ---------------------------------------------------------------------------
 // 1. Move / Copy shader between tabs
 // ---------------------------------------------------------------------------
 
@@ -335,10 +355,11 @@ function createGridSlotElement(index: number): HTMLDivElement {
   slot.addEventListener('dragend', dragendHandler);
   listeners.push({ event: 'dragend', handler: dragendHandler });
 
-  // Drag over - allow drop
+  // Drag over - allow drop (grid-to-grid move or mixer-to-grid copy)
   const dragoverHandler = (e: DragEvent): void => {
     e.preventDefault();
-    e.dataTransfer!.dropEffect = 'move';
+    const isMixerDrag = e.dataTransfer!.types.includes('application/x-mixer-channel');
+    e.dataTransfer!.dropEffect = isMixerDrag ? 'copy' : 'move';
   };
   slot.addEventListener('dragover', dragoverHandler as EventListener);
   listeners.push({ event: 'dragover', handler: dragoverHandler as EventListener });
@@ -346,7 +367,8 @@ function createGridSlotElement(index: number): HTMLDivElement {
   // Drag enter - visual feedback
   const dragenterHandler = (e: DragEvent): void => {
     e.preventDefault();
-    if (dragSourceIndex !== null && dragSourceIndex !== index) {
+    const isMixerDrag = e.dataTransfer!.types.includes('application/x-mixer-channel');
+    if (isMixerDrag || (dragSourceIndex !== null && dragSourceIndex !== index)) {
       slot.classList.add('drag-over');
     }
   };
@@ -362,10 +384,24 @@ function createGridSlotElement(index: number): HTMLDivElement {
   slot.addEventListener('dragleave', dragleaveHandler as EventListener);
   listeners.push({ event: 'dragleave', handler: dragleaveHandler as EventListener });
 
-  // Drop - swap slots
+  // Drop - swap grid slots or accept mixer channel shader
   const dropHandler = (e: DragEvent): void => {
     e.preventDefault();
     slot.classList.remove('drag-over');
+
+    // Check for mixer channel drop first
+    const mixerData = e.dataTransfer!.getData('application/x-mixer-channel');
+    if (mixerData) {
+      try {
+        const data = JSON.parse(mixerData);
+        if (data.shaderCode) {
+          assignShaderToSlot(index, data.shaderCode, null, false, data.params, null, data.customParams);
+        }
+      } catch { /* ignore parse errors */ }
+      return;
+    }
+
+    // Grid-to-grid slot swap
     const fromIndex = parseInt(e.dataTransfer!.getData('text/plain'), 10);
     if (!isNaN(fromIndex) && fromIndex !== index) {
       swapGridSlots(fromIndex, index);
@@ -738,8 +774,8 @@ function showGridContextMenu(x: number, y: number, slotIndex: number): void {
   removeItem.textContent = 'Remove Slot';
   removeItem.addEventListener('click', async () => {
     hideContextMenu();
-    // Delete the shader file first
-    await window.electronAPI.deleteShaderFromSlot(slotIndex);
+    // Delete the shader file first (use global index for buttonX.glsl)
+    await window.electronAPI.deleteShaderFromSlot(toGlobalSlotIndex(slotIndex));
     removeGridSlotElement(slotIndex);
     saveGridState();
     // Re-save all shader files with updated indices
@@ -1204,17 +1240,17 @@ export async function swapGridSlots(fromIndex: number, toIndex: number): Promise
     if (ctx) ctx.clearRect(0, 0, toCanvas.width, toCanvas.height);
   }
 
-  // Save shader files to new locations
+  // Save shader files to new locations (use global indices for buttonX.glsl)
   if (state.gridSlots[fromIndex]) {
-    await window.electronAPI.saveShaderToSlot(fromIndex, (state.gridSlots[fromIndex] as GridSlotData).shaderCode);
+    await window.electronAPI.saveShaderToSlot(toGlobalSlotIndex(fromIndex), (state.gridSlots[fromIndex] as GridSlotData).shaderCode);
   } else {
-    await window.electronAPI.deleteShaderFromSlot(fromIndex);
+    await window.electronAPI.deleteShaderFromSlot(toGlobalSlotIndex(fromIndex));
   }
 
   if (state.gridSlots[toIndex]) {
-    await window.electronAPI.saveShaderToSlot(toIndex, (state.gridSlots[toIndex] as GridSlotData).shaderCode);
+    await window.electronAPI.saveShaderToSlot(toGlobalSlotIndex(toIndex), (state.gridSlots[toIndex] as GridSlotData).shaderCode);
   } else {
-    await window.electronAPI.deleteShaderFromSlot(toIndex);
+    await window.electronAPI.deleteShaderFromSlot(toGlobalSlotIndex(toIndex));
   }
 
   // Save grid state
@@ -1464,8 +1500,8 @@ export async function assignShaderToSlot(
     }
 
     if (!skipSave) {
-      // Save shader code to individual file
-      await window.electronAPI.saveShaderToSlot(slotIndex, shaderCode);
+      // Save shader code to individual file (use global index for buttonX.glsl)
+      await window.electronAPI.saveShaderToSlot(toGlobalSlotIndex(slotIndex), shaderCode);
       setStatus(`Shader assigned to slot ${slotIndex + 1}`, 'success');
       saveGridState();
     }
@@ -1552,7 +1588,7 @@ export async function assignSceneToSlot(
     : `Slot ${slotIndex + 1}: Current scene`;
 
   if (!skipSave) {
-    await window.electronAPI.saveShaderToSlot(slotIndex, sceneCode);
+    await window.electronAPI.saveShaderToSlot(toGlobalSlotIndex(slotIndex), sceneCode);
     setStatus(`Scene assigned to slot ${slotIndex + 1}`, 'success');
     saveGridState();
   }
@@ -1691,8 +1727,8 @@ async function clearGridSlot(slotIndex: number): Promise<void> {
     }
   }
 
-  // Delete shader file
-  await window.electronAPI.deleteShaderFromSlot(slotIndex);
+  // Delete shader file (use global index for buttonX.glsl)
+  await window.electronAPI.deleteShaderFromSlot(toGlobalSlotIndex(slotIndex));
 
   // Clear active slot if this was it
   if (state.activeGridSlot === slotIndex) {
@@ -1760,8 +1796,8 @@ export async function saveActiveSlotShader(): Promise<void> {
     console.warn(`${isScene ? 'Scene' : 'Shader'} compilation warning:`, (err as Error).message);
   }
 
-  // Save to file
-  const result = await window.electronAPI.saveShaderToSlot(state.activeGridSlot, code);
+  // Save to file (use global index for buttonX.glsl)
+  const result = await window.electronAPI.saveShaderToSlot(toGlobalSlotIndex(state.activeGridSlot), code);
   const typeLabel = isScene ? 'Scene' : 'Shader';
   if (result.success) {
     setStatus(`${typeLabel} saved to slot ${state.activeGridSlot + 1}`, 'success');

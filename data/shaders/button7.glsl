@@ -15,30 +15,69 @@
  * --------------------------
  * Define custom uniforms with UI controls using @param comments:
  *   // @param name type [default] [min, max] "description"
- *
- * Supported types: int, float, vec2, vec3, vec4, color
- *
- * Examples:
- *   // @param speed float 1.0 [0.0, 2.0] "Animation speed"
- *   // @param center vec2 0.5, 0.5 "Center position"
- *   // @param tint color [1.0, 0.5, 0.0] "Tint color"
+ * Types: int, float, vec2, vec3, vec4, color
  */
-void mainImage( out vec4 fragColor, in vec2 fragCoord )
-{
-	vec2 uv = fragCoord.xy / iResolution.xy;
-	fragColor = vec4(uv,0.5+0.5*sin(iTime),1.0);
-    
-    
-    float pi = 3.1415926535897; 
 
-     
-    float cx = uv.x+0.5*sin(iTime/5.0); 
-    float cy = uv.y+0.5*cos(iTime/3.0); 
-     
-    float v = sin(sqrt(100.0*(cx*cx+cy*cy))); 
-    v += sin(uv.x*10.0+iTime); 
-    v += cos(uv.y*4.0+iTime); 
-     
-    fragColor = vec4(sin(v*pi), cos(v*pi), sin(v*pi + 0.5*pi*v), 1.0); 
+// genuary: Lights on/off. Make something that changes when you switch on or off the “digital” lights.
+
+// flight path, given z, get xy
+#define P(z) vec3(cos((z)*.01)*164.,cos((z)*.012)*164., z)
+
+// MENGERLAYER
+#define m(f, h)\
+    s /= (f), \
+    p = abs(fract(q/s)*s - s*.5), \
+ 	d = min(d, min(max(p.x, p.y), \
+               min(max(p.y, p.z), \
+               max(p.x, p.z))) - s/(h))
+
+void mainImage(out vec4 o, vec2 u) {
+   
+    float i, T = iTime,d,s = 1.275,
+          j = (.05*dot(fract(sin(.7*T+u)), sin(u))),
+          f;
+    vec3  c,r = iResolution;
+    mat2 rot = mat2(cos(cos(T*.06)*4.+vec4(0,33,11,0)));
     
+    // scale coords
+    u = (u+u - r.xy) / r.y;
+
+    // cinema bars
+    if (abs(u.y) > .75) { o = vec4(0); return; }
+    
+    // look around
+    u += vec2( sin(iTime)*.5, sin(iTime*.5)*.5 );
+    
+    // on-off frequency, changes color, too
+    f = (1.+tanh(cos(sin(T*T)*.05+T*.3)*3.)*13.);
+    
+    // set up ray origin, dir, look-at
+    vec3  q,p = P(T*32.),
+          Z = normalize( P(T*32.+4.) - p),
+          X = normalize(vec3(Z.z,0,-Z)),
+          D = vec3(rot*u, 1) * mat3(-X, cross(X, Z), Z);
+ 
+    for(;i++ < 64.;
+        // add grayscale color and foggy border
+        c += s + .4*dot(u,u) - f/s
+    )
+        // raymarch position
+        q = p += j + D * s,
+        // can play with initial dist (d) and scale (s)
+        d=9e9,s=2e2,
+
+        // apply some menger layers
+        m(1., 3.),
+        m(2., 4.),
+        m(9., 4.),
+        p += cos(p.yzx) * 1e1,
+        // -1 to 1 + min(gyroid, menger);
+        s = .02+.5*abs(sin(p.z*.2)+min(dot(sin(q/236.), cos(q.yzx/166.))*5., d)),
+        // restore p (m() macro modifies it)
+        p = q;
+    
+    
+    // tanh tone map, colorize, divide brightness
+    o.rgb = tanh(vec3(f,2,3)*c/1e4);
+
 }

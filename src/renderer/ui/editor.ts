@@ -55,6 +55,8 @@ interface AceEditor {
   };
   getValue(): string;
   getCursorPosition(): { row: number; column: number };
+  getFontSize(): string;
+  setFontSize(size: string): void;
 }
 
 interface AceCommand {
@@ -201,6 +203,24 @@ export async function initEditor(): Promise<void> {
     name: 'toggleConsole',
     bindKey: { win: 'Ctrl-J', mac: 'Cmd-J' },
     exec: toggleConsolePanel,
+  });
+
+  editor.commands.addCommand({
+    name: 'increaseFontSize',
+    bindKey: { win: 'Ctrl-=|Ctrl-+', mac: 'Cmd-=|Cmd-+' },
+    exec: () => {
+      const size = parseInt(editor.getFontSize(), 10) || 14;
+      editor.setFontSize((size + 1) + 'px');
+    },
+  });
+
+  editor.commands.addCommand({
+    name: 'decreaseFontSize',
+    bindKey: { win: 'Ctrl--|Ctrl-Shift--', mac: 'Cmd--|Cmd-Shift--' },
+    exec: () => {
+      const size = parseInt(editor.getFontSize(), 10) || 14;
+      if (size > 6) editor.setFontSize((size - 1) + 'px');
+    },
   });
 
   // Listen for tab activation to switch modes and compile

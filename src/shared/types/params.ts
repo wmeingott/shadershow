@@ -16,6 +16,24 @@ export type ParamValue = number | number[];
 /** An array param value — array of ParamValue */
 export type ParamArrayValue = ParamValue[];
 
+/** A field within a @structure definition */
+export interface StructFieldDef {
+  name: string;
+  type: ParamBaseType;
+  glslType: GLSLType;
+  isColor: boolean;
+  default: ParamValue;
+  min: number | null;
+  max: number | null;
+  description: string;
+}
+
+/** A @structure definition */
+export interface StructDef {
+  name: string;
+  fields: StructFieldDef[];
+}
+
 /** Parsed @param definition from shader source */
 export interface ParamDef {
   /** Param name (used as uniform name) */
@@ -36,12 +54,26 @@ export interface ParamDef {
   min: number | null;
   /** Maximum range value, or null */
   max: number | null;
+  /** Per-element min values for array params, or null */
+  mins: number[] | null;
+  /** Per-element max values for array params, or null */
+  maxs: number[] | null;
   /** Human-readable description */
   description: string;
   /** Full GLSL type string (e.g. "vec3[10]") */
   glslType: string;
   /** GLSL uniform declaration (e.g. "uniform vec3 tint;") */
   uniformDecl: string;
+  /** Struct definition (set on expanded struct field params) */
+  structDef?: StructDef;
+  /** Parent param name (e.g. "figures") for struct fields */
+  structParent?: string;
+  /** Array element index for struct array fields */
+  structIndex?: number;
+  /** Field name within the struct */
+  structField?: string;
+  /** Array size of the parent struct param */
+  structArraySize?: number | null;
 }
 
 /** Map of param name → current value */

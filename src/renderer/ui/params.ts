@@ -462,8 +462,9 @@ export function generateCustomParamUI(): void {
 
   usingCustomParams = true;
 
-  const scalarParams = params.filter(p => !p.isArray);
+  const scalarParams = params.filter(p => !p.isArray && !p.structParent);
   const arrayParams = params.filter(p => p.isArray);
+  const structParams = params.filter(p => p.structParent);
 
   if (scalarParams.length > 0) {
     const section = createParamSection('Shader Parameters');
@@ -480,6 +481,38 @@ export function generateCustomParamUI(): void {
     arrayControls.forEach(control => section.appendChild(control));
     container.appendChild(section);
   });
+
+  // Group struct params by parent, then by array index
+  if (structParams.length > 0) {
+    const groups = new Map<string, ParamDef[]>();
+    for (const p of structParams) {
+      const key = p.structParent!;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(p);
+    }
+
+    for (const [parentName, group] of groups) {
+      const section = createParamSection(parentName);
+      let lastIndex: number | undefined;
+
+      for (const param of group) {
+        if (param.structIndex !== undefined && param.structIndex !== lastIndex) {
+          lastIndex = param.structIndex;
+          const indexLabel = document.createElement('div');
+          indexLabel.className = 'params-section-title';
+          indexLabel.textContent = `[${param.structIndex}]`;
+          indexLabel.style.marginTop = lastIndex > 0 ? '6px' : '0';
+          indexLabel.style.fontSize = '11px';
+          indexLabel.style.opacity = '0.7';
+          section.appendChild(indexLabel);
+        }
+        const control = createStructFieldControl(param);
+        if (control) section.appendChild(control);
+      }
+
+      container.appendChild(section);
+    }
+  }
 }
 
 export function loadCustomParamsToUI(): void {
@@ -569,8 +602,10 @@ function createSliderControl(
   onValueChange?: ValueChangeFn
 ): void {
   const isInt = param.type === 'int';
-  const min = param.min !== null && param.min !== undefined ? param.min : (isInt ? 0 : 0);
-  const max = param.max !== null && param.max !== undefined ? param.max : (isInt ? 10 : 1);
+  const pMin = arrayIndex !== null && (param as any).mins?.[arrayIndex] !== undefined ? (param as any).mins[arrayIndex] : param.min;
+  const pMax = arrayIndex !== null && (param as any).maxs?.[arrayIndex] !== undefined ? (param as any).maxs[arrayIndex] : param.max;
+  const min = pMin !== null && pMin !== undefined ? pMin : (isInt ? 0 : 0);
+  const max = pMax !== null && pMax !== undefined ? pMax : (isInt ? 10 : 1);
   const step = isInt ? 1 : 0.01;
   const update = onValueChange || ((name: string, val: ParamValue, idx: number | null) => updateCustomParamValue(name, val, idx));
 
@@ -814,8 +849,6 @@ function createVec3Control(
   onValueChange?: ValueChangeFn,
   getFullValue?: GetFullValueFn
 ): void {
-  row.className = 'color-row';
-
   const min = param.min !== null ? param.min : 0;
   const max = param.max !== null ? param.max : 1;
   const update = onValueChange || ((name: string, val: ParamValue, idx: number | null) => updateCustomParamValue(name, val, idx));
@@ -824,13 +857,10 @@ function createVec3Control(
     return arrayIndex !== null ? [...(vals[paramName] as number[][])[arrayIndex]] : [...(vals[paramName] as number[])];
   });
 
-  const channelNames = ['R', 'G', 'B'];
-  const classes = ['color-red', 'color-green', 'color-blue'];
-
-  channelNames.forEach((channel, i) => {
+  ['X', 'Y', 'Z'].forEach((axis, i) => {
     const subLabel = document.createElement('label');
-    subLabel.textContent = channel;
-    subLabel.className = classes[i];
+    subLabel.textContent = axis;
+    subLabel.style.minWidth = '12px';
     row.appendChild(subLabel);
 
     const slider = document.createElement('input');
@@ -839,14 +869,32 @@ function createVec3Control(
     slider.max = String(max);
     slider.step = '0.01';
     slider.value = String(value[i]);
+    slider.style.width = '50px';
+
+    const valueDisplay = document.createElement('span');
+    valueDisplay.className = 'param-value';
+    valueDisplay.textContent = value[i].toFixed(2);
 
     slider.addEventListener('input', () => {
+      const newValue = parseFloat(slider.value);
+      valueDisplay.textContent = newValue.toFixed(2);
       const fullValue = getVal();
-      fullValue[i] = parseFloat(slider.value);
+      fullValue[i] = newValue;
       update(paramName, fullValue, arrayIndex);
     });
 
+    makeValueEditable(valueDisplay, slider, {
+      isInt: false,
+      onCommit(newValue: number) {
+        valueDisplay.textContent = newValue.toFixed(2);
+        const fullValue = getVal();
+        fullValue[i] = newValue;
+        update(paramName, fullValue, arrayIndex);
+      }
+    });
+
     row.appendChild(slider);
+    row.appendChild(valueDisplay);
   });
 }
 
@@ -859,8 +907,6 @@ function createVec4Control(
   onValueChange?: ValueChangeFn,
   getFullValue?: GetFullValueFn
 ): void {
-  row.className = 'color-row';
-
   const min = param.min !== null ? param.min : 0;
   const max = param.max !== null ? param.max : 1;
   const update = onValueChange || ((name: string, val: ParamValue, idx: number | null) => updateCustomParamValue(name, val, idx));
@@ -869,13 +915,10 @@ function createVec4Control(
     return arrayIndex !== null ? [...(vals[paramName] as number[][])[arrayIndex]] : [...(vals[paramName] as number[])];
   });
 
-  const channelNames = ['R', 'G', 'B', 'A'];
-  const classes = ['color-red', 'color-green', 'color-blue', ''];
-
-  channelNames.forEach((channel, i) => {
+  ['X', 'Y', 'Z', 'W'].forEach((axis, i) => {
     const subLabel = document.createElement('label');
-    subLabel.textContent = channel;
-    if (classes[i]) subLabel.className = classes[i];
+    subLabel.textContent = axis;
+    subLabel.style.minWidth = '12px';
     row.appendChild(subLabel);
 
     const slider = document.createElement('input');
@@ -886,14 +929,69 @@ function createVec4Control(
     slider.value = String(value[i]);
     slider.style.width = '50px';
 
+    const valueDisplay = document.createElement('span');
+    valueDisplay.className = 'param-value';
+    valueDisplay.textContent = value[i].toFixed(2);
+
     slider.addEventListener('input', () => {
+      const newValue = parseFloat(slider.value);
+      valueDisplay.textContent = newValue.toFixed(2);
       const fullValue = getVal();
-      fullValue[i] = parseFloat(slider.value);
+      fullValue[i] = newValue;
       update(paramName, fullValue, arrayIndex);
     });
 
+    makeValueEditable(valueDisplay, slider, {
+      isInt: false,
+      onCommit(newValue: number) {
+        valueDisplay.textContent = newValue.toFixed(2);
+        const fullValue = getVal();
+        fullValue[i] = newValue;
+        update(paramName, fullValue, arrayIndex);
+      }
+    });
+
     row.appendChild(slider);
+    row.appendChild(valueDisplay);
   });
+}
+
+function createStructFieldControl(param: ParamDef): HTMLDivElement {
+  const row = document.createElement('div');
+  row.className = 'param-row';
+
+  const label = document.createElement('label');
+  label.textContent = param.description || param.structField || param.name;
+  label.style.cursor = 'pointer';
+  label.addEventListener('dblclick', () => {
+    updateCustomParamValue(param.name, param.default as ParamValue, null);
+    generateCustomParamUI();
+  });
+  row.appendChild(label);
+
+  const values = getRenderer().getCustomParamValues();
+  const currentValue = values[param.name];
+
+  switch (param.type) {
+    case 'int':
+    case 'float':
+      createSliderControl(row, param, currentValue as number, param.name, null);
+      break;
+    case 'vec2':
+      createVec2Control(row, param, currentValue as number[], param.name, null);
+      break;
+    case 'color':
+      createColorControl(row, param, currentValue as number[], param.name, null);
+      break;
+    case 'vec3':
+      createVec3Control(row, param, currentValue as number[], param.name, null);
+      break;
+    case 'vec4':
+      createVec4Control(row, param, currentValue as number[], param.name, null);
+      break;
+  }
+
+  return row;
 }
 
 function createArrayParamControls(param: ParamDef): HTMLDivElement[] {

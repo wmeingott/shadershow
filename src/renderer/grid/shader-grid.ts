@@ -1892,6 +1892,14 @@ export async function loadGridShaderToEditor(slotIndex: number): Promise<void> {
     activate: true,
   });
 
+  // Cancel debounced compile from editor change event — the tab-activated handler
+  // already triggers an immediate compile, and a later debounced compile would
+  // overwrite the custom params we restore below.
+  if (state.compileTimeout) {
+    clearTimeout(state.compileTimeout);
+    state.compileTimeout = null;
+  }
+
   // Load saved custom param values if available (after tab is activated and compiled)
   setTimeout(() => {
     if (slotData.customParams && !isScene) {
@@ -2097,6 +2105,12 @@ export function playGridShader(slotIndex: number): void {
     slotIndex: slotIndex,
     activate: true,
   });
+
+  // Cancel debounced compile — tab-activated handler compiles immediately
+  if (state.compileTimeout) {
+    clearTimeout(state.compileTimeout);
+    state.compileTimeout = null;
+  }
 
   // Load speed to slider if present
   if (slotData.params) {

@@ -377,6 +377,21 @@ async function saveVisualPreset(): Promise<void> {
   // Capture shader/scene code from the renderer (which reflects the active content,
   // even if the editor hasn't been updated via double-click/edit)
   const r = renderer();
+
+  // Get speed param from slider
+  const speedSlider = document.getElementById('param-speed') as HTMLInputElement | null;
+  const speed = speedSlider ? parseFloat(speedSlider.value) : 1.0;
+
+  // Capture custom params BEFORE potential compile (compile resets them to defaults)
+  const customParams = r?.getCustomParamValues?.() || {};
+
+  // Ensure the shader is compiled (editor change may still be debounced)
+  if (state.compileTimeout) {
+    clearTimeout(state.compileTimeout);
+    state.compileTimeout = null;
+    await compileShader();
+  }
+
   const shaderCode =
     r?._lastShaderSource ||
     r?.sceneSource ||
@@ -386,20 +401,6 @@ async function saveVisualPreset(): Promise<void> {
     setStatus('No shader loaded to save as preset', 'error');
     return;
   }
-
-  // Ensure the shader is compiled (editor change may still be debounced)
-  if (state.compileTimeout) {
-    clearTimeout(state.compileTimeout);
-    state.compileTimeout = null;
-    await compileShader();
-  }
-
-  // Get speed param from slider
-  const speedSlider = document.getElementById('param-speed') as HTMLInputElement | null;
-  const speed = speedSlider ? parseFloat(speedSlider.value) : 1.0;
-
-  // Get custom params from main renderer
-  const customParams = r?.getCustomParamValues?.() || {};
 
   const mixerActive = isMixerActive();
   const preset: VisualPreset = {

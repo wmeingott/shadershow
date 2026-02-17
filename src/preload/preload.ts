@@ -7,11 +7,6 @@ function onIPC(channel: string, handler: (...args: any[]) => void): void {
   ipcRenderer.on(channel, handler);
 }
 
-/** Validate slot index (integer 0-999) */
-function validSlot(slotIndex: number): boolean {
-  return Number.isInteger(slotIndex) && slotIndex >= 0 && slotIndex <= 999;
-}
-
 /** Validate channel index (integer 0-3) */
 function validChannel(ch: number): boolean {
   return Number.isInteger(ch) && ch >= 0 && ch <= 3;
@@ -134,19 +129,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveViewState: (viewState: any) => ipcRenderer.send('save-view-state', viewState),
   loadViewState: () => ipcRenderer.invoke('load-view-state'),
 
-  // Shader file operations
-  saveShaderToSlot: (slotIndex: number, shaderCode: string) => {
-    if (!validSlot(slotIndex)) return Promise.reject(new Error('Invalid slot index'));
-    return ipcRenderer.invoke('save-shader-to-slot', slotIndex, shaderCode);
-  },
-  loadShaderFromSlot: (slotIndex: number) => {
-    if (!validSlot(slotIndex)) return Promise.reject(new Error('Invalid slot index'));
-    return ipcRenderer.invoke('load-shader-from-slot', slotIndex);
-  },
-  deleteShaderFromSlot: (slotIndex: number) => {
-    if (!validSlot(slotIndex)) return Promise.reject(new Error('Invalid slot index'));
-    return ipcRenderer.invoke('delete-shader-from-slot', slotIndex);
-  },
+  // File content reading
   readFileContent: (filePath: string) => ipcRenderer.invoke('read-file-content', filePath),
 
   // Mixer fullscreen

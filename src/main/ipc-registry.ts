@@ -414,22 +414,7 @@ export class IPCRegistry {
       return { enabled: false };
     });
 
-    // 10. save-shader-to-slot
-    ipcMain.handle('save-shader-to-slot', async (_event, slotIndex: number, shaderCode: string) => {
-      return fileManager.saveShaderToSlot(slotIndex, shaderCode);
-    });
-
-    // 11. load-shader-from-slot
-    ipcMain.handle('load-shader-from-slot', async (_event, slotIndex: number) => {
-      return fileManager.loadShaderFromSlot(slotIndex);
-    });
-
-    // 12. delete-shader-from-slot
-    ipcMain.handle('delete-shader-from-slot', async (_event, slotIndex: number) => {
-      return fileManager.deleteShaderFromSlot(slotIndex);
-    });
-
-    // 13. read-file-content
+    // 10. read-file-content
     ipcMain.handle('read-file-content', async (_event, filePath: string) => {
       return fileManager.readFileContent(filePath);
     });

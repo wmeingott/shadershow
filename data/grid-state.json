@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "activeTab": 0,
+  "activeTab": 5,
   "activeSection": "shaders",
   "tabs": [
     {
@@ -8,57 +8,16 @@
       "type": "shaders",
       "slots": [
         {
-          "shaderCode": "// Fractal tunnel effect\n// Based on shader from coyote => https://www.shadertoy.com/view/ltfGzS\n// Custom params: // @param name type [default] [min, max] \"description\"\n// @param roomColor color [1.0, 0.3, 0.1] \"Fire color\"\n// matrix op\nmat3 getRotYMat(float a){return mat3(cos(a),0.,sin(a),0.,1.,0.,-sin(a),0.,cos(a));}\n//mat3 getRotZMat(float a){return mat3(cos(a),-sin(a),0.,sin(a),cos(a),0.,0.,0.,1.);}\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 s = iResolution.xy;\n    float t = iDate.w*.2, c,d,m;\n    vec3 p=vec3((2.*fragCoord.xy-s)/s.x,1.),r=p-p,q=r;\n    //p*=getRotZMat(-t);\n    p*=getRotYMat(-t);\n   \tq.zx += 10.+vec2(sin(t),cos(t))*3.;\n    for (float i=1.; i>0.; i-=.01) {\n        c=d=0.,m=1.;\n\t\tfor (int j = 0; j < 3 ; j++)\n            r=max(r*=r*=r*=r=mod(q*m+1.,2.)-1.,r.yzx),\n            d=max(d,( .29 -length(r)*.6)/m)*.8,\n            m*=1.1;\n\n        q+=p*d;\n        \n        c = i;\n\t    \n        if(d<1e-5) break;\n    }\n    \n    float k = dot(r,r+.15);\n    fragColor.rgb = vec3(1.,k,k/c) - (1. - roomColor);\n    \n}",
+          "shaderCode": "// Fractal tunnel effect\n// Based on shader from coyote => https://www.shadertoy.com/view/ltfGzS\n// Custom params: // @param name type [default] [min, max] \"description\"\n// @param roomColor color [0.0, 0.3, 0.3] \"Fire color\"\n// matrix op\nmat3 getRotYMat(float a){return mat3(cos(a),0.,sin(a),0.,1.,0.,-sin(a),0.,cos(a));}\n//mat3 getRotZMat(float a){return mat3(cos(a),-sin(a),0.,sin(a),cos(a),0.,0.,0.,1.);}\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 s = iResolution.xy;\n    float t = iDate.w*.2, c,d,m;\n    vec3 p=vec3((2.*fragCoord.xy-s)/s.x,1.),r=p-p,q=r;\n    //p*=getRotZMat(-t);\n    p*=getRotYMat(-t);\n   \tq.zx += 10.+vec2(sin(t),cos(t))*3.;\n    for (float i=1.; i>0.; i-=.01) {\n        c=d=0.,m=1.;\n\t\tfor (int j = 0; j < 3 ; j++)\n            r=max(r*=r*=r*=r=mod(q*m+1.,2.)-1.,r.yzx),\n            d=max(d,( .29 -length(r)*.6)/m)*.8,\n            m*=1.1;\n\n        q+=p*d;\n        \n        c = i;\n\t    \n        if(d<1e-5) break;\n    }\n    \n    float k = dot(r,r+.15);\n    fragColor.rgb = vec3(1.,k,k/c) * (roomColor);\n    \n}",
           "filePath": null,
           "params": {
             "speed": 1
           },
           "customParams": {
             "roomColor": [
-              1,
-              0.3,
-              0.1
-            ],
-            "iFlame": 0.3,
-            "light1": [
-              0.9,
-              0.4,
-              0.1
-            ],
-            "light2": [
-              0.2,
-              0.6,
-              0.8
-            ],
-            "light3": [
-              0.9,
               0,
-              1
-            ],
-            "light4": [
-              0.2,
               0.3,
-              0.8
-            ],
-            "light5": [
-              0.9,
-              0.4,
-              0.6
-            ],
-            "light6": [
-              0.2,
-              0.6,
-              0.7
-            ],
-            "light7": [
-              0.9,
-              0.4,
               0.3
-            ],
-            "light8": [
-              0.2,
-              0.3,
-              0.8
             ]
           },
           "presets": [],
@@ -504,7 +463,7 @@
           "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n * Types: int, float, vec2, vec3, vec4, color\n */\n\n#define A 9. // amplitude\n#define T (iTime/3e2)\n#define H(a) (cos(radians(vec3(180, 90, 0))+(a)*6.2832)*.5+.5)  // hue\n\nfloat map(vec3 u, float v)  // sdf\n{\n    float t = T,     // speed\n          l = 5.,    // loop to reduce clipping\n          f = 1e10, i = 0., y, z;\n    \n    u.xy = vec2(atan(u.x, u.y), length(u.xy));  // polar transform\n    u.x += t*v*3.1416*.7;  // counter rotation\n    \n    for (; i++<l;)\n    {\n        vec3 p = u;\n        y = round((p.y-i)/l)*l+i;\n        p.x *= y;\n        p.x -= y*y*t*3.1416;\n        p.x -= round(p.x/6.2832)*6.2832;\n        p.y -= y;\n        z = cos(y*t*6.2832)*.5 +.5;  // z wave\n        f = min(f, max(length(p.xy), -p.z -z*A) -.1 -z*.2 -p.z/1e2);  // tubes\n    }\n    return f;\n}\n\nvoid mainImage( out vec4 C, vec2 U )\n{\n    vec2 R = iResolution.xy, j,\n         M = iMouse.xy,\n         m = (M -R/2.)/R.y;\n    \n    if (iMouse.z < 1. && M.x+M.y < 10.) m = vec2(0, .5);\n    \n    vec3 o = vec3(0, 0, -130.),  // camera\n         u = normalize(vec3(U -R/2., R.y)),  // 3d coords\n         c = vec3(0),\n         p, k;\n    \n    float t = T,\n          v = -o.z/3.,  // pattern scale\n          i = 0., d = i,\n          s, f, z, r;\n    \n    bool b;\n    \n    for (; i++<70.;)  // raymarch\n    {\n        p = u*d +o;\n        p.xy /= v;           // scale down\n        r = length(p.xy);    // radius\n        z = abs(1. -r*r);    // z warp\n        b = r < 1.;          // inside?\n        if (b) z = sqrt(z);\n        p.xy /= z+1.;        // spherize\n        p.xy -= m;           // move with mouse\n        p.xy *= v;           // scale back up\n        p.xy -= cos(p.z/8. +t*3e2 +vec2(0, 1.5708) +z/2.)*.2;  // wave along z\n        \n        s = map(p, v);  // sdf\n        \n        r = length(p.xy);                  // new r\n        f = cos(round(r)*t*6.2832)*.5+.5;  // multiples\n        k = H(.2 -f/3. +t +p.z/2e2);       // color\n        if (b) k = 1.-k;                   // flip color\n        \n        // this stuff can go outside the raymarch,\n        // but accumulating it here produces softer edges\n        c += min(exp(s/-.05), s)        // shapes\n           * (f+.01)                    // shade pattern\n           * min(z, 1.)                 // darken edges\n           * sqrt(cos(r*6.2832)*.5 +.5) // shade between rows\n           * k*k;                       // color\n        \n        d += s*clamp(z, .3, .9);  // smaller steps towards sphere edge\n        if (s < 1e-3 || d > 1e3) break;\n    }\n    \n    // c += texture(iChannel0, u*d +o).rrr * vec3(0, .4, s)*s*z*.03;  // wavy aqua\n    c += min(exp(-p.z -f*A)*z*k*.01/s, 1.);  // light tips\n        \n    j = p.xy/v +m;  // 2d coords\n    c /= clamp(dot(j, j)*4., .04, 4.);  // brightness\n    \n    C = vec4(exp(log(c)/2.2), 1);\n}",
           "filePath": null,
           "params": {
-            "speed": 1,
+            "speed": 1.38,
             "p0": 0.5,
             "p1": 0.5,
             "p2": 0.5,
@@ -1430,7 +1389,7 @@
           "type": "shader"
         },
         {
-          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n *\n * Supported types: int, float, vec2, vec3, vec4, color\n *\n * Examples:\n *   // @param speed float 1.0 [0.0, 2.0] \"Animation speed\"\n *   // @param center vec2 0.5, 0.5 \"Center position\"\n *   // @param tint color [1.0, 0.5, 0.0] \"Tint color\"\n */\n \n// @param velvet color [0.04, 0.02, 0.06] \n// @param lights color[6] [[1.0, 0.85, 0.5],[0.3, 0.5, 1.0],[1.0, 0.2, 0.6],[0.1, 0.8, 0.7],[1.0, 0.6, 0.2],[0.4, 0.3, 1.0]] \n// @param fabric_params float[3] [0.3,0.3,0.5] [[0.0,2.0],[0.0,2.0],[0.0,2.0]}\n// @param fabric_size vec2 [0.5, 0.5]\n\n// --- Noise helpers ---\nfloat hash(vec2 p) {\n  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);\n}\n\nfloat noise(vec2 p) {\n  vec2 i = floor(p);\n  vec2 f = fract(p);\n  f = f * f * (3.0 - 2.0 * f);\n  float a = hash(i);\n  float b = hash(i + vec2(1.0, 0.0));\n  float c = hash(i + vec2(0.0, 1.0));\n  float d = hash(i + vec2(1.0, 1.0));\n  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);\n}\n\nfloat fbm(vec2 p) {\n  float v = 0.0, a = 0.5;\n  mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);\n  for (int i = 0; i < 5; i++) {\n    v += a * noise(p);\n    p = rot * p * 2.0;\n    a *= 0.5;\n  }\n  return v;\n}\n\n// --- Fabric texture ---\nfloat fabric(vec2 uv) {\n  // Vertical threads (warp)\n  float warp = sin(uv.x * 600.0 * fabric_size.x) * 0.5 + 0.5;\n  warp = pow(warp, fabric_params[0]);\n  // Horizontal threads (weft)\n  float weft = sin(uv.y * 500.0 * fabric_size.y) * 0.5 + 0.5;\n  weft = pow(weft, fabric_params[1]);\n  // Combine as weave\n  float weave = mix(warp, weft, fabric_params[2]);\n  // Add fine grain\n  weave *= 0.85 + 0.15 * noise(uv * 800.0);\n  return weave;\n}\n\n// --- Fabric folds (draping) ---\nfloat folds(vec2 uv) {\n  float f = 0.0;\n  // Large vertical drapes\n  f += sin(uv.x * 6.2831 * 3.0 + 0.3 * sin(uv.y * 4.0)) * 0.35;\n  f += sin(uv.x * 6.2831 * 7.0 - 0.15 * sin(uv.y * 6.0)) * 0.15;\n  f += sin(uv.x * 6.2831 * 13.0) * 0.06;\n  // Slight horizontal sag\n  f += sin(uv.y * 6.2831 * 1.5 + 0.5) * 0.08;\n  // Organic variation\n  f += fbm(uv * 5.0) * 0.2 - 0.1;\n  return f;\n}\n\n// --- Spotlight cone ---\nvec3 spotlight(vec2 uv, vec2 origin, vec2 target, vec3 color, float width, float softness, float intensity) {\n  // Direction from origin to target\n  vec2 dir = normalize(target - origin);\n  vec2 toP = uv - origin;\n  \n  // Project point onto beam axis\n  float along = dot(toP, dir);\n  if (along < 0.0) return vec3(0.0);\n  \n  // Perpendicular distance\n  vec2 perp = toP - along * dir;\n  float perpDist = length(perp);\n  \n  // Cone widens with distance\n  float coneRadius = width * along;\n  float edge = smoothstep(coneRadius, coneRadius * (1.0 - softness), perpDist);\n  \n  // Distance attenuation\n  float dist = length(toP);\n  float atten = 1.0 / (1.0 + 0.8 * dist * dist);\n  \n  // Atmospheric scattering in beam\n  float scatter = exp(-perpDist * perpDist / (coneRadius * coneRadius * 0.5)) * 0.15;\n  \n  return color * (edge * atten * intensity + scatter * atten * intensity * 0.5);\n}\n\n// --- Dust particles ---\nfloat particles(vec2 uv, float t) {\n  float p = 0.0;\n  for (int i = 0; i < 30; i++) {\n    float fi = float(i);\n    vec2 pos = vec2(\n      hash(vec2(fi, 0.0)),\n      fract(hash(vec2(fi, 1.0)) - t * (0.02 + 0.01 * hash(vec2(fi, 2.0))))\n    );\n    pos.x += sin(t * 0.5 + fi) * 0.03;\n    float d = length(uv - pos);\n    float size = 0.0008 + 0.0005 * hash(vec2(fi, 3.0));\n    p += smoothstep(size, 0.0, d) * (0.3 + 0.7 * hash(vec2(fi, 4.0)));\n  }\n  return p;\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord ){\n  vec2 uv = fragCoord.xy / iResolution.xy;\n  float aspect = iResolution.x / iResolution.y;\n  vec2 uvA = vec2(uv.x * aspect, uv.y);\n  \n  float t = iTime;\n  \n  // --- Backdrop base color (deep velvet) ---\n  vec3 velvet = velvet; // Very dark purple-black\n  \n  // --- Fabric surface ---\n  float foldVal = folds(uv);\n  float fabricTex = fabric(uv);\n  \n  // Fabric shading from folds — creates 3D drape look\n  float foldShade = 0.7 + 0.3 * foldVal;\n  foldShade *= fabricTex;\n  \n  // Normal from folds for lighting\n  float dx = folds(uv + vec2(0.002, 0.0)) - folds(uv - vec2(0.002, 0.0));\n  float dy = folds(uv + vec2(0.0, 0.002)) - folds(uv - vec2(0.0, 0.002));\n  vec3 normal = normalize(vec3(-dx * 3.0, -dy * 3.0, 1.0));\n  \n  vec3 col = velvet * foldShade;\n  \n  // --- Stage lights ---\n  // Light origins are above the stage (top of frame)\n  // Targets hit the backdrop\n  \n  // Warm amber center spot\n  float sway1 = sin(t * 0.3) * 0.03;\n  vec3 light1 = spotlight(\n    uvA, \n    vec2(aspect * 0.5 + sway1, 1.35),\n    vec2(aspect * 0.5, 0.3),\n    lights[0],\n    0.55, 0.6, 2.2\n  );\n  \n  // Cool blue from left\n  float sway2 = sin(t * 0.25 + 1.0) * 0.04;\n  vec3 light2 = spotlight(\n    uvA,\n    vec2(-0.15 + sway2, 1.3),\n    vec2(aspect * 0.35, 0.2),\n    lights[1],\n    0.5, 0.65, 1.8\n  );\n  \n  // Magenta from right\n  float sway3 = sin(t * 0.2 + 2.5) * 0.04;\n  vec3 light3 = spotlight(\n    uvA,\n    vec2(aspect + 0.15 + sway3, 1.3),\n    vec2(aspect * 0.65, 0.2),\n    lights[2],\n    0.5, 0.65, 1.8\n  );\n  \n  // Teal back-wash from below\n  vec3 light4 = spotlight(\n    uvA,\n    vec2(aspect * 0.5, -0.3),\n    vec2(aspect * 0.5, 0.5),\n    lights[4],\n    0.8, 0.7, 0.6\n  );\n  \n  // Side warm fill left\n  vec3 light5 = spotlight(\n    uvA,\n    vec2(-0.2, 0.5),\n    vec2(aspect * 0.3, 0.5),\n    lights[4],\n    0.4, 0.7, 0.7\n  );\n  \n  // Side cool fill right\n  vec3 light6 = spotlight(\n    uvA,\n    vec2(aspect + 0.2, 0.5),\n    vec2(aspect * 0.7, 0.5),\n    lights[5],\n    0.4, 0.7, 0.7\n  );\n  \n  // Combine lights\n  vec3 totalLight = light1 + light2 + light3 + light4 + light5 + light6;\n  \n  // Apply fabric normal to lighting (gives texture depth)\n  float nDot = dot(normal, normalize(vec3(0.0, 0.3, 1.0)));\n  float fabricLight = 0.7 + 0.3 * nDot;\n  \n  // Velvet sheen — highlights at grazing angles\n  float sheen = pow(1.0 - abs(nDot), 3.0) * 0.15;\n  \n  col += totalLight * foldShade * fabricLight;\n  col += totalLight * sheen;\n  \n  // --- Atmospheric haze in light beams ---\n  float haze = 0.0;\n  haze += length(light1) * 0.08;\n  haze += length(light2) * 0.06;\n  haze += length(light3) * 0.06;\n  vec3 hazeColor = (light1 + light2 + light3) * 0.04;\n  col += hazeColor;\n  \n  // --- Dust particles catching light ---\n  float dust = particles(uv, t);\n  vec3 dustLit = dust * (light1 + light2 + light3) * 1.5;\n  col += dustLit;\n  \n  // --- Vignette ---\n  float vig = 1.0 - 0.4 * pow(length(uv - 0.5) * 1.3, 2.0);\n  col *= vig;\n  \n  // --- Subtle film grain ---\n  float grain = (hash(uv * iResolution.xy + fract(t * 100.0)) - 0.5) * 0.03;\n  col += grain;\n  \n  // Tone mapping\n  col = col / (1.0 + col); // Reinhard\n  col = pow(col, vec3(0.92)); // Slight gamma lift\n  \n  fragColor = vec4(col, 1.0);\n}",
+          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n *\n * Supported types: int, float, vec2, vec3, vec4, color\n *\n * Examples:\n *   // @param speed float 1.0 [0.0, 2.0] \"Animation speed\"\n *   // @param center vec2 0.5, 0.5 \"Center position\"\n *   // @param tint color [1.0, 0.5, 0.0] \"Tint color\"\n */\n \n// @param velvet color [0.04, 0.02, 0.06] \n/* @param lights color[6] [ >>\n    [1.0, 0.85, 0.5],\n    [0.3, 0.5, 1.0],\n    [1.0, 0.2, 0.6],\n    [0.1, 0.8, 0.7],\n    [1.0, 0.6, 0.2],\n    [0.4, 0.3, 1.0]] <<\n*/\n// @param fabric_params float[3] [0.3,0.3,0.5] [[0.0,2.0],[0.0,2.0],[0.0,2.0]}\n// @param fabric_size vec2 [0.5, 0.5]\n\n// --- Noise helpers ---\nfloat hash(vec2 p) {\n  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);\n}\n\nfloat noise(vec2 p) {\n  vec2 i = floor(p);\n  vec2 f = fract(p);\n  f = f * f * (3.0 - 2.0 * f);\n  float a = hash(i);\n  float b = hash(i + vec2(1.0, 0.0));\n  float c = hash(i + vec2(0.0, 1.0));\n  float d = hash(i + vec2(1.0, 1.0));\n  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);\n}\n\nfloat fbm(vec2 p) {\n  float v = 0.0, a = 0.5;\n  mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);\n  for (int i = 0; i < 5; i++) {\n    v += a * noise(p);\n    p = rot * p * 2.0;\n    a *= 0.5;\n  }\n  return v;\n}\n\n// --- Fabric texture ---\nfloat fabric(vec2 uv) {\n  // Vertical threads (warp)\n  float warp = sin(uv.x * 600.0 * fabric_size.x) * 0.5 + 0.5;\n  warp = pow(warp, fabric_params[0]);\n  // Horizontal threads (weft)\n  float weft = sin(uv.y * 500.0 * fabric_size.y) * 0.5 + 0.5;\n  weft = pow(weft, fabric_params[1]);\n  // Combine as weave\n  float weave = mix(warp, weft, fabric_params[2]);\n  // Add fine grain\n  weave *= 0.85 + 0.15 * noise(uv * 800.0);\n  return weave;\n}\n\n// --- Fabric folds (draping) ---\nfloat folds(vec2 uv) {\n  float f = 0.0;\n  // Large vertical drapes\n  f += sin(uv.x * 6.2831 * 3.0 + 0.3 * sin(uv.y * 4.0)) * 0.35;\n  f += sin(uv.x * 6.2831 * 7.0 - 0.15 * sin(uv.y * 6.0)) * 0.15;\n  f += sin(uv.x * 6.2831 * 13.0) * 0.06;\n  // Slight horizontal sag\n  f += sin(uv.y * 6.2831 * 1.5 + 0.5) * 0.08;\n  // Organic variation\n  f += fbm(uv * 5.0) * 0.2 - 0.1;\n  return f;\n}\n\n// --- Spotlight cone ---\nvec3 spotlight(vec2 uv, vec2 origin, vec2 target, vec3 color, float width, float softness, float intensity) {\n  // Direction from origin to target\n  vec2 dir = normalize(target - origin);\n  vec2 toP = uv - origin;\n  \n  // Project point onto beam axis\n  float along = dot(toP, dir);\n  if (along < 0.0) return vec3(0.0);\n  \n  // Perpendicular distance\n  vec2 perp = toP - along * dir;\n  float perpDist = length(perp);\n  \n  // Cone widens with distance\n  float coneRadius = width * along;\n  float edge = smoothstep(coneRadius, coneRadius * (1.0 - softness), perpDist);\n  \n  // Distance attenuation\n  float dist = length(toP);\n  float atten = 1.0 / (1.0 + 0.8 * dist * dist);\n  \n  // Atmospheric scattering in beam\n  float scatter = exp(-perpDist * perpDist / (coneRadius * coneRadius * 0.5)) * 0.15;\n  \n  return color * (edge * atten * intensity + scatter * atten * intensity * 0.5);\n}\n\n// --- Dust particles ---\nfloat particles(vec2 uv, float t) {\n  float p = 0.0;\n  for (int i = 0; i < 30; i++) {\n    float fi = float(i);\n    vec2 pos = vec2(\n      hash(vec2(fi, 0.0)),\n      fract(hash(vec2(fi, 1.0)) - t * (0.02 + 0.01 * hash(vec2(fi, 2.0))))\n    );\n    pos.x += sin(t * 0.5 + fi) * 0.03;\n    float d = length(uv - pos);\n    float size = 0.0008 + 0.0005 * hash(vec2(fi, 3.0));\n    p += smoothstep(size, 0.0, d) * (0.3 + 0.7 * hash(vec2(fi, 4.0)));\n  }\n  return p;\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord ){\n  vec2 uv = fragCoord.xy / iResolution.xy;\n  float aspect = iResolution.x / iResolution.y;\n  vec2 uvA = vec2(uv.x * aspect, uv.y);\n  \n  float t = iTime;\n  \n  // --- Backdrop base color (deep velvet) ---\n  vec3 velvet = velvet; // Very dark purple-black\n  \n  // --- Fabric surface ---\n  float foldVal = folds(uv);\n  float fabricTex = fabric(uv);\n  \n  // Fabric shading from folds — creates 3D drape look\n  float foldShade = 0.7 + 0.3 * foldVal;\n  foldShade *= fabricTex;\n  \n  // Normal from folds for lighting\n  float dx = folds(uv + vec2(0.002, 0.0)) - folds(uv - vec2(0.002, 0.0));\n  float dy = folds(uv + vec2(0.0, 0.002)) - folds(uv - vec2(0.0, 0.002));\n  vec3 normal = normalize(vec3(-dx * 3.0, -dy * 3.0, 1.0));\n  \n  vec3 col = velvet * foldShade;\n  \n  // --- Stage lights ---\n  // Light origins are above the stage (top of frame)\n  // Targets hit the backdrop\n  \n  // Warm amber center spot\n  float sway1 = sin(t * 0.3) * 0.03;\n  vec3 light1 = spotlight(\n    uvA, \n    vec2(aspect * 0.5 + sway1, 1.35),\n    vec2(aspect * 0.5, 0.3),\n    lights[0],\n    0.55, 0.6, 2.2\n  );\n  \n  // Cool blue from left\n  float sway2 = sin(t * 0.25 + 1.0) * 0.04;\n  vec3 light2 = spotlight(\n    uvA,\n    vec2(-0.15 + sway2, 1.3),\n    vec2(aspect * 0.35, 0.2),\n    lights[1],\n    0.5, 0.65, 1.8\n  );\n  \n  // Magenta from right\n  float sway3 = sin(t * 0.2 + 2.5) * 0.04;\n  vec3 light3 = spotlight(\n    uvA,\n    vec2(aspect + 0.15 + sway3, 1.3),\n    vec2(aspect * 0.65, 0.2),\n    lights[2],\n    0.5, 0.65, 1.8\n  );\n  \n  // Teal back-wash from below\n  vec3 light4 = spotlight(\n    uvA,\n    vec2(aspect * 0.5, -0.3),\n    vec2(aspect * 0.5, 0.5),\n    lights[4],\n    0.8, 0.7, 0.6\n  );\n  \n  // Side warm fill left\n  vec3 light5 = spotlight(\n    uvA,\n    vec2(-0.2, 0.5),\n    vec2(aspect * 0.3, 0.5),\n    lights[4],\n    0.4, 0.7, 0.7\n  );\n  \n  // Side cool fill right\n  vec3 light6 = spotlight(\n    uvA,\n    vec2(aspect + 0.2, 0.5),\n    vec2(aspect * 0.7, 0.5),\n    lights[5],\n    0.4, 0.7, 0.7\n  );\n  \n  // Combine lights\n  vec3 totalLight = light1 + light2 + light3 + light4 + light5 + light6;\n  \n  // Apply fabric normal to lighting (gives texture depth)\n  float nDot = dot(normal, normalize(vec3(0.0, 0.3, 1.0)));\n  float fabricLight = 0.7 + 0.3 * nDot;\n  \n  // Velvet sheen — highlights at grazing angles\n  float sheen = pow(1.0 - abs(nDot), 3.0) * 0.15;\n  \n  col += totalLight * foldShade * fabricLight;\n  col += totalLight * sheen;\n  \n  // --- Atmospheric haze in light beams ---\n  float haze = 0.0;\n  haze += length(light1) * 0.08;\n  haze += length(light2) * 0.06;\n  haze += length(light3) * 0.06;\n  vec3 hazeColor = (light1 + light2 + light3) * 0.04;\n  col += hazeColor;\n  \n  // --- Dust particles catching light ---\n  float dust = particles(uv, t);\n  vec3 dustLit = dust * (light1 + light2 + light3) * 1.5;\n  col += dustLit;\n  \n  // --- Vignette ---\n  float vig = 1.0 - 0.4 * pow(length(uv - 0.5) * 1.3, 2.0);\n  col *= vig;\n  \n  // --- Subtle film grain ---\n  float grain = (hash(uv * iResolution.xy + fract(t * 100.0)) - 0.5) * 0.03;\n  col += grain;\n  \n  // Tone mapping\n  col = col / (1.0 + col); // Reinhard\n  col = pow(col, vec3(0.92)); // Slight gamma lift\n  \n  fragColor = vec4(col, 1.0);\n}",
           "filePath": null,
           "params": {
             "speed": 1
@@ -1443,44 +1402,44 @@
             ],
             "lights": [
               [
-                0.9803921568627451,
+                1,
                 0,
                 0
               ],
               [
-                0.12941176470588237,
                 0,
-                0.9803921568627451
+                0,
+                1
               ],
               [
-                0.9803921568627451,
+                0,
+                0,
+                1
+              ],
+              [
+                0,
+                0,
+                1
+              ],
+              [
+                1,
                 0,
                 0
               ],
               [
-                0.12941176470588237,
-                0,
-                0.9803921568627451
-              ],
-              [
-                0.9803921568627451,
+                1,
                 0,
                 0
-              ],
-              [
-                0.12941176470588237,
-                0,
-                0.9803921568627451
               ]
             ],
             "fabric_params": [
               1,
               0,
-              0.68
+              0.5
             ],
             "fabric_size": [
-              0.28,
-              0.45
+              0.27,
+              0.5
             ]
           },
           "presets": [
@@ -1494,44 +1453,148 @@
                 ],
                 "lights": [
                   [
-                    0.9803921568627451,
+                    1,
                     0,
                     0
                   ],
                   [
-                    0.12941176470588237,
                     0,
-                    0.9803921568627451
+                    0.2823529411764706,
+                    1
                   ],
                   [
-                    0.9803921568627451,
+                    1,
                     0,
                     0
                   ],
                   [
-                    0.12941176470588237,
                     0,
-                    0.9803921568627451
+                    0.2823529411764706,
+                    1
                   ],
                   [
-                    0.9803921568627451,
+                    1,
                     0,
                     0
                   ],
                   [
-                    0.12941176470588237,
                     0,
-                    0.9803921568627451
+                    0.2823529411764706,
+                    1
+                  ]
+                ],
+                "fabric_params": [
+                  0.3,
+                  0.3,
+                  0.5
+                ],
+                "fabric_size": [
+                  0.5,
+                  0.5
+                ]
+              },
+              "name": null
+            },
+            {
+              "params": {
+                "speed": 1,
+                "velvet": [
+                  0.04,
+                  0.02,
+                  0.06
+                ],
+                "lights": [
+                  [
+                    1,
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0,
+                    1
+                  ],
+                  [
+                    1,
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0,
+                    1
+                  ],
+                  [
+                    1,
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0,
+                    1
+                  ]
+                ],
+                "fabric_params": [
+                  0.3,
+                  0.3,
+                  0.5
+                ],
+                "fabric_size": [
+                  0.5,
+                  0.5
+                ]
+              },
+              "name": null
+            },
+            {
+              "params": {
+                "speed": 1,
+                "velvet": [
+                  0.04,
+                  0.02,
+                  0.06
+                ],
+                "lights": [
+                  [
+                    1,
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0,
+                    1
+                  ],
+                  [
+                    0,
+                    0,
+                    1
+                  ],
+                  [
+                    0,
+                    0,
+                    1
+                  ],
+                  [
+                    1,
+                    0,
+                    0
+                  ],
+                  [
+                    1,
+                    0,
+                    0
                   ]
                 ],
                 "fabric_params": [
                   1,
                   0,
-                  0.68
+                  0.5
                 ],
                 "fabric_size": [
-                  0.28,
-                  0.45
+                  0.27,
+                  0.5
                 ]
               },
               "name": null
@@ -1627,6 +1690,16 @@
             ],
             "light_param[4].angle": 0.92
           },
+          "presets": [],
+          "type": "shader"
+        },
+        {
+          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n *\n * Supported types: int, float, vec2, vec3, vec4, color\n *\n * Examples:\n *   // @param speed float 1.0 [0.0, 2.0] \"Animation speed\"\n *   // @param center vec2 0.5, 0.5 \"Center position\"\n *   // @param tint color [1.0, 0.5, 0.0] \"Tint color\"\n */\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = fragCoord / iResolution.xy;\n    vec3 col = 0.5 + 0.5 * cos(iTime + uv.xyx + vec3(0, 0, 1));\n    fragColor = vec4(col, 1.0);\n}",
+          "filePath": null,
+          "params": {
+            "speed": 1
+          },
+          "customParams": {},
           "presets": [],
           "type": "shader"
         }
@@ -2376,6 +2449,88 @@
           "label": "Gemini_Generated_Image_f5jupyf5jupyf5ju (1).png"
         }
       ]
+    },
+    {
+      "name": "Audio",
+      "type": "shaders",
+      "slots": [
+        {
+          "shaderCode": "// Audio Visualizer Example\n// Load audio input to iChannel0: File > Use Audio Input (FFT) for Channel 0\n//\n// iChannel0 texture layout (512x2):\n//   Row 0 (y=0.0): FFT frequency spectrum (0-255, bass on left, treble on right)\n//   Row 1 (y=1.0): Waveform / time domain data (centered at 128)\n//  @texture iChannel0 AudioFFT(1024)\n//  @param spectrum float 0.5 [0.0,2.0]\n//  @param gain float 1.0 [0.0,5.0]\n//  @param gainw float 1.0 [0.0,5.0]\n\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = fragCoord / iResolution.xy;\n    vec3 col = vec3(0.0);\n\n    // Get audio data\n    float fft = texture(iChannel0, vec2(uv.x * spectrum, 0.0)).r;      // Frequency spectrum\n    float wave = texture(iChannel0, vec2(uv.x, 1.0)).r;     // Waveform\n\n    // Frequency bars visualization (bottom half)\n    if (uv.y < 0.5) {\n        float barHeight = fft * gain;\n        if (uv.y < barHeight) {\n            // Color based on frequency (bass=red, mid=green, treble=blue)\n            vec3 barColor = vec3(1.0 - uv.x, abs(uv.x - 0.5) * 2.0, uv.x);\n            col = barColor * (1.0 - uv.y / barHeight * 0.5);\n        }\n    }\n\n    // Waveform visualization (top half)\n    if (uv.y >= 0.5) {\n        float waveY = 0.75 + (wave - 0.5) * gainw; // Center wave in top half\n        float dist = abs(uv.y - waveY);\n        float glow = 0.008 / (dist + 0.008);\n        col += vec3(0.2, 0.8, 1.0) * glow;\n    }\n\n    // Add some bass-reactive background glow\n    float bass = texture(iChannel0, vec2(0.05, 0.0)).r;\n    col += vec3(0.1, 0.02, 0.15) * bass * 2.0;\n\n    // Circular spectrum visualizer in center\n    vec2 center = uv - 0.5;\n    float angle = atan(center.y, center.x);\n    float radius = length(center);\n    float freqIndex = (angle + 3.14159) / 6.28318; // 0 to 1\n    float freqValue = texture(iChannel0, vec2(freqIndex, 0.0)).r;\n\n    float innerRadius = 0.1;\n    float outerRadius = innerRadius + freqValue * 0.15;\n\n    if (radius > innerRadius && radius < outerRadius) {\n        float intensity = 1.0 - (radius - innerRadius) / (outerRadius - innerRadius);\n        vec3 circleColor = 0.5 + 0.5 * cos(angle + iTime + vec3(0, 2, 4));\n        col += circleColor * intensity * 0.5;\n    }\n\n    fragColor = vec4(col, 1.0);\n}\n",
+          "filePath": null,
+          "params": {
+            "speed": 1
+          },
+          "customParams": {
+            "spectrum": 0.5,
+            "gain": 1,
+            "gainw": 1
+          },
+          "presets": [],
+          "type": "shader"
+        }
+      ]
+    },
+    {
+      "name": "Shadertoy",
+      "type": "shaders",
+      "slots": [
+        {
+          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n *\n * Supported types: int, float, vec2, vec3, vec4, color\n *\n * Examples:\n *   // @param speed float 1.0 [0.0, 2.0] \"Animation speed\"\n *   // @param center vec2 0.5, 0.5 \"Center position\"\n *   // @param tint color [1.0, 0.5, 0.0] \"Tint color\"\n */\n /* Shading constants */\n  /* --------------------- */\n  const vec3 LP = vec3(0, 0, 0);  // light position\n  const vec3 LC = vec3(.85,0.80,0.70);    // light colour\n  const vec3 HC1 = vec3(.5, .4, .3);      // hemisphere light colour 1\n  const vec3 HC2 = vec3(0.1,.1,.6)*.5;    // hemisphere light colour 2\n  const vec3 HLD = vec3(0,1,0);           // hemisphere light direction\n  const vec3 BC = vec3(0.25,0.25,0.25);   // back light colour\n  const vec3 FC = vec3(1.30,1.20,1.00);   // fresnel colour\n  const float AS = .5;                    // ambient light strength\n  const float DS = 1.;                    // diffuse light strength\n  const float BS = .3;                    // back light strength\n  const float FS = .3;                    // fresnel strength\n  /* Raymarching constants */\n  /* --------------------- */\n  const float MAX_TRACE_DISTANCE = 50.;             // max trace distance\n  const float INTERSECTION_PRECISION = 0.0001;       // precision of the intersection\n  const int NUM_OF_TRACE_STEPS = 256;               // max number of trace steps\n  const float STEP_MULTIPLIER = 1.;                 // the step mutliplier - ie, how much further to progress on each step\n  \n  /* Structures */\n  /* ---------- */\n  struct Camera {\n    vec3 ro;\n    vec3 rd;\n    vec3 forward;\n    vec3 right;\n    vec3 up;\n    float FOV;\n  };\n  struct Surface {\n    float len;\n    vec3 position;\n    vec3 colour;\n    float id;\n    float steps;\n    float AO;\n  };\n  struct Model {\n    float dist;\n    vec3 colour;\n    float id;\n  };\n  \n  /* RNG */\n  /* ---------- */\n  // Hash without sine from Dave Hoskins\n  // https://www.shadertoy.com/view/4djSRWa\n  float hash12(vec2 p) {\n\tvec3 p3  = fract(vec3(p.xyx) * .1031);\n    p3 += dot(p3, p3.yzx + 33.33);\n    return fract((p3.x + p3.y) * p3.z);\n  }\n  vec2 hash22(vec2 p) {\n\tvec3 p3 = fract(vec3(p.xyx) * vec3(.1031, .1030, .0973));\n    p3 += dot(p3, p3.yzx+33.33);\n    return fract((p3.xx+p3.yz)*p3.zy);\n  }\n  \n  \n  /* Utilities */\n  /* ---------- */\n  vec2 toScreenspace(in vec2 p) {\n    vec2 uv = (p - 0.5 * iResolution.xy) / min(iResolution.y, iResolution.x);\n    return uv;\n  }\n  mat2 R(float a) {\n    float c = cos(a);\n    float s = sin(a);\n    return mat2(c, -s, s, c);\n  }\n  Camera getCamera(in vec2 uv, in vec3 pos, in vec3 target) {\n    vec3 f = normalize(target - pos);\n    vec3 r = normalize(vec3(f.z, 0., -f.x));\n    vec3 u = normalize(cross(f, r));\n    \n    float FOV = .6;\n    \n    return Camera(\n      pos,\n      normalize(f + FOV * uv.x * r + FOV * uv.y * u),\n      f,\n      r,\n      u,\n      FOV\n    );\n  }\n  // folding from gaz: https://www.shadertoy.com/view/4tX3DS\n  vec2 fold(vec2 p, float a) {\n      p.x=abs(p.x);\n      vec2 n = vec2(cos(a),sin(a));\n      for(int i = 0; i < 2; ++i)\n      {\n          p -= 2.*min(0.,dot(p,n))*n;\n          n = normalize(n-vec2(1.,0.));\n      }\n      return p;\n  }\n  vec3 path(in float delta) {\n    return vec3(cos(delta*.1) * 2.2 + sin((delta) * .3) * .5*cos(delta * .05), sin(delta * .04) * 5.4+cos(delta * .04) * 5.4, delta);\n  }\n  \n  #define PI 3.14159236\n  #define SCALE 2.\n  \n  \n  //--------------------------------\n  // Modelling\n  //--------------------------------\n  Model model(vec3 p) {\n    float d = length(p)-.4;\n    \n    p.xy -= path(p.z).xy;\n    float m=length(p.xy)*.5;\n    float z = p.z;\n    float r = cos(z*.2+sin(m)*.3)*.4+.5;\n    float r2 = (sin(z*.05124)*cos(z*.025203))+1.;\n    p*=SCALE;\n    \n    vec3 q=p;\n    p=vec3(R(0.05*p.z+r)*p.xy, p.z);\n    p.xy=fold(p.xy,PI/6.+z*.2);\n    p=mod(p,3.)-1.5;\n    \n    vec3 o = abs(p); \n    o-=(o.x+o.y+o.z)*0.33333;\n    float d0=max(o.x,max(o.y,o.z))-0.01;\n    float d1=length(q.xy)-1.-r2*2.;\n    d0=max(d0,-d1);\n    d0=max(d0,length(q.xy)-4.-r2*2.);\n    d=length( vec2(abs(d0), length(mod(p,vec3(.1))-.05)) )-.3*r;\n    \n    vec3 colour = mix(mix(vec3(.8,.3,.6), vec3(.3,.9,.9), vec3(cos(z*.1)*.5+.5, sin(z*.12)*.5+.5, cos(z*.05+1.)*.5+.5)), vec3(1.,.6,.4)*.1, m);\n    return Model(d/SCALE, colour, 1.);\n  }\n  Model map( vec3 p ){\n    return model(p);\n  }\n  \n  /* Modelling utilities */\n  /* ---------- */\n  // I *think* I borrowed this from Shane, but probably orginally comes from IQ. \n  // Calculates the normal by taking a very small distance,\n  // remapping the function, and getting normal for that\n  vec3 calcNormal( in vec3 pos ){\n    vec3 eps = vec3( 0.001, 0.0, 0.0 );\n    vec3 nor = vec3(\n      map(pos+eps.xyy).dist - map(pos-eps.xyy).dist,\n      map(pos+eps.yxy).dist - map(pos-eps.yxy).dist,\n      map(pos+eps.yyx).dist - map(pos-eps.yyx).dist );\n    return normalize(nor);\n  }\n  \n  //--------------------------------\n  // Raymarcher\n  //--------------------------------\n  Surface march( in Camera cam ){\n    float h = 1e4; // local distance\n    float d = 0.; // ray depth\n    float id = -1.; // surace id\n    float s = 0.; // number of steps\n    float ao = 0.; // march space AO. Simple weighted accumulator. Not really AO, but ¯\\_(ツ)_/¯\n    vec3 p; // ray position\n    vec3 c; // surface colour\n\n    for( int i=0; i< NUM_OF_TRACE_STEPS ; i++ ) {\n      if( abs(h) < INTERSECTION_PRECISION || d > MAX_TRACE_DISTANCE ) break;\n      p = cam.ro+cam.rd*d;\n      Model m = map( p );\n      h = m.dist;\n      d += h * STEP_MULTIPLIER;\n      id = m.id;\n      s += 1.;\n      ao += max(h, 0.);\n      c = m.colour;\n    }\n\n    if( d >= MAX_TRACE_DISTANCE ) id = -1.0;\n\n    return Surface( d, p, c, id, s, ao );\n  }\n  \n  //--------------------------------\n  // Shading\n  //--------------------------------\n  /*\n   * Soft shadows and AO curtesy of Inigo Quilez\n   * https://iquilezles.org/articles/rmshadows\n  */\n  float softshadow( in vec3 ro, in vec3 rd, in float mint, in float tmax ) {\n    float res = 1.0;\n    float t = mint;\n    for( int i=0; i<16; i++ ) {\n      float h = map( ro + rd*t ).dist;\n      res = min( res, 8.0*h/t );\n      t += clamp( h, 0.02, 0.10 );\n      if( h<0.001 || t>tmax ) break;\n    }\n    return clamp( res, 0.0, 1.0 );\n  }\n  float AO( in vec3 pos, in vec3 nor ) {\n    float occ = 0.0;\n    float sca = 1.0;\n    for( int i=0; i<5; i++ )\n    {\n      float hr = 0.01 + 0.12*float(i)/4.0;\n      vec3 aopos =  nor * hr + pos;\n      float dd = map( aopos ).dist;\n      occ += -(dd-hr)*sca;\n      sca *= 0.95;\n    }\n    return clamp( 1.0 - 3.0*occ, 0.0, 1.0 );    \n  }\n  vec3 shade(vec3 col, vec3 pos, vec3 nor, vec3 ref, Camera cam) {\n    \n    vec3 plp = LP - pos; // point light\n    \n    float o = AO( pos, nor );                 // Ambient occlusion\n    vec3  l = normalize( plp );                    // light direction\n    \n    float d = clamp( dot( nor, l ), 0.0, 1.0 )*DS;   // diffuse component\n    float b = clamp( dot( nor, normalize(vec3(-l.x,0,-l.z))), 0.0, 1.0 )*clamp( 1.0-pos.y,0.0,1.0)*BS; // back light component\n    float f = pow( clamp(1.0+dot(nor,cam.rd),0.0,1.0), 2.0 )*FS; // fresnel component\n\n    vec3 c = vec3(0.0);\n    c += d*LC;                           // diffuse light integration\n    c += mix(HC1,HC2,dot(nor, HLD))*AS;        // hemisphere light integration (ambient)\n    c += b*BC*o;       // back light integration\n    c += f*FC*o;       // fresnel integration\n    \n    return col*c;\n  }\n  vec3 render(Surface surface, Camera cam, vec2 uv) {\n    vec3 colour = vec3(.04,.045,.05);\n    colour = vec3(.1, .0, .3);\n    vec3 colourB = vec3(.1, .05, .2);\n    \n    vec2 pp = uv;\n    \n    colour = mix(colourB, colour, pow(length(pp), 2.)/1.5);\n    vec3 bg = colour;\n\n      vec3 surfaceNormal = calcNormal( surface.position );\n      vec3 ref = reflect(cam.rd, surfaceNormal);\n      colour = surfaceNormal;\n      vec3 pos = surface.position;\n      \n      vec3 col = surface.colour;\n      \n      colour = shade(col, pos, surfaceNormal, ref, cam);\n    \n    \n    float sceneLength = length(cam.ro - surface.position);\n    float fog = smoothstep(MAX_TRACE_DISTANCE, -3., sceneLength);\n    colour = mix(bg, colour, pow(fog, 2.));\n    \n    \n    colour *= clamp(1./(surface.steps*.02), .2, 10.);\n\n\n    return colour;\n  }\n  \n  \n  void mainImage( out vec4 c, in vec2 f ) {\n    vec2 uv = toScreenspace(f.xy);\n    \n    float t = iTime*5.;\n    vec3 la = path(t+.5);\n    Camera cam = getCamera(uv, path(t), la);\n    \n    vec2 a = sin(vec2(1.5707963, 0) - path(la.z).x/4.); \n    mat2 rM = mat2(a, -a.y, a.x);\n    cam.rd.xy *= rM;\n    \n    Surface surface = march(cam);\n    \n    vec3 r = render(surface, cam, uv);\n    c = vec4(0.0,0.0,0.0,1.0);\n    //c = texture(iChannel0,f/iResolution.xy)*.8;\n    vec4 c2 = vec4(r,1);\n    c = clamp(mix(c+c2, c2*2., clamp(surface.len*.05, 0., 1.)), vec4(0.), vec4(1));\n  }\n",
+          "filePath": null,
+          "params": {
+            "speed": 1
+          },
+          "customParams": {},
+          "presets": [],
+          "type": "shader"
+        },
+        {
+          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n *\n * Supported types: int, float, vec2, vec3, vec4, color\n *\n * Examples:\n *   // @param speed float 1.0 [0.0, 2.0] \"Animation speed\"\n *   // @param center vec2 0.5, 0.5 \"Center position\"\n \n */\n \n // @param tint color [0.0, 0.0, 0.5] \"Tint color\"\n // @param change color [0.0, 0.2, 0.2] \"Tint color\"\n \nfloat gTime = 0.;\nconst float REPEAT = 5.0;\n\n// 回転行列\nmat2 rot(float a) {\n\tfloat c = cos(a), s = sin(a);\n\treturn mat2(c,s,-s,c);\n}\n\nfloat sdBox( vec3 p, vec3 b )\n{\n\tvec3 q = abs(p) - b;\n\treturn length(max(q,0.0)) + min(max(q.x,max(q.y,q.z)),0.0);\n}\n\nfloat box(vec3 pos, float scale) {\n\tpos *= scale;\n\tfloat base = sdBox(pos, vec3(.4,.4,.1)) /1.5;\n\tpos.xy *= 5.;\n\tpos.y -= 3.5;\n\tpos.xy *= rot(.75);\n\tfloat result = -base;\n\treturn result;\n}\n\nfloat box_set(vec3 pos, float iTime) {\n\tvec3 pos_origin = pos;\n\tpos = pos_origin;\n\tpos .y += sin(gTime * 0.4) * 2.5;\n\tpos.xy *=   rot(.8);\n\tfloat box1 = box(pos,2. - abs(sin(gTime * 0.4)) * 1.5);\n\tpos = pos_origin;\n\tpos .y -=sin(gTime * 0.4) * 2.5;\n\tpos.xy *=   rot(.8);\n\tfloat box2 = box(pos,2. - abs(sin(gTime * 0.4)) * 1.5);\n\tpos = pos_origin;\n\tpos .x +=sin(gTime * 0.4) * 2.5;\n\tpos.xy *=   rot(.8);\n\tfloat box3 = box(pos,2. - abs(sin(gTime * 0.4)) * 1.5);\t\n\tpos = pos_origin;\n\tpos .x -=sin(gTime * 0.4) * 2.5;\n\tpos.xy *=   rot(.8);\n\tfloat box4 = box(pos,2. - abs(sin(gTime * 0.4)) * 1.5);\t\n\tpos = pos_origin;\n\tpos.xy *=   rot(.8);\n\tfloat box5 = box(pos,.5) * 6.;\t\n\tpos = pos_origin;\n\tfloat box6 = box(pos,.5) * 6.;\t\n\tfloat result = max(max(max(max(max(box1,box2),box3),box4),box5),box6);\n\treturn result;\n}\n\nfloat map(vec3 pos, float iTime) {\n\tvec3 pos_origin = pos;\n\tfloat box_set1 = box_set(pos, iTime);\n\n\treturn box_set1;\n}\n\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord ) {\n\tvec2 p = (fragCoord.xy * 2. - iResolution.xy) / min(iResolution.x, iResolution.y);\n\tvec3 ro = vec3(0., -0.2 ,iTime * 4.);\n\tvec3 ray = normalize(vec3(p, 1.5));\n\tray.xy = ray.xy * rot(sin(iTime * .03) * 5.);\n\tray.yz = ray.yz * rot(sin(iTime * .05) * .2);\n\tfloat t = 0.1;\n\tvec3 col = vec3(0.);\n\tfloat ac = 0.0;\n\n\n\tfor (int i = 0; i < 99; i++){\n\t\tvec3 pos = ro + ray * t;\n\t\tpos = mod(pos-2., 4.) -2.;\n\t\tgTime = iTime -float(i) * 0.01;\n\t\t\n\t\tfloat d = map(pos, iTime);\n\n\t\td = max(abs(d), 0.01);\n\t\tac += exp(-d*23.);\n\n\t\tt += d* 0.55;\n\t}\n\n\tcol = vec3(ac * 0.02);\n\n\tcol +=vec3(change.r * abs(sin(iTime)),change.g * abs(sin(iTime)), sin(iTime) * change.b) + tint;\n\n\n\tfragColor = vec4(col ,1.0 - t * (0.02 + 0.02 * sin (iTime)));\n}\n\n/** SHADERDATA\n{\n\t\"title\": \"Octgrams\",\n\t\"description\": \"Lorem ipsum dolor\",\n\t\"model\": \"person\"\n}\n*/",
+          "filePath": null,
+          "params": {
+            "speed": 1
+          },
+          "customParams": {
+            "tint": [
+              0,
+              0,
+              0.5
+            ],
+            "change": [
+              0,
+              0.2,
+              0.2
+            ]
+          },
+          "presets": [],
+          "type": "shader"
+        },
+        {
+          "shaderCode": "void mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    // Normalized pixel coordinates (from 0 to 1)\n    vec2 uv = fragCoord / iResolution.xy;\n    \n    // Calculate the to center distance\n    float d = length(uv - 0.5) * 2.0;\n    \n    // Calculate the ripple time\n    float t = d * d * 25.0 - iTime * 3.0;\n    \n    // Calculate the ripple thickness\n    d = (cos(t) * 0.5 + 0.5) * (1.0 - d);\n    \n    // Time varying pixel color\n    vec3 col = 0.5 + 0.5 * cos(t / 20.0 + uv.xyx + vec3(0.0,2.0,4.0));\n\n    // Set the output color to rgb channels and the thickness to alpha channel\n    // AO is automatically calculated\n    fragColor = vec4(col, d);\n}\n",
+          "filePath": null,
+          "params": {
+            "speed": 0.4
+          },
+          "customParams": {},
+          "presets": [],
+          "type": "shader"
+        },
+        {
+          "shaderCode": "//\tSimplex 3D Noise \n//\tby Ian McEwan, Ashima Arts\n//\nvec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}\nvec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}\n\nfloat snoise(vec3 v){ \n    const vec2  C = vec2(1.0/6.0, 1.0/3.0) ;\n    const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);\n\n// First corner\n    vec3 i  = floor(v + dot(v, C.yyy) );\n    vec3 x0 =   v - i + dot(i, C.xxx) ;\n\n// Other corners\n    vec3 g = step(x0.yzx, x0.xyz);\n    vec3 l = 1.0 - g;\n    vec3 i1 = min( g.xyz, l.zxy );\n    vec3 i2 = max( g.xyz, l.zxy );\n\n    //  x0 = x0 - 0. + 0.0 * C \n    vec3 x1 = x0 - i1 + 1.0 * C.xxx;\n    vec3 x2 = x0 - i2 + 2.0 * C.xxx;\n    vec3 x3 = x0 - 1. + 3.0 * C.xxx;\n\n// Permutations\n    i = mod(i, 289.0 ); \n    vec4 p = permute( permute( permute( \n                         i.z + vec4(0.0, i1.z, i2.z, 1.0 ))\n                     + i.y + vec4(0.0, i1.y, i2.y, 1.0 )) \n                     + i.x + vec4(0.0, i1.x, i2.x, 1.0 ));\n\n// Gradients\n// ( N*N points uniformly over a square, mapped onto an octahedron.)\n    float n_ = 1.0/7.0; // N=7\n    vec3  ns = n_ * D.wyz - D.xzx;\n\n    vec4 j = p - 49.0 * floor(p * ns.z *ns.z);  //  mod(p,N*N)\n\n    vec4 x_ = floor(j * ns.z);\n    vec4 y_ = floor(j - 7.0 * x_ );    // mod(j,N)\n\n    vec4 x = x_ *ns.x + ns.yyyy;\n    vec4 y = y_ *ns.x + ns.yyyy;\n    vec4 h = 1.0 - abs(x) - abs(y);\n\n    vec4 b0 = vec4( x.xy, y.xy );\n    vec4 b1 = vec4( x.zw, y.zw );\n\n    vec4 s0 = floor(b0)*2.0 + 1.0;\n    vec4 s1 = floor(b1)*2.0 + 1.0;\n    vec4 sh = -step(h, vec4(0.0));\n\n    vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy ;\n    vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww ;\n\n    vec3 p0 = vec3(a0.xy,h.x);\n    vec3 p1 = vec3(a0.zw,h.y);\n    vec3 p2 = vec3(a1.xy,h.z);\n    vec3 p3 = vec3(a1.zw,h.w);\n\n//Normalise gradients\n    vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));\n    p0 *= norm.x;\n    p1 *= norm.y;\n    p2 *= norm.z;\n    p3 *= norm.w;\n\n// Mix final noise value\n    vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);\n    m = m * m;\n    return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1), \n                                                                dot(p2,x2), dot(p3,x3) ) );\n}\n\nfloat fbm( vec3 p ) {\n        float f = 0.0;\n        f += 0.5000*snoise( p ); p = p*2.02;\n        f += 0.2500*snoise( p ); p = p*2.03;\n        f += 0.1250*snoise( p ); p = p*2.01;\n        f += 0.0625*snoise( p );\n        return f/0.9375;\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord ) {\n    vec2 uv = fragCoord / iResolution.xy;\n    float mouseRatio = smoothstep(100.0, 0.0, length(iMouse.xy - fragCoord.xy));\n    float noise = 0.25 + fbm(vec3(uv * 12.0 + (iMouse.xy - fragCoord.xy) * mouseRatio * 0.05, iTime * 0.18 + 0.5 * mouseRatio));\n    noise *= 0.25 + snoise(vec3(uv * 4.0 + 1.5, iTime * 0.15));\n    fragColor = vec4(1.0, 1.0, 1.0, noise);\n}\n",
+          "filePath": null,
+          "params": {
+            "speed": 1
+          },
+          "customParams": {},
+          "presets": [],
+          "type": "shader"
+        }
+      ]
+    },
+    {
+      "name": "XOR",
+      "type": "shaders",
+      "slots": []
     }
   ],
   "vpTabs": [

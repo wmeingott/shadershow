@@ -21,9 +21,6 @@ export interface IPCInvokeChannels {
   'get-settings': { request: void; response: SettingsDialogData };
   'load-presets': { request: void; response: unknown };
   'load-view-state': { request: void; response: unknown };
-  'save-shader-to-slot': { request: [number, string]; response: string };
-  'load-shader-from-slot': { request: [number]; response: string | null };
-  'delete-shader-from-slot': { request: [number]; response: boolean };
   'read-file-content': { request: [string]; response: string | null };
   'find-ndi-sources': { request: void; response: Array<{ name: string; urlAddress: string }> };
   'start-recording': { request: void; response: { success: boolean; error?: string } };

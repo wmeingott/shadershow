@@ -21,8 +21,6 @@ declare const window: Window & {
     saveGridState(data: unknown): void;
     loadGridState(): Promise<SavedGridState | unknown[] | null>;
     readFileContent(filePath: string): Promise<{ success: boolean; content?: string } | null>;
-    saveShaderToSlot(index: number, code: string): Promise<void>;
-    deleteShaderFromSlot(index: number): Promise<void>;
     getMediaAbsolutePath(mediaPath: string): Promise<string>;
     loadMediaDataUrl(mediaPath: string): Promise<{ success: boolean; dataUrl?: string }>;
   };
@@ -696,47 +694,9 @@ export async function loadGridPresetsFromData(
       'success',
     );
     // Save as current state
-    await resaveAllShaderFiles();
     saveGridState();
   } else {
     setStatus(`No valid shaders found in ${fileName}`, 'error');
   }
 }
 
-// ---------------------------------------------------------------------------
-// resaveAllShaderFiles
-// ---------------------------------------------------------------------------
-
-export async function resaveAllShaderFiles(): Promise<void> {
-  // Collect all slots across all tabs with their global indices
-  let totalSlots = 0;
-  const allSlots: { globalIndex: number; slot: Record<string, unknown> | null }[] = [];
-  for (const tab of ((state.shaderTabs || []) as ShaderTabLike[])) {
-    for (let i = 0; i < (tab.slots || []).length; i++) {
-      allSlots.push({
-        globalIndex: totalSlots,
-        slot: (tab.slots || [])[i] as Record<string, unknown> | null,
-      });
-      totalSlots++;
-    }
-  }
-
-  // Delete files at all indices up to a generous upper bound
-  const maxIndex = Math.max(totalSlots + 50, 100);
-  const deletePromises: Promise<void>[] = [];
-  for (let i = 0; i < maxIndex; i++) {
-    deletePromises.push(window.electronAPI.deleteShaderFromSlot(i));
-  }
-  await Promise.all(deletePromises);
-
-  // Save all tabs' shader files in parallel using global indices
-  const savePromises: Promise<void>[] = [];
-  for (const { globalIndex, slot } of allSlots) {
-    if (slot && slot.shaderCode) {
-      savePromises.push(
-        window.electronAPI.saveShaderToSlot(globalIndex, slot.shaderCode as string),
-      );
-    }
-  }
-  await Promise.all(savePromises);
-}

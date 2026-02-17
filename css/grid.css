@@ -155,6 +155,18 @@
   border-color: var(--accent-hover);
 }
 
+.grid-slot.is-scene {
+  border-color: #cc44cc;
+}
+
+.grid-slot.is-scene:hover {
+  border-color: #ee66ee;
+}
+
+.grid-slot.is-scene .slot-number {
+  color: #cc44cc;
+}
+
 .grid-slot.active {
   border-color: var(--warning-color);
   box-shadow: 0 0 8px var(--warning-color);

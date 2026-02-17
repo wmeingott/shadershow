@@ -100,20 +100,12 @@ interface ImportResult {
   };
 }
 
-/** Result from saveShaderToSlot IPC call */
-interface SaveResult {
-  success: boolean;
-  error?: string;
-}
-
 // ---------------------------------------------------------------------------
 // electronAPI surface used by this module
 // ---------------------------------------------------------------------------
 
 declare const window: Window & {
   electronAPI: {
-    saveShaderToSlot(slotIndex: number, code: string): Promise<SaveResult>;
-    deleteShaderFromSlot(slotIndex: number): Promise<unknown>;
     loadShaderForGrid(): Promise<LoadShaderResult>;
     loadFileTexture(textureName: string): Promise<{ success: boolean; dataUrl?: string }>;
     exportButtonData(format: string, data: unknown, defaultName: string): Promise<ExportResult>;
@@ -133,7 +125,7 @@ import { buildTabBar } from './grid-tabs.js';
 import { rebuildMixPanelDOM } from './mix-presets.js';
 import { rebuildAssetGridDOM, selectAssetSlot } from './asset-grid.js';
 import { cleanupGridVisibilityObserver, initGridVisibilityObserver } from './grid-renderer.js';
-import { loadGridState, saveGridState, resaveAllShaderFiles } from './grid-persistence.js';
+import { loadGridState, saveGridState } from './grid-persistence.js';
 import { setStatus } from '../ui/utils.js';
 import { loadParamsToSliders, generateCustomParamUI } from '../ui/params.js';
 import { updateLocalPresetsUI } from '../ui/presets.js';
@@ -170,26 +162,6 @@ let documentClickHandler: ((e: Event) => void) | null = null;
 let gridIntersectionObserver: IntersectionObserver | null = null;
 
 // ---------------------------------------------------------------------------
-// Global slot index helper
-// ---------------------------------------------------------------------------
-
-/**
- * Convert a local slot index (within the active tab) to a global slot index
- * used for buttonX.glsl file naming. Sums up slot counts of all preceding
- * shader/default tabs (skipping mix/asset tabs which have no .glsl files).
- */
-function toGlobalSlotIndex(localIndex: number): number {
-  const tabs = state.shaderTabs as Array<{ type?: string; slots?: unknown[] }>;
-  let globalOffset = 0;
-  for (let t = 0; t < state.activeShaderTab; t++) {
-    const tab = tabs[t];
-    if (tab.type === 'mix' || tab.type === 'assets') continue;
-    globalOffset += (tab.slots || []).length;
-  }
-  return globalOffset + localIndex;
-}
-
-// ---------------------------------------------------------------------------
 // 1. Move / Copy shader between tabs
 // ---------------------------------------------------------------------------
 
@@ -197,7 +169,7 @@ function toGlobalSlotIndex(localIndex: number): number {
  * Move a shader from the active tab to another tab.
  * The slot is removed from the source tab and appended to the target.
  */
-async function moveShaderToTab(slotIndex: number, targetTabIndex: number): Promise<void> {
+function moveShaderToTab(slotIndex: number, targetTabIndex: number): void {
   if (targetTabIndex === state.activeShaderTab) return;
   if (targetTabIndex < 0 || targetTabIndex >= state.shaderTabs.length) return;
 
@@ -230,9 +202,6 @@ async function moveShaderToTab(slotIndex: number, targetTabIndex: number): Promi
   rebuildGridDOM();
   saveGridState();
 
-  // Re-save shader files with updated indices
-  await resaveAllShaderFiles();
-
   setStatus(`Moved shader to "${targetTab.name}"`, 'success');
 }
 
@@ -240,7 +209,7 @@ async function moveShaderToTab(slotIndex: number, targetTabIndex: number): Promi
  * Copy a shader from the active tab to another tab.
  * The original slot remains in the source tab.
  */
-async function copyShaderToTab(slotIndex: number, targetTabIndex: number): Promise<void> {
+function copyShaderToTab(slotIndex: number, targetTabIndex: number): void {
   if (targetTabIndex === state.activeShaderTab) return;
   if (targetTabIndex < 0 || targetTabIndex >= state.shaderTabs.length) return;
 
@@ -267,8 +236,6 @@ async function copyShaderToTab(slotIndex: number, targetTabIndex: number): Promi
 
   (targetTab.slots as unknown[]).push(copy);
   saveGridState();
-
-  await resaveAllShaderFiles();
 
   setStatus(`Copied shader to "${targetTab.name}"`, 'success');
 }
@@ -508,6 +475,56 @@ function createAddButton(): HTMLDivElement {
     });
     menu.appendChild(addCurrentItem);
 
+    // Add shader from clipboard option
+    const addShaderClipItem = document.createElement('div');
+    addShaderClipItem.className = 'context-menu-item';
+    addShaderClipItem.textContent = 'Add Shader from Clipboard';
+    addShaderClipItem.addEventListener('click', async () => {
+      hideContextMenu();
+      const clipText = await navigator.clipboard.readText();
+      if (!clipText || !clipText.trim()) {
+        setStatus('Clipboard is empty', 'error');
+        return;
+      }
+      const newIndex = state.gridSlots.length;
+      state.gridSlots.push(null);
+      const container = document.getElementById('shader-grid-container')!;
+      const slotEl = createGridSlotElement(newIndex);
+      container.insertBefore(slotEl, btn);
+      if (gridIntersectionObserver) gridIntersectionObserver.observe(slotEl);
+      try {
+        await assignShaderToSlot(newIndex, clipText, null);
+      } catch {
+        if (!state.gridSlots[newIndex]) removeGridSlotElement(newIndex);
+      }
+    });
+    menu.appendChild(addShaderClipItem);
+
+    // Add scene from clipboard option
+    const addSceneClipItem = document.createElement('div');
+    addSceneClipItem.className = 'context-menu-item';
+    addSceneClipItem.textContent = 'Add Scene from Clipboard';
+    addSceneClipItem.addEventListener('click', async () => {
+      hideContextMenu();
+      const clipText = await navigator.clipboard.readText();
+      if (!clipText || !clipText.trim()) {
+        setStatus('Clipboard is empty', 'error');
+        return;
+      }
+      const newIndex = state.gridSlots.length;
+      state.gridSlots.push(null);
+      const container = document.getElementById('shader-grid-container')!;
+      const slotEl = createGridSlotElement(newIndex);
+      container.insertBefore(slotEl, btn);
+      if (gridIntersectionObserver) gridIntersectionObserver.observe(slotEl);
+      try {
+        await assignSceneToSlot(newIndex, clipText, null);
+      } catch {
+        if (!state.gridSlots[newIndex]) removeGridSlotElement(newIndex);
+      }
+    });
+    menu.appendChild(addSceneClipItem);
+
     // Import shader option
     const importItem = document.createElement('div');
     importItem.className = 'context-menu-item';
@@ -659,6 +676,7 @@ export function rebuildGridDOM(): void {
     const data = state.gridSlots[i] as GridSlotData | null;
     if (data) {
       slotEl.classList.add('has-shader');
+      if (data.type === 'scene') slotEl.classList.add('is-scene');
       if (data.hasError) slotEl.classList.add('has-error');
       if (state.activeGridSlot === i) slotEl.classList.add('active');
 
@@ -772,14 +790,10 @@ function showGridContextMenu(x: number, y: number, slotIndex: number): void {
   const removeItem = document.createElement('div');
   removeItem.className = 'context-menu-item';
   removeItem.textContent = 'Remove Slot';
-  removeItem.addEventListener('click', async () => {
+  removeItem.addEventListener('click', () => {
     hideContextMenu();
-    // Delete the shader file first (use global index for buttonX.glsl)
-    await window.electronAPI.deleteShaderFromSlot(toGlobalSlotIndex(slotIndex));
     removeGridSlotElement(slotIndex);
     saveGridState();
-    // Re-save all shader files with updated indices
-    await resaveAllShaderFiles();
     setStatus(`Removed slot ${slotIndex + 1}`, 'success');
   });
   menu.appendChild(removeItem);
@@ -1240,19 +1254,6 @@ export async function swapGridSlots(fromIndex: number, toIndex: number): Promise
     if (ctx) ctx.clearRect(0, 0, toCanvas.width, toCanvas.height);
   }
 
-  // Save shader files to new locations (use global indices for buttonX.glsl)
-  if (state.gridSlots[fromIndex]) {
-    await window.electronAPI.saveShaderToSlot(toGlobalSlotIndex(fromIndex), (state.gridSlots[fromIndex] as GridSlotData).shaderCode);
-  } else {
-    await window.electronAPI.deleteShaderFromSlot(toGlobalSlotIndex(fromIndex));
-  }
-
-  if (state.gridSlots[toIndex]) {
-    await window.electronAPI.saveShaderToSlot(toGlobalSlotIndex(toIndex), (state.gridSlots[toIndex] as GridSlotData).shaderCode);
-  } else {
-    await window.electronAPI.deleteShaderFromSlot(toGlobalSlotIndex(toIndex));
-  }
-
   // Save grid state
   saveGridState();
 
@@ -1272,12 +1273,13 @@ function updateSlotVisualState(index: number, slot: HTMLElement): void {
 
   if (data) {
     slot.classList.add('has-shader');
+    slot.classList.toggle('is-scene', data.type === 'scene');
     const typeLabel = data.type === 'scene' ? ' (scene)' : '';
     slot.title = data.filePath
       ? `Slot ${index + 1}: ${data.filePath.split('/').pop()!.split('\\').pop()!}${typeLabel}`
       : `Slot ${index + 1}: Current ${data.type === 'scene' ? 'scene' : 'shader'}`;
   } else {
-    slot.classList.remove('has-shader');
+    slot.classList.remove('has-shader', 'is-scene');
     slot.title = `Slot ${index + 1} - Right-click for options`;
   }
 
@@ -1486,7 +1488,7 @@ export async function assignShaderToSlot(
       presets: presets || [],
     };
     slot.classList.add('has-shader');
-    slot.classList.remove('has-error'); // Clear any previous error state
+    slot.classList.remove('has-error', 'is-scene');
     const displayName = filePath
       ? filePath.split('/').pop()!.split('\\').pop()!
       : 'Current shader';
@@ -1500,8 +1502,6 @@ export async function assignShaderToSlot(
     }
 
     if (!skipSave) {
-      // Save shader code to individual file (use global index for buttonX.glsl)
-      await window.electronAPI.saveShaderToSlot(toGlobalSlotIndex(slotIndex), shaderCode);
       setStatus(`Shader assigned to slot ${slotIndex + 1}`, 'success');
       saveGridState();
     }
@@ -1581,14 +1581,13 @@ export async function assignSceneToSlot(
     thumbnail: savedThumbnail,
   };
 
-  slot.classList.add('has-shader');
+  slot.classList.add('has-shader', 'is-scene');
   slot.classList.remove('has-error');
   slot.title = filePath
     ? `Slot ${slotIndex + 1}: ${filePath.split('/').pop()!.split('\\').pop()!} (scene)`
     : `Slot ${slotIndex + 1}: Current scene`;
 
   if (!skipSave) {
-    await window.electronAPI.saveShaderToSlot(toGlobalSlotIndex(slotIndex), sceneCode);
     setStatus(`Scene assigned to slot ${slotIndex + 1}`, 'success');
     saveGridState();
   }
@@ -1698,7 +1697,7 @@ export function renameGridSlot(slotIndex: number): void {
  * Clear a grid slot: dispose its renderer, remove shader from disk,
  * and reset the slot's visual state.
  */
-async function clearGridSlot(slotIndex: number): Promise<void> {
+function clearGridSlot(slotIndex: number): void {
   // Dispose renderer
   const slotData = state.gridSlots[slotIndex] as GridSlotData | null;
   if (slotData && slotData.renderer) {
@@ -1711,8 +1710,7 @@ async function clearGridSlot(slotIndex: number): Promise<void> {
   const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`) as HTMLElement | null;
   state.gridSlots[slotIndex] = null;
   if (slot) {
-    slot.classList.remove('has-shader');
-    slot.classList.remove('has-error');
+    slot.classList.remove('has-shader', 'is-scene', 'has-error');
     slot.title = `Slot ${slotIndex + 1} - Right-click to assign shader`;
 
     // Clear label
@@ -1726,9 +1724,6 @@ async function clearGridSlot(slotIndex: number): Promise<void> {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
     }
   }
-
-  // Delete shader file (use global index for buttonX.glsl)
-  await window.electronAPI.deleteShaderFromSlot(toGlobalSlotIndex(slotIndex));
 
   // Clear active slot if this was it
   if (state.activeGridSlot === slotIndex) {
@@ -1796,14 +1791,10 @@ export async function saveActiveSlotShader(): Promise<void> {
     console.warn(`${isScene ? 'Scene' : 'Shader'} compilation warning:`, (err as Error).message);
   }
 
-  // Save to file (use global index for buttonX.glsl)
-  const result = await window.electronAPI.saveShaderToSlot(toGlobalSlotIndex(state.activeGridSlot), code);
+  // Persist to grid-state.json
+  saveGridState();
   const typeLabel = isScene ? 'Scene' : 'Shader';
-  if (result.success) {
-    setStatus(`${typeLabel} saved to slot ${state.activeGridSlot + 1}`, 'success');
-  } else {
-    setStatus(`Failed to save ${typeLabel.toLowerCase()}: ${result.error}`, 'error');
-  }
+  setStatus(`${typeLabel} saved to slot ${state.activeGridSlot + 1}`, 'success');
 }
 
 /**

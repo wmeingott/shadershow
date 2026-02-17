@@ -50,7 +50,6 @@ export class FileManager {
    */
   async ensureDataDir(userDataPath?: string): Promise<void> {
     await fsPromises.mkdir(this.dataDir, { recursive: true });
-    await fsPromises.mkdir(this.shadersDir, { recursive: true });
     await fsPromises.mkdir(this.texturesDir, { recursive: true });
     await fsPromises.mkdir(this.mediaDir, { recursive: true });
 
@@ -106,79 +105,17 @@ export class FileManager {
   // ── Grid state ──────────────────────────────────────────────────────
 
   /**
-   * Persist the shader-grid state (tabbed v2 or legacy array format).
+   * Persist the shader-grid state (tabbed v2 format).
    *
-   * For the v2 tabbed format the embedded `shaderCode` for each slot is
-   * read back from the individual `.glsl` files so the JSON always
-   * contains the latest code on disk.
+   * The renderer embeds `shaderCode` directly in each slot — this method
+   * simply writes the incoming data to disk as the single source of truth.
    */
   async saveGridState(gridState: any): Promise<void> {
     log.info('Saving grid state...');
     await this.ensureDataDir();
     try {
-      if (gridState.version === 2 && gridState.tabs) {
-        // New tabbed format — save with embedded shader code
-        const tabs: any[] = [];
-        let globalSlotIndex = 0;
-
-        for (const tab of gridState.tabs) {
-          // Mix tabs: pass through directly (no shader files to read)
-          if (tab.type === 'mix') {
-            tabs.push({ name: tab.name, type: 'mix', mixPresets: tab.mixPresets || [] });
-            continue;
-          }
-
-          // Asset tabs: pass through directly (no shader files)
-          if (tab.type === 'assets') {
-            tabs.push({ name: tab.name, type: 'assets', slots: tab.slots || [] });
-            continue;
-          }
-
-          const slots: any[] = [];
-          for (let i = 0; i < tab.slots.length; i++) {
-            const slot = tab.slots[i];
-            if (!slot) {
-              slots.push(null);
-            } else {
-              const shaderFile = this.getShaderFilePath(globalSlotIndex);
-              const shaderCode = await this.readFileOrNull(shaderFile);
-              slots.push({
-                shaderCode,
-                filePath: slot.filePath,
-                params: slot.params,
-                customParams: slot.customParams || {},
-                presets: slot.presets || [],
-                type: slot.type || 'shader',
-              });
-            }
-            globalSlotIndex++;
-          }
-          tabs.push({ name: tab.name, type: tab.type || 'shaders', slots });
-        }
-
-        const saveData = {
-          version: 2,
-          activeTab: gridState.activeTab,
-          activeSection: gridState.activeSection || 'shaders',
-          tabs,
-          vpTabs: gridState.vpTabs || gridState.visualPresets || [],
-          activeVpTab: gridState.activeVpTab ?? 0,
-        };
-        await fsPromises.writeFile(this.gridStateFile, JSON.stringify(saveData, null, 2), 'utf-8');
-        log.debug('Grid state saved', String(tabs.length), 'tabs');
-      } else {
-        // Legacy format — save metadata without shader code
-        const metadata = (gridState as any[]).map((slot: any) => {
-          if (!slot) return null;
-          return {
-            filePath: slot.filePath,
-            params: slot.params,
-            presets: slot.presets || [],
-          };
-        });
-        await fsPromises.writeFile(this.gridStateFile, JSON.stringify(metadata, null, 2), 'utf-8');
-        log.debug('Grid state saved (legacy)', String(metadata.length), 'slots');
-      }
+      await fsPromises.writeFile(this.gridStateFile, JSON.stringify(gridState, null, 2), 'utf-8');
+      log.debug('Grid state saved');
     } catch (err) {
       log.error('Failed to save grid state:', err);
     }
@@ -295,56 +232,6 @@ export class FileManager {
       log.error('Failed to load grid state:', err);
     }
     return null;
-  }
-
-  // ── Shader slot files ───────────────────────────────────────────────
-
-  async saveShaderToSlot(
-    slotIndex: number,
-    code: string,
-  ): Promise<{ success: boolean; path?: string; error?: string }> {
-    await this.ensureDataDir();
-    try {
-      const shaderFile = this.getShaderFilePath(slotIndex);
-      await fsPromises.writeFile(shaderFile, code, 'utf-8');
-      log.info(`Shader saved to slot ${slotIndex} (${code.length} chars)`);
-      return { success: true, path: shaderFile };
-    } catch (err: unknown) {
-      log.error(`Failed to save shader to slot ${slotIndex}:`, err);
-      return { success: false, error: (err as Error).message };
-    }
-  }
-
-  async loadShaderFromSlot(
-    slotIndex: number,
-  ): Promise<{ success: boolean; shaderCode?: string; error?: string }> {
-    try {
-      const shaderFile = this.getShaderFilePath(slotIndex);
-      const shaderCode = await fsPromises.readFile(shaderFile, 'utf-8');
-      return { success: true, shaderCode };
-    } catch (err: unknown) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        return { success: false, error: 'File not found' };
-      }
-      log.error(`Failed to load shader from slot ${slotIndex}:`, err);
-      return { success: false, error: (err as Error).message };
-    }
-  }
-
-  async deleteShaderFromSlot(
-    slotIndex: number,
-  ): Promise<{ success: boolean; error?: string }> {
-    try {
-      const shaderFile = this.getShaderFilePath(slotIndex);
-      await fsPromises.unlink(shaderFile);
-      return { success: true };
-    } catch (err: unknown) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        return { success: true }; // Already deleted
-      }
-      log.error(`Failed to delete shader from slot ${slotIndex}:`, err);
-      return { success: false, error: (err as Error).message };
-    }
   }
 
   // ── Arbitrary file read ─────────────────────────────────────────────

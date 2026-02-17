@@ -702,6 +702,12 @@ export function parseTextureDirectives(shaderSource: string): TextureDirective[]
   return directives;
 }
 
+/** Parse `// @option 2.5d <N>%` directive. Returns depth fraction (e.g. 0.3 for 30%) or null. */
+export function parseOption25D(source: string): number | null {
+  const match = source.match(/^\s*\/\/\s*@option\s+2\.5d\s+(\d+(?:\.\d+)?)\s*%/im);
+  return match ? parseFloat(match[1]) / 100 : null;
+}
+
 /** Validate and clamp a value to param's range */
 export function clampParamValue(param: ParamDef, value: ParamValue | ParamArrayValue): ParamValue | ParamArrayValue {
   const hasPerElement = param.mins !== null && param.maxs !== null;

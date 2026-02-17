@@ -13,8 +13,9 @@ import {
   cacheCustomParamUniforms,
   loadTextureFromDataUrl,
   createBuiltinTexture,
+  apply25DExtras,
 } from './gl-utils.js';
-import { parseShaderParams, generateUniformDeclarations, parseTextureDirectives } from '@shared/param-parser.js';
+import { parseShaderParams, generateUniformDeclarations, parseTextureDirectives, parseOption25D } from '@shared/param-parser.js';
 
 // ---------------------------------------------------------------------------
 // Shared WebGL context (one context for all MiniShaderRenderer instances)
@@ -182,9 +183,12 @@ export class MiniShaderRenderer {
     const customUniformDecls = generateUniformDeclarations(customParams);
 
     // MiniShaderRenderer uses legacy uniforms in addition to standard ones
-    const wrappedFragment = buildFragmentWrapper(fragmentSource, customUniformDecls, {
+    const depthPct = parseOption25D(fragmentSource);
+    const legacyExtras = {
       extraUniforms: 'uniform vec3 iColorRGB[10];\nuniform float iParams[5];\nuniform float iSpeed;',
-    });
+    };
+    const { extras: finalExtras } = apply25DExtras(legacyExtras, depthPct);
+    const wrappedFragment = buildFragmentWrapper(fragmentSource, customUniformDecls, finalExtras);
 
     let program: WebGLProgram;
     try {

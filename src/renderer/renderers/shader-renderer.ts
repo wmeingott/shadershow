@@ -21,6 +21,7 @@ import {
   generateUniformDeclarations,
   createParamValues,
   parseTextureDirectives,
+  parseOption25D,
 } from '@shared/param-parser.js';
 
 import {
@@ -34,6 +35,7 @@ import {
   createBuiltinTexture,
   BUILTIN_TEXTURES,
   VERTEX_SHADER_SOURCE,
+  apply25DExtras,
 } from './gl-utils.js';
 
 import type {
@@ -186,6 +188,9 @@ export class ShaderRenderer {
   // Track texture dimensions for texSubImage2D optimization
   private _channelTexSizes: Array<[number, number]>;
 
+  // Extra wrapper lines added by shader options (e.g. 2.5D relief)
+  private _extraEffectLines: number;
+
   // Texture directive results from last compile
   textureDirectives: TextureDirective[];
   fileTextureDirectives: TextureDirective[];
@@ -281,6 +286,9 @@ export class ShaderRenderer {
     // Track texture dimensions for texSubImage2D optimization
     this._channelTexSizes = [[0, 0], [0, 0], [0, 0], [0, 0]];
 
+    // Extra effect wrapper lines
+    this._extraEffectLines = 0;
+
     // Texture directive results (populated on compile)
     this.textureDirectives = [];
     this.fileTextureDirectives = [];
@@ -290,6 +298,11 @@ export class ShaderRenderer {
     this.setupGeometry();
     this.setupMouseEvents();
     this.createDefaultTextures();
+  }
+
+  /** Number of extra wrapper lines added by shader options (for error line offset). */
+  get extraWrapperLines(): number {
+    return this._extraEffectLines;
   }
 
   setupGeometry(): void {
@@ -879,8 +892,13 @@ export class ShaderRenderer {
     // Generate uniform declarations for custom params
     const customUniformDecls = generateUniformDeclarations(this.customParams);
 
+    // Parse 2.5D relief option and compose extras
+    const depthPct = parseOption25D(fragmentSource);
+    const { extras: effectExtras, extraLines } = apply25DExtras(undefined, depthPct);
+    this._extraEffectLines = extraLines;
+
     // Build wrapped fragment shader
-    const wrappedFragment = buildFragmentWrapper(fragmentSource, customUniformDecls);
+    const wrappedFragment = buildFragmentWrapper(fragmentSource, customUniformDecls, effectExtras);
 
     // Compile and link
     let program: WebGLProgram;
@@ -932,7 +950,7 @@ export class ShaderRenderer {
       // Count: #version + precision*2 + standard uniforms (13) + custom uniforms comment + out + empty lines
       const baseWrapperLines = 18; // Lines before ${customUniformDecls} (includes iBPM uniform)
       const customUniformLines = this.customParams ? this.customParams.length : 0;
-      const wrapperLines = baseWrapperLines + customUniformLines + 3; // +3 for out, empty line, fragment source marker
+      const wrapperLines = baseWrapperLines + customUniformLines + this._extraEffectLines + 3; // +3 for out, empty line, fragment source marker
       const line = Math.max(1, parseInt(match[1]) - wrapperLines);
       return { line, message: match[2] };
     }

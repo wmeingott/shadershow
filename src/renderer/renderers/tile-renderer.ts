@@ -9,7 +9,7 @@
 
 import type { ParamDef, ParamValues, TextureDirective } from '@shared/types/params.js';
 import type { CompileResult } from '@shared/types/renderer.js';
-import { parseShaderParams, generateUniformDeclarations, createParamValues, parseTextureDirectives } from '@shared/param-parser.js';
+import { parseShaderParams, generateUniformDeclarations, createParamValues, parseTextureDirectives, parseOption25D } from '@shared/param-parser.js';
 import {
   setupFullscreenQuad,
   buildFragmentWrapper,
@@ -20,6 +20,7 @@ import {
   setCustomUniforms,
   loadTextureFromDataUrl,
   parseShaderError,
+  apply25DExtras,
 } from './gl-utils.js';
 import type { StandardUniforms, CustomParamUniforms, ShaderErrorInfo } from './gl-utils.js';
 
@@ -86,6 +87,9 @@ export class TileRenderer {
   // Legacy fixed params
   private params: { speed: number; [key: string]: number } = { speed: 1.0 };
 
+  // Extra wrapper lines from shader options (e.g. 2.5D)
+  private _extraEffectLines: number = 0;
+
   // Shader source
   private shaderSource: string | null = null;
 
@@ -129,11 +133,15 @@ export class TileRenderer {
     // Generate uniform declarations for custom params
     const customUniformDecls = generateUniformDeclarations(this.customParams);
 
-    // Build wrapped fragment shader with tile offset support
-    const wrappedFragment = buildFragmentWrapper(fragmentSource, customUniformDecls, {
+    // Build wrapped fragment shader with tile offset support + optional 2.5D relief
+    const depthPct = parseOption25D(fragmentSource);
+    const tileExtras = {
       extraUniforms: '// Tile offset for coordinate adjustment\nuniform vec2 iTileOffset;',
       mainBody: '// Adjust gl_FragCoord to be relative to tile, not window\nvec2 fragCoord = gl_FragCoord.xy - iTileOffset;\nmainImage(outColor, fragCoord);'
-    });
+    };
+    const { extras: finalExtras, extraLines } = apply25DExtras(tileExtras, depthPct);
+    this._extraEffectLines = extraLines;
+    const wrappedFragment = buildFragmentWrapper(fragmentSource, customUniformDecls, finalExtras);
 
     // Compile and link
     let program: WebGLProgram;
@@ -176,7 +184,7 @@ export class TileRenderer {
   private parseShaderError(error: string): ShaderErrorInfo {
     const baseWrapperLines = 17;
     const customUniformLines = this.customParams ? this.customParams.length : 0;
-    const wrapperLines = baseWrapperLines + customUniformLines + 3;
+    const wrapperLines = baseWrapperLines + customUniformLines + this._extraEffectLines + 3;
     return parseShaderError(error, wrapperLines);
   }
 

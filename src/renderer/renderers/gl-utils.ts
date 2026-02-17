@@ -35,7 +35,7 @@ export interface ShaderErrorInfo {
   message: string;
 }
 
-interface FragmentWrapperExtras {
+export interface FragmentWrapperExtras {
   extraUniforms?: string;
   mainBody?: string;
 }
@@ -336,6 +336,53 @@ export function createBuiltinTexture(
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
 
   return { texture, width, height };
+}
+
+/**
+ * Compose 2.5D relief-shading GLSL onto existing fragment wrapper extras.
+ * Returns the composed extras and the number of extra lines added to the
+ * uniforms section (needed for error-line offset adjustment).
+ */
+export function apply25DExtras(
+  extras: FragmentWrapperExtras | undefined,
+  depthPct: number | null,
+): { extras: FragmentWrapperExtras | undefined; extraLines: number } {
+  if (depthPct === null) {
+    return { extras, extraLines: 0 };
+  }
+
+  const existingUniforms = extras?.extraUniforms || '';
+  const existingBody = extras?.mainBody || 'mainImage(outColor, gl_FragCoord.xy);';
+
+  const d25Uniform = `const float _d25_pct = ${depthPct.toFixed(4)};`;
+  const newUniforms = existingUniforms
+    ? existingUniforms + '\n' + d25Uniform
+    : d25Uniform;
+
+  const reliefBody =
+`float _d25_h = outColor.a;
+float _d25_scale = _d25_pct * length(iResolution.xy);
+float _d25_dhdx = dFdx(_d25_h) * _d25_scale;
+float _d25_dhdy = dFdy(_d25_h) * _d25_scale;
+vec3 _d25_N = normalize(vec3(-_d25_dhdx, -_d25_dhdy, 1.0));
+vec3 _d25_L = normalize(vec3(0.5, 0.5, 1.0));
+vec3 _d25_V = vec3(0.0, 0.0, 1.0);
+vec3 _d25_R = reflect(-_d25_L, _d25_N);
+float _d25_diff = max(dot(_d25_N, _d25_L), 0.0);
+float _d25_spec = pow(max(dot(_d25_R, _d25_V), 0.0), 32.0);
+vec3 _d25_lit = outColor.rgb * (0.15 + 0.75 * _d25_diff) + vec3(0.25 * _d25_spec);
+outColor = vec4(_d25_lit, 1.0);`;
+
+  const newBody = existingBody + '\n' + reliefBody;
+
+  // Extra lines = newlines added to the uniforms section (before user code)
+  const origNL = existingUniforms ? (existingUniforms.match(/\n/g)?.length ?? 0) : 0;
+  const newNL = newUniforms.match(/\n/g)?.length ?? 0;
+
+  return {
+    extras: { extraUniforms: newUniforms, mainBody: newBody },
+    extraLines: newNL - origNL,
+  };
 }
 
 export function parseShaderError(error: string, wrapperLineCount: number): ShaderErrorInfo {

@@ -112,6 +112,7 @@ interface ShaderRendererSurface {
   loadTexture(channel: number, dataUrl: string): Promise<void>;
   channelResolutions: [number, number, number][];
   setParam?(name: string, value: unknown): void;
+  extraWrapperLines?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -339,7 +340,8 @@ export async function compileShader(): Promise<void> {
       const sr = state.renderer as any;
       const baseWrapperLines = 18;
       const customUniformLines = sr?.customParams ? sr.customParams.length : 0;
-      const wrapperLines = baseWrapperLines + customUniformLines + 3;
+      const extraEffectLines = sr?.extraWrapperLines ?? 0;
+      const wrapperLines = baseWrapperLines + customUniformLines + extraEffectLines + 3;
       while ((m = errorRegex.exec(compileErr.raw)) !== null) {
         const line = Math.max(1, parseInt(m[1]) - wrapperLines);
         annotations.push({ row: line - 1, column: 0, text: m[2], type: 'error' });

@@ -385,6 +385,54 @@ outColor = vec4(_d25_lit, 1.0);`;
   };
 }
 
+/**
+ * Compose post-processing GLSL (luminance, hue, saturation, contrast) onto
+ * existing fragment wrapper extras.  Returns the composed extras and the
+ * number of extra lines added to the uniforms section.
+ */
+export function applyPostProcessExtras(
+  extras: FragmentWrapperExtras | undefined,
+): { extras: FragmentWrapperExtras; extraLines: number } {
+  const existingUniforms = extras?.extraUniforms || '';
+  const existingBody = extras?.mainBody || 'mainImage(outColor, gl_FragCoord.xy);';
+
+  const ppUniforms =
+`uniform float _pp_luminance;
+uniform float _pp_hue;
+uniform float _pp_saturation;
+uniform float _pp_contrast;`;
+
+  const newUniforms = existingUniforms
+    ? existingUniforms + '\n' + ppUniforms
+    : ppUniforms;
+
+  const ppBody =
+`vec3 _pp_rgb = outColor.rgb;
+_pp_rgb *= _pp_luminance;
+_pp_rgb = (_pp_rgb - 0.5) * _pp_contrast + 0.5;
+float _pp_lum = dot(_pp_rgb, vec3(0.299, 0.587, 0.114));
+_pp_rgb = mix(vec3(_pp_lum), _pp_rgb, _pp_saturation);
+float _pp_cosH = cos(_pp_hue);
+float _pp_ot = (1.0 - _pp_cosH) / 3.0;
+float _pp_st = sqrt(1.0/3.0) * sin(_pp_hue);
+float _pp_ha = _pp_cosH + _pp_ot;
+float _pp_hb = _pp_ot - _pp_st;
+float _pp_hd = _pp_ot + _pp_st;
+_pp_rgb = mat3(_pp_ha,_pp_hd,_pp_hb, _pp_hb,_pp_ha,_pp_hd, _pp_hd,_pp_hb,_pp_ha) * _pp_rgb;
+outColor.rgb = clamp(_pp_rgb, 0.0, 1.0);`;
+
+  const newBody = existingBody + '\n' + ppBody;
+
+  // Count extra uniform lines added (for error line offset)
+  const origNL = existingUniforms ? (existingUniforms.match(/\n/g)?.length ?? 0) : 0;
+  const newNL = newUniforms.match(/\n/g)?.length ?? 0;
+
+  return {
+    extras: { extraUniforms: newUniforms, mainBody: newBody },
+    extraLines: newNL - origNL,
+  };
+}
+
 export function parseShaderError(error: string, wrapperLineCount: number): ShaderErrorInfo {
   const match = error.match(/ERROR:\s*\d+:(\d+):\s*(.+)/);
   if (match) {

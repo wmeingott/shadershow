@@ -163,7 +163,7 @@ function initRightDragListeners(): void {
 // Value editing
 // ---------------------------------------------------------------------------
 
-function makeValueEditable(
+export function makeValueEditable(
   span: HTMLSpanElement,
   slider: HTMLInputElement,
   opts: { isInt?: boolean; onCommit: (value: number) => void }

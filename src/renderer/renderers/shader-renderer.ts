@@ -36,6 +36,7 @@ import {
   BUILTIN_TEXTURES,
   VERTEX_SHADER_SOURCE,
   apply25DExtras,
+  applyPostProcessExtras,
 } from './gl-utils.js';
 
 import type {
@@ -46,6 +47,7 @@ import type {
 
 import { BeatDetector } from './beat-detector.js';
 import { Logger } from '@shared/logger.js';
+import { ppValues } from '../ui/post-process.js';
 
 // =============================================================================
 // Types
@@ -188,8 +190,16 @@ export class ShaderRenderer {
   // Track texture dimensions for texSubImage2D optimization
   private _channelTexSizes: Array<[number, number]>;
 
-  // Extra wrapper lines added by shader options (e.g. 2.5D relief)
+  // Extra wrapper lines added by shader options (e.g. 2.5D relief, post-processing)
   private _extraEffectLines: number;
+
+  // Post-processing uniform locations
+  private _ppUniforms: {
+    luminance: WebGLUniformLocation | null;
+    hue: WebGLUniformLocation | null;
+    saturation: WebGLUniformLocation | null;
+    contrast: WebGLUniformLocation | null;
+  };
 
   // Texture directive results from last compile
   textureDirectives: TextureDirective[];
@@ -288,6 +298,9 @@ export class ShaderRenderer {
 
     // Extra effect wrapper lines
     this._extraEffectLines = 0;
+
+    // Post-processing uniform locations
+    this._ppUniforms = { luminance: null, hue: null, saturation: null, contrast: null };
 
     // Texture directive results (populated on compile)
     this.textureDirectives = [];
@@ -892,10 +905,11 @@ export class ShaderRenderer {
     // Generate uniform declarations for custom params
     const customUniformDecls = generateUniformDeclarations(this.customParams);
 
-    // Parse 2.5D relief option and compose extras
+    // Parse 2.5D relief option and compose extras, then chain post-processing
     const depthPct = parseOption25D(fragmentSource);
-    const { extras: effectExtras, extraLines } = apply25DExtras(undefined, depthPct);
-    this._extraEffectLines = extraLines;
+    const { extras: d25Extras, extraLines: d25Lines } = apply25DExtras(undefined, depthPct);
+    const { extras: effectExtras, extraLines: ppLines } = applyPostProcessExtras(d25Extras);
+    this._extraEffectLines = d25Lines + ppLines;
 
     // Build wrapped fragment shader
     const wrappedFragment = buildFragmentWrapper(fragmentSource, customUniformDecls, effectExtras);
@@ -925,6 +939,14 @@ export class ShaderRenderer {
     // Cache uniform locations
     this.uniforms = cacheStandardUniforms(gl, program);
     this.customParamUniforms = cacheCustomParamUniforms(gl, program, this.customParams);
+
+    // Cache post-processing uniform locations
+    this._ppUniforms = {
+      luminance:  gl.getUniformLocation(program, '_pp_luminance'),
+      hue:        gl.getUniformLocation(program, '_pp_hue'),
+      saturation: gl.getUniformLocation(program, '_pp_saturation'),
+      contrast:   gl.getUniformLocation(program, '_pp_contrast'),
+    };
 
     // Parse @texture directives and separate builtin vs file vs audio
     const allDirectives = parseTextureDirectives(fragmentSource);
@@ -1022,6 +1044,12 @@ export class ShaderRenderer {
 
     // Set custom parameter uniforms
     this.setCustomUniforms();
+
+    // Set post-processing uniforms
+    gl.uniform1f(this._ppUniforms.luminance, ppValues.luminance);
+    gl.uniform1f(this._ppUniforms.hue, ppValues.hue);
+    gl.uniform1f(this._ppUniforms.saturation, ppValues.saturation);
+    gl.uniform1f(this._ppUniforms.contrast, ppValues.contrast);
 
     // Bind textures
     for (let i = 0; i < 4; i++) {

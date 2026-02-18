@@ -207,6 +207,31 @@
 
           <!-- Parameters Side Panel -->
           <div id="params-panel">
+            <!-- Post Processing -->
+            <div class="params-section" id="pp-section">
+              <div class="params-section-title">Post Processing <button id="btn-reset-pp" class="btn-reset-inline" title="Reset post processing to defaults">Reset</button></div>
+              <div class="param-row">
+                <label title="Double-click to reset">Lum</label>
+                <input type="range" id="pp-luminance" min="0" max="3" step="0.01" value="1">
+                <span class="param-value" id="pp-luminance-value">1.00</span>
+              </div>
+              <div class="param-row">
+                <label title="Double-click to reset">Hue</label>
+                <input type="range" id="pp-hue" min="0" max="360" step="1" value="0">
+                <span class="param-value" id="pp-hue-value">0</span>
+              </div>
+              <div class="param-row">
+                <label title="Double-click to reset">Sat</label>
+                <input type="range" id="pp-saturation" min="0" max="3" step="0.01" value="1">
+                <span class="param-value" id="pp-saturation-value">1.00</span>
+              </div>
+              <div class="param-row">
+                <label title="Double-click to reset">Ctr</label>
+                <input type="range" id="pp-contrast" min="0" max="3" step="0.01" value="1">
+                <span class="param-value" id="pp-contrast-value">1.00</span>
+              </div>
+            </div>
+
             <!-- Speed control (always visible) -->
             <div class="params-section">
               <div class="params-section-title">Playback</div>

@@ -28,6 +28,27 @@
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.btn-reset-inline {
+  font-size: 10px;
+  padding: 1px 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+
+.btn-reset-inline:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
 }
 
 .param-row {

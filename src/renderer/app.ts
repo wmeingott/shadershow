@@ -6,6 +6,7 @@ import { initEditor, compileShader } from './ui/editor.js';
 import { initControls, initResizer } from './ui/controls.js';
 import { initParams, initMouseAssignment } from './ui/params.js';
 import { initPostProcess } from './ui/post-process.js';
+import { initTiling } from './ui/tiling.js';
 import { initPresets } from './ui/presets.js';
 import { initShaderGrid } from './grid/shader-grid.js';
 import { initIPC } from './ipc/ipc-handlers.js';
@@ -51,6 +52,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await initSettingsOnLoad();
     initParams();
     initPostProcess();
+    initTiling();
     initMouseAssignment();
     initPresets();
     initResizer();

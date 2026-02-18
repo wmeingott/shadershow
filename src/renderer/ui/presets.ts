@@ -9,6 +9,7 @@ import { setStatus } from './utils.js';
 import { saveGridState } from '../grid/grid-persistence.js';
 import { loadParamsToSliders, generateCustomParamUI } from './params.js';
 import { updateMixerChannelParam } from './mixer.js';
+import { resetTiling } from './tiling.js';
 
 // ---------------------------------------------------------------------------
 // window.electronAPI subset used in this module
@@ -123,6 +124,9 @@ export function resetToDefaults(): void {
       renderer.setParam(param.name, param.default);
     }
   });
+
+  // Reset tiling to 1×1
+  resetTiling();
 
   // Regenerate UI to show default values
   generateCustomParamUI();

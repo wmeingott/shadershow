@@ -37,17 +37,20 @@ import {
   VERTEX_SHADER_SOURCE,
   apply25DExtras,
   applyPostProcessExtras,
+  applyTilingGapExtras,
 } from './gl-utils.js';
 
 import type {
   StandardUniforms,
   CustomParamUniforms,
   TextureInfo,
+  FragmentWrapperExtras,
 } from './gl-utils.js';
 
 import { BeatDetector } from './beat-detector.js';
 import { Logger } from '@shared/logger.js';
 import { ppValues } from '../ui/post-process.js';
+import { tilingValues } from '../ui/tiling.js';
 
 // =============================================================================
 // Types
@@ -201,6 +204,14 @@ export class ShaderRenderer {
     contrast: WebGLUniformLocation | null;
   };
 
+  // Tiling uniform locations
+  private _tilingUniforms: {
+    space: WebGLUniformLocation | null;
+    bg: WebGLUniformLocation | null;
+    cols: WebGLUniformLocation | null;
+    rows: WebGLUniformLocation | null;
+  };
+
   // Texture directive results from last compile
   textureDirectives: TextureDirective[];
   fileTextureDirectives: TextureDirective[];
@@ -301,6 +312,9 @@ export class ShaderRenderer {
 
     // Post-processing uniform locations
     this._ppUniforms = { luminance: null, hue: null, saturation: null, contrast: null };
+
+    // Tiling uniform locations
+    this._tilingUniforms = { space: null, bg: null, cols: null, rows: null };
 
     // Texture directive results (populated on compile)
     this.textureDirectives = [];
@@ -905,11 +919,31 @@ export class ShaderRenderer {
     // Generate uniform declarations for custom params
     const customUniformDecls = generateUniformDeclarations(this.customParams);
 
-    // Parse 2.5D relief option and compose extras, then chain post-processing
+    // Tiling: coordinate wrapping + gap detection (identity when cols=rows=1, space=0)
+    // tile_cols, tile_rows = uniforms; tile_col, tile_row = per-pixel globals
+    const tilingUniformStr =
+`uniform vec2 _tile_space;
+uniform vec3 _tile_bg;`;
+    const tilingBody =
+`vec2 _tile_safeInv = max(1.0 - _tile_space, vec2(0.001));
+vec2 _tile_ts = iResolution.xy * _tile_safeInv;
+vec2 _tile_pc = mod(gl_FragCoord.xy, iResolution.xy);
+bool _tile_inGap = _tile_pc.x >= _tile_ts.x || _tile_pc.y >= _tile_ts.y;
+tile_col = floor(gl_FragCoord.x / iResolution.x);
+tile_row = floor(gl_FragCoord.y / iResolution.y);
+mainImage(outColor, _tile_pc / _tile_safeInv);`;
+    const tilingExtras: FragmentWrapperExtras = {
+      extraUniforms: tilingUniformStr,
+      mainBody: tilingBody,
+    };
+    const tilingUniformNewlines = (tilingUniformStr.match(/\n/g)?.length ?? 0);
+
+    // Parse 2.5D relief option and compose extras, then chain post-processing, then gap overwrite
     const depthPct = parseOption25D(fragmentSource);
-    const { extras: d25Extras, extraLines: d25Lines } = apply25DExtras(undefined, depthPct);
-    const { extras: effectExtras, extraLines: ppLines } = applyPostProcessExtras(d25Extras);
-    this._extraEffectLines = d25Lines + ppLines;
+    const { extras: d25Extras, extraLines: d25Lines } = apply25DExtras(tilingExtras, depthPct);
+    const { extras: ppExtras, extraLines: ppLines } = applyPostProcessExtras(d25Extras);
+    const effectExtras = applyTilingGapExtras(ppExtras);
+    this._extraEffectLines = tilingUniformNewlines + d25Lines + ppLines;
 
     // Build wrapped fragment shader
     const wrappedFragment = buildFragmentWrapper(fragmentSource, customUniformDecls, effectExtras);
@@ -948,6 +982,14 @@ export class ShaderRenderer {
       contrast:   gl.getUniformLocation(program, '_pp_contrast'),
     };
 
+    // Cache tiling uniform locations
+    this._tilingUniforms = {
+      space: gl.getUniformLocation(program, '_tile_space'),
+      bg:    gl.getUniformLocation(program, '_tile_bg'),
+      cols:  gl.getUniformLocation(program, 'tile_cols'),
+      rows:  gl.getUniformLocation(program, 'tile_rows'),
+    };
+
     // Parse @texture directives and separate builtin vs file vs audio
     const allDirectives = parseTextureDirectives(fragmentSource);
     this.textureDirectives = allDirectives.filter(d => d.type === 'builtin');
@@ -970,7 +1012,7 @@ export class ShaderRenderer {
     if (match) {
       // Subtract wrapper lines (header before user code)
       // Count: #version + precision*2 + standard uniforms (13) + custom uniforms comment + out + empty lines
-      const baseWrapperLines = 18; // Lines before ${customUniformDecls} (includes iBPM uniform)
+      const baseWrapperLines = 24; // Lines before ${customUniformDecls} (includes iBPM + tiling globals)
       const customUniformLines = this.customParams ? this.customParams.length : 0;
       const wrapperLines = baseWrapperLines + customUniformLines + this._extraEffectLines + 3; // +3 for out, empty line, fragment source marker
       const line = Math.max(1, parseInt(match[1]) - wrapperLines);
@@ -1030,7 +1072,7 @@ export class ShaderRenderer {
     // Set uniforms
     gl.useProgram(this.program);
 
-    gl.uniform3f(this.uniforms.iResolution, this.canvas.width, this.canvas.height, 1);
+    gl.uniform3f(this.uniforms.iResolution, this.canvas.width / tilingValues.cols, this.canvas.height / tilingValues.rows, 1);
     gl.uniform1f(this.uniforms.iTime, currentTime);
     gl.uniform1f(this.uniforms.iTimeDelta, timeDelta);
     gl.uniform1i(this.uniforms.iFrame, this.frameCount);
@@ -1050,6 +1092,12 @@ export class ShaderRenderer {
     gl.uniform1f(this._ppUniforms.hue, ppValues.hue);
     gl.uniform1f(this._ppUniforms.saturation, ppValues.saturation);
     gl.uniform1f(this._ppUniforms.contrast, ppValues.contrast);
+
+    // Set tiling uniforms
+    gl.uniform2f(this._tilingUniforms.space, tilingValues.spaceX, tilingValues.spaceY);
+    gl.uniform3f(this._tilingUniforms.bg, tilingValues.bgR, tilingValues.bgG, tilingValues.bgB);
+    gl.uniform1f(this._tilingUniforms.cols, tilingValues.cols);
+    gl.uniform1f(this._tilingUniforms.rows, tilingValues.rows);
 
     // Bind textures
     for (let i = 0; i < 4; i++) {

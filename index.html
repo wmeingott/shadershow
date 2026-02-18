@@ -232,6 +232,35 @@
               </div>
             </div>
 
+            <!-- Tiling -->
+            <div class="params-section" id="tiling-section">
+              <div class="params-section-title">Tiling <button id="btn-reset-tiling" class="btn-reset-inline" title="Reset tiling to defaults">Reset</button></div>
+              <div class="param-row">
+                <label title="Double-click to reset">Cols</label>
+                <input type="range" id="tiling-cols" min="1" max="100" step="1" value="1">
+                <span class="param-value" id="tiling-cols-value">1</span>
+              </div>
+              <div class="param-row">
+                <label title="Double-click to reset">Rows</label>
+                <input type="range" id="tiling-rows" min="1" max="100" step="1" value="1">
+                <span class="param-value" id="tiling-rows-value">1</span>
+              </div>
+              <div class="param-row">
+                <label title="Double-click to reset">Sp X</label>
+                <input type="range" id="tiling-space-x" min="0" max="1" step="0.01" value="0">
+                <span class="param-value" id="tiling-space-x-value">0.00</span>
+              </div>
+              <div class="param-row">
+                <label title="Double-click to reset">Sp Y</label>
+                <input type="range" id="tiling-space-y" min="0" max="1" step="0.01" value="0">
+                <span class="param-value" id="tiling-space-y-value">0.00</span>
+              </div>
+              <div class="param-row">
+                <label title="Double-click to reset">BG</label>
+                <input type="color" id="tiling-bg" value="#000000" title="Tile gap background color">
+              </div>
+            </div>
+
             <!-- Speed control (always visible) -->
             <div class="params-section">
               <div class="params-section-title">Playback</div>

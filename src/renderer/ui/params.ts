@@ -69,6 +69,7 @@ import { updateMixerChannelParam } from './mixer.js';
 import { saveGridState } from '../grid/grid-persistence.js';
 import { setStatus } from './utils.js';
 import { parseShaderParams } from '@shared/param-parser.js';
+import { loadTilingToSliders } from './tiling.js';
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -402,9 +403,12 @@ export function loadParamsToSliders(
     }
   }
 
+  // Load tiling params (cols/rows), resets to 1×1 if absent
+  loadTilingToSliders(params as Record<string, unknown>);
+
   if (state.renderer) {
     Object.entries(params).forEach(([name, value]) => {
-      if (name !== 'speed') {
+      if (name !== 'speed' && name !== 'cols' && name !== 'rows' && name !== 'spaceX' && name !== 'spaceY' && name !== 'tilingBg') {
         getRenderer().setParam(name, value);
         if (!skipMixerSync && state.mixerSelectedChannel !== null) {
           updateMixerChannelParam(name, value);

@@ -107,6 +107,12 @@ export function buildFragmentWrapper(
     uniform vec3 iChannelResolution[4];
     uniform float iBPM;
 
+    // Tiling info (set by ShaderRenderer, defaults to 1×1 in other renderers)
+    uniform float tile_cols;
+    uniform float tile_rows;
+    float tile_col;
+    float tile_row;
+
     ${extraUniforms}
 
     // Custom shader parameters (parsed from @param comments)
@@ -382,6 +388,20 @@ outColor = vec4(_d25_lit, 1.0);`;
   return {
     extras: { extraUniforms: newUniforms, mainBody: newBody },
     extraLines: newNL - origNL,
+  };
+}
+
+/**
+ * Append tile-gap background-color overwrite after all other processing.
+ * Assumes `_tile_inGap` bool and `_tile_bg` vec3 are declared earlier in main().
+ */
+export function applyTilingGapExtras(
+  extras: FragmentWrapperExtras,
+): FragmentWrapperExtras {
+  const body = extras.mainBody || 'mainImage(outColor, gl_FragCoord.xy);';
+  return {
+    ...extras,
+    mainBody: body + '\nif (_tile_inGap) { outColor = vec4(_tile_bg, 1.0); }',
   };
 }
 

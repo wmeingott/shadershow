@@ -15,17 +15,6 @@ export const ppValues = {
 };
 
 // ---------------------------------------------------------------------------
-// Defaults
-// ---------------------------------------------------------------------------
-
-const PP_DEFAULTS = {
-  luminance: 1,
-  hue: 0,
-  saturation: 1,
-  contrast: 1,
-} as const;
-
-// ---------------------------------------------------------------------------
 // Slider config
 // ---------------------------------------------------------------------------
 
@@ -34,14 +23,20 @@ interface PPSliderConfig {
   valueId: string;
   key: keyof typeof ppValues;
   defaultVal: number;
-  isHue: boolean;
+  isInt: boolean;
+  toStored: (raw: number) => number;
+  toDisplay: (raw: number) => string;
 }
 
+function identity(v: number): number { return v; }
+function fmtFloat(v: number): string { return v.toFixed(2); }
+function fmtInt(v: number): string { return Math.round(v).toString(); }
+
 const SLIDERS: PPSliderConfig[] = [
-  { id: 'pp-luminance',  valueId: 'pp-luminance-value',  key: 'luminance',  defaultVal: PP_DEFAULTS.luminance,  isHue: false },
-  { id: 'pp-hue',        valueId: 'pp-hue-value',        key: 'hue',        defaultVal: PP_DEFAULTS.hue,        isHue: true  },
-  { id: 'pp-saturation', valueId: 'pp-saturation-value',  key: 'saturation', defaultVal: PP_DEFAULTS.saturation, isHue: false },
-  { id: 'pp-contrast',   valueId: 'pp-contrast-value',    key: 'contrast',   defaultVal: PP_DEFAULTS.contrast,   isHue: false },
+  { id: 'pp-luminance',  valueId: 'pp-luminance-value',  key: 'luminance',  defaultVal: 1, isInt: false, toStored: identity,                    toDisplay: fmtFloat },
+  { id: 'pp-hue',        valueId: 'pp-hue-value',        key: 'hue',        defaultVal: 0, isInt: true,  toStored: (v) => v * Math.PI / 180,    toDisplay: fmtInt },
+  { id: 'pp-saturation', valueId: 'pp-saturation-value',  key: 'saturation', defaultVal: 1, isInt: false, toStored: identity,                    toDisplay: fmtFloat },
+  { id: 'pp-contrast',   valueId: 'pp-contrast-value',    key: 'contrast',   defaultVal: 1, isInt: false, toStored: identity,                    toDisplay: fmtFloat },
 ];
 
 // ---------------------------------------------------------------------------
@@ -59,24 +54,16 @@ export function initPostProcess(): void {
     const valueSpan = document.getElementById(cfg.valueId) as HTMLSpanElement | null;
     if (!slider || !valueSpan) continue;
 
-    // Slider input
     slider.addEventListener('input', () => {
       const raw = parseFloat(slider.value);
-      if (cfg.isHue) {
-        ppValues[cfg.key] = raw * Math.PI / 180;
-        valueSpan.textContent = Math.round(raw).toString();
-      } else {
-        ppValues[cfg.key] = raw;
-        valueSpan.textContent = raw.toFixed(2);
-      }
+      ppValues[cfg.key] = cfg.toStored(raw);
+      valueSpan.textContent = cfg.toDisplay(raw);
     });
 
-    // Double-click reset on slider
     slider.addEventListener('dblclick', () => {
       resetOne(cfg, slider, valueSpan);
     });
 
-    // Double-click reset on label
     const label = slider.closest('.param-row')?.querySelector('label');
     if (label) {
       label.style.cursor = 'pointer';
@@ -85,17 +72,11 @@ export function initPostProcess(): void {
       });
     }
 
-    // Click-to-type on value span
     makeValueEditable(valueSpan, slider, {
-      isInt: cfg.isHue,
+      isInt: cfg.isInt,
       onCommit(value: number) {
-        if (cfg.isHue) {
-          ppValues[cfg.key] = value * Math.PI / 180;
-          valueSpan.textContent = Math.round(value).toString();
-        } else {
-          ppValues[cfg.key] = value;
-          valueSpan.textContent = value.toFixed(2);
-        }
+        ppValues[cfg.key] = cfg.toStored(value);
+        valueSpan.textContent = cfg.toDisplay(value);
       },
     });
   }
@@ -106,9 +87,9 @@ export function initPostProcess(): void {
 // ---------------------------------------------------------------------------
 
 function resetOne(cfg: PPSliderConfig, slider: HTMLInputElement, valueSpan: HTMLSpanElement): void {
-  ppValues[cfg.key] = cfg.isHue ? 0 : cfg.defaultVal;
+  ppValues[cfg.key] = cfg.toStored(cfg.defaultVal);
   slider.value = String(cfg.defaultVal);
-  valueSpan.textContent = cfg.isHue ? Math.round(cfg.defaultVal).toString() : cfg.defaultVal.toFixed(2);
+  valueSpan.textContent = cfg.toDisplay(cfg.defaultVal);
 }
 
 export function resetPostProcess(): void {

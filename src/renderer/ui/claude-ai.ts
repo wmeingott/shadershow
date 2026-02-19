@@ -1,11 +1,18 @@
-// Claude AI Assistant module — manages the AI assistant dialog overlay.
+// AI Assistant module — manages the AI assistant dialog overlay.
 // Typed version of js/claude-ai.js.
 
 import { state } from '../core/state.js';
+import type { AISettings, AIProvider, ClaudeModel } from '@shared/types/settings.js';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+interface AIAttachment {
+  dataUrl: string;      // data:image/png;base64,...
+  name: string;         // filename or "Preview Capture"
+  mediaType: string;    // image/png, image/jpeg, etc.
+}
 
 interface ClaudePromptData {
   prompt: string;
@@ -14,17 +21,22 @@ interface ClaudePromptData {
     customParams: string;
   };
   renderMode: string;
+  attachments?: AIAttachment[];
 }
 
 /** Minimal electronAPI surface used by this module */
 declare const window: Window & {
   electronAPI: {
     hasClaudeKey(): Promise<boolean>;
+    getClaudeSettings(): Promise<AISettings>;
     sendClaudePrompt(data: ClaudePromptData): void;
     cancelClaudeRequest(): void;
     onClaudeStreamChunk(cb: (data: { text: string }) => void): void;
     onClaudeStreamEnd(cb: (data: unknown) => void): void;
     onClaudeError(cb: (data: { error: string }) => void): void;
+    setAIProvider(provider: string): Promise<void>;
+    setAIModel(provider: string, model: string): Promise<void>;
+    getAIModels(provider: string): Promise<ClaudeModel[]>;
   };
 };
 
@@ -49,6 +61,11 @@ let aiDialogKeyHandler: ((e: KeyboardEvent) => void) | null = null;
 let streamingResponse: string = '';
 let isStreaming: boolean = false;
 let ipcListenersSetup: boolean = false;
+let attachments: AIAttachment[] = [];
+
+const MAX_ATTACHMENTS = 5;
+const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+const ACCEPTED_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/ogg'];
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -59,9 +76,12 @@ export async function showAIAssistantDialog(): Promise<void> {
   // Check if API key is configured
   const hasKey: boolean = await window.electronAPI.hasClaudeKey();
   if (!hasKey) {
-    setStatus('Please configure Claude API key in Settings first', 'error');
+    setStatus('Please configure an AI API key in Settings first', 'error');
     return;
   }
+
+  // Load AI settings for provider/model dropdowns
+  const aiSettings: AISettings = await window.electronAPI.getClaudeSettings();
 
   // Get current code context
   const editor = state.editor as EditorLike;
@@ -71,13 +91,30 @@ export async function showAIAssistantDialog(): Promise<void> {
   // Extract custom param definitions
   const customParams: string = extractParamComments(currentCode);
 
+  // Build model options for the active provider
+  const activeModels = aiSettings.provider === 'anthropic' ? aiSettings.models : aiSettings.openrouterModels;
+  const activeModel = aiSettings.provider === 'anthropic' ? aiSettings.model : aiSettings.openrouterModel;
+  const modelOptionsHtml = buildModelOptions(activeModels, activeModel);
+
+  // Reset attachments
+  attachments = [];
+
   // Create dialog overlay
   const overlay: HTMLDivElement = document.createElement('div');
   overlay.id = 'claude-ai-overlay';
   overlay.innerHTML = `
     <div class="claude-ai-dialog">
       <div class="claude-ai-header">
-        <h2>Claude AI Assistant</h2>
+        <h2>AI Assistant</h2>
+        <div class="claude-ai-header-controls">
+          <select class="ai-header-select" id="ai-provider-select" title="AI Provider">
+            <option value="anthropic" ${aiSettings.provider === 'anthropic' ? 'selected' : ''}>Anthropic</option>
+            <option value="openrouter" ${aiSettings.provider === 'openrouter' ? 'selected' : ''}>OpenRouter</option>
+          </select>
+          <select class="ai-header-select ai-model-select" id="ai-model-select" title="Model">
+            ${modelOptionsHtml}
+          </select>
+        </div>
         <div class="claude-ai-mode-badge ${renderMode}">${renderMode === 'shader' ? 'GLSL Shader' : 'Three.js Scene'}</div>
         <button class="close-btn" id="claude-ai-close">&times;</button>
       </div>
@@ -98,7 +135,7 @@ export async function showAIAssistantDialog(): Promise<void> {
         <!-- Chat area -->
         <div class="claude-ai-chat" id="claude-ai-chat">
           <div class="chat-welcome">
-            <p>Ask Claude to help with your ${renderMode === 'shader' ? 'shader' : 'scene'}:</p>
+            <p>Ask the AI to help with your ${renderMode === 'shader' ? 'shader' : 'scene'}:</p>
             <ul>
               <li>"Add a color cycling effect based on time"</li>
               <li>"Make the pattern react to mouse position"</li>
@@ -111,7 +148,7 @@ export async function showAIAssistantDialog(): Promise<void> {
         <!-- Response area -->
         <div class="claude-ai-response hidden" id="claude-ai-response">
           <div class="response-header">
-            <span>Claude's Response</span>
+            <span>Response</span>
             <button class="btn-small" id="claude-copy-btn" title="Copy response">Copy</button>
           </div>
           <div class="response-content" id="response-content"></div>
@@ -123,17 +160,35 @@ export async function showAIAssistantDialog(): Promise<void> {
       </div>
 
       <div class="claude-ai-input-area">
+        <div class="ai-attachments hidden" id="ai-attachments"></div>
         <textarea
           id="claude-prompt-input"
-          placeholder="Describe what you want Claude to do with your ${renderMode}... (Ctrl+Enter to send)"
+          placeholder="Describe what you want the AI to do with your ${renderMode}... (Ctrl+Enter to send)"
           rows="3"
         ></textarea>
         <div class="input-actions">
-          <button class="btn-secondary" id="claude-cancel-btn" disabled>Cancel</button>
-          <button class="btn-primary" id="claude-send-btn">
-            <span class="send-icon">&#9658;</span> Send
-          </button>
+          <div class="input-actions-left">
+            <button class="btn-icon" id="ai-attach-btn" title="Attach image or video frame">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M4.5 3a2.5 2.5 0 0 0-2.5 2.5v5a2.5 2.5 0 0 0 2.5 2.5h7a2.5 2.5 0 0 0 2.5-2.5v-5a2.5 2.5 0 0 0-2.5-2.5h-7zm0 1h7a1.5 1.5 0 0 1 1.5 1.5v5a1.5 1.5 0 0 1-1.5 1.5h-7a1.5 1.5 0 0 1-1.5-1.5v-5a1.5 1.5 0 0 1 1.5-1.5z"/>
+                <circle cx="5.5" cy="6.5" r="1"/>
+                <path d="M2.5 11l2.5-3 2 2 3-4 3.5 5h-11z"/>
+              </svg>
+            </button>
+            <button class="btn-icon" id="ai-capture-btn" title="Capture current preview">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M10.5 2l1.09 1.5H13a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1h1.41L5.5 2h5zM8 5.5a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM8 7a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3z"/>
+              </svg>
+            </button>
+          </div>
+          <div class="input-actions-right">
+            <button class="btn-secondary" id="claude-cancel-btn" disabled>Cancel</button>
+            <button class="btn-primary" id="claude-send-btn">
+              <span class="send-icon">&#9658;</span> Send
+            </button>
+          </div>
         </div>
+        <input type="file" id="ai-file-input" accept="image/png,image/jpeg,image/gif,image/webp,video/mp4,video/webm,video/ogg" multiple style="display:none">
       </div>
     </div>
   `;
@@ -166,6 +221,7 @@ export function closeAIAssistantDialog(): void {
 
   isStreaming = false;
   streamingResponse = '';
+  attachments = [];
 }
 
 /** Register the global keyboard shortcut to open the AI dialog */
@@ -177,6 +233,23 @@ export function initAIShortcut(): void {
       showAIAssistantDialog();
     }
   });
+}
+
+// ---------------------------------------------------------------------------
+// Internal — build model <option> elements
+// ---------------------------------------------------------------------------
+
+function buildModelOptions(models: ClaudeModel[], selectedModel: string): string {
+  if (!models || models.length === 0) {
+    return `<option value="${escapeAttr(selectedModel)}" selected>${escapeHtml(selectedModel)}</option>`;
+  }
+  return models.map(m =>
+    `<option value="${escapeAttr(m.id)}" ${m.id === selectedModel ? 'selected' : ''}>${escapeHtml(m.display_name)}</option>`
+  ).join('');
+}
+
+function escapeAttr(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 }
 
 // ---------------------------------------------------------------------------
@@ -210,6 +283,21 @@ function setupDialogEventListeners(overlay: HTMLDivElement): void {
   // Insert button
   (document.getElementById('claude-insert-btn') as HTMLElement).addEventListener('click', insertCode);
 
+  // Provider dropdown
+  const providerSelect = document.getElementById('ai-provider-select') as HTMLSelectElement;
+  providerSelect.addEventListener('change', handleProviderChange);
+
+  // Model dropdown
+  const modelSelect = document.getElementById('ai-model-select') as HTMLSelectElement;
+  modelSelect.addEventListener('change', handleModelChange);
+
+  // Attachment buttons
+  (document.getElementById('ai-attach-btn') as HTMLElement).addEventListener('click', () => {
+    (document.getElementById('ai-file-input') as HTMLInputElement).click();
+  });
+  (document.getElementById('ai-capture-btn') as HTMLElement).addEventListener('click', capturePreview);
+  (document.getElementById('ai-file-input') as HTMLInputElement).addEventListener('change', handleFileSelect);
+
   // Keyboard shortcuts
   aiDialogKeyHandler = (e: KeyboardEvent): void => {
     if (e.key === 'Escape') {
@@ -242,6 +330,161 @@ function setupDialogEventListeners(overlay: HTMLDivElement): void {
 }
 
 // ---------------------------------------------------------------------------
+// Internal — attachment handling
+// ---------------------------------------------------------------------------
+
+function handleFileSelect(): void {
+  const fileInput = document.getElementById('ai-file-input') as HTMLInputElement;
+  const files = fileInput.files;
+  if (!files || files.length === 0) return;
+
+  for (let i = 0; i < files.length; i++) {
+    if (attachments.length >= MAX_ATTACHMENTS) {
+      setStatus(`Maximum ${MAX_ATTACHMENTS} attachments allowed`, 'error');
+      break;
+    }
+    const file = files[i];
+    if (ACCEPTED_IMAGE_TYPES.includes(file.type)) {
+      readImageFile(file);
+    } else if (ACCEPTED_VIDEO_TYPES.includes(file.type)) {
+      extractVideoFrame(file);
+    }
+  }
+
+  // Reset the input so the same file can be re-selected
+  fileInput.value = '';
+}
+
+function readImageFile(file: File): void {
+  const reader = new FileReader();
+  reader.onload = () => {
+    const dataUrl = reader.result as string;
+    addAttachment({ dataUrl, name: file.name, mediaType: file.type });
+  };
+  reader.readAsDataURL(file);
+}
+
+function extractVideoFrame(file: File): void {
+  const url = URL.createObjectURL(file);
+  const video = document.createElement('video');
+  video.muted = true;
+  video.preload = 'auto';
+
+  video.onloadeddata = () => {
+    // Seek to 1 second or midpoint for a representative frame
+    video.currentTime = Math.min(1, video.duration / 2);
+  };
+
+  video.onseeked = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(video, 0, 0);
+    const dataUrl = canvas.toDataURL('image/png');
+    addAttachment({ dataUrl, name: `${file.name} (frame)`, mediaType: 'image/png' });
+    URL.revokeObjectURL(url);
+  };
+
+  video.onerror = () => {
+    setStatus(`Failed to extract frame from ${file.name}`, 'error');
+    URL.revokeObjectURL(url);
+  };
+
+  video.src = url;
+}
+
+function capturePreview(): void {
+  if (attachments.length >= MAX_ATTACHMENTS) {
+    setStatus(`Maximum ${MAX_ATTACHMENTS} attachments allowed`, 'error');
+    return;
+  }
+
+  const canvas = document.getElementById('shader-canvas') as HTMLCanvasElement | null;
+  if (!canvas) {
+    setStatus('No preview canvas found', 'error');
+    return;
+  }
+
+  const dataUrl = canvas.toDataURL('image/png');
+  addAttachment({ dataUrl, name: 'Preview Capture', mediaType: 'image/png' });
+}
+
+function addAttachment(att: AIAttachment): void {
+  attachments.push(att);
+  renderAttachments();
+}
+
+function removeAttachment(index: number): void {
+  attachments.splice(index, 1);
+  renderAttachments();
+}
+
+function renderAttachments(): void {
+  const container = document.getElementById('ai-attachments') as HTMLElement;
+  if (!container) return;
+
+  if (attachments.length === 0) {
+    container.classList.add('hidden');
+    container.innerHTML = '';
+    return;
+  }
+
+  container.classList.remove('hidden');
+  container.innerHTML = attachments.map((att, i) => `
+    <div class="ai-attachment-item" title="${escapeAttr(att.name)}">
+      <img src="${att.dataUrl}" alt="${escapeAttr(att.name)}">
+      <span class="ai-attachment-name">${escapeHtml(att.name)}</span>
+      <button class="ai-attachment-remove" data-index="${i}" title="Remove">&times;</button>
+    </div>
+  `).join('');
+
+  // Wire up remove buttons
+  container.querySelectorAll('.ai-attachment-remove').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const idx = parseInt((e.currentTarget as HTMLElement).dataset.index!, 10);
+      removeAttachment(idx);
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Internal — provider / model switching
+// ---------------------------------------------------------------------------
+
+async function handleProviderChange(): Promise<void> {
+  const providerSelect = document.getElementById('ai-provider-select') as HTMLSelectElement;
+  const modelSelect = document.getElementById('ai-model-select') as HTMLSelectElement;
+  const provider = providerSelect.value as AIProvider;
+
+  // Persist provider choice
+  await window.electronAPI.setAIProvider(provider);
+
+  // Show loading state
+  modelSelect.innerHTML = '<option>Loading models...</option>';
+  modelSelect.disabled = true;
+
+  // Fetch models for the new provider
+  const models = await window.electronAPI.getAIModels(provider);
+
+  // Get current settings to know selected model
+  const settings = await window.electronAPI.getClaudeSettings();
+  const activeModel = provider === 'anthropic' ? settings.model : settings.openrouterModel;
+
+  modelSelect.innerHTML = buildModelOptions(models, activeModel);
+  modelSelect.disabled = false;
+}
+
+async function handleModelChange(): Promise<void> {
+  const providerSelect = document.getElementById('ai-provider-select') as HTMLSelectElement;
+  const modelSelect = document.getElementById('ai-model-select') as HTMLSelectElement;
+  const provider = providerSelect.value;
+  const model = modelSelect.value;
+
+  await window.electronAPI.setAIModel(provider, model);
+}
+
+// ---------------------------------------------------------------------------
 // Internal — prompt sending & streaming
 // ---------------------------------------------------------------------------
 
@@ -271,23 +514,31 @@ function sendPrompt(): void {
   responseArea.classList.remove('hidden');
 
   const responseContent = document.getElementById('response-content') as HTMLElement;
-  responseContent.innerHTML = '<div class="streaming-indicator">Claude is thinking...</div>';
+  responseContent.innerHTML = '<div class="streaming-indicator">Thinking...</div>';
 
   // Hide actions until complete
   (document.getElementById('response-actions') as HTMLElement).classList.add('hidden');
 
-  // Add user message to chat
+  // Add user message to chat (with attachment indicators)
   const chat = document.getElementById('claude-ai-chat') as HTMLElement;
   const welcomeMsg: Element | null = chat.querySelector('.chat-welcome');
   if (welcomeMsg) welcomeMsg.remove();
 
   const userMsg: HTMLDivElement = document.createElement('div');
   userMsg.className = 'chat-message user';
-  userMsg.innerHTML = `<div class="message-content">${escapeHtml(prompt)}</div>`;
+  const attachHtml = attachments.length > 0
+    ? `<div class="chat-attachments">${attachments.map(a => `<img src="${a.dataUrl}" alt="${escapeAttr(a.name)}" class="chat-attachment-thumb" title="${escapeAttr(a.name)}">`).join('')}</div>`
+    : '';
+  userMsg.innerHTML = `<div class="message-content">${attachHtml}${escapeHtml(prompt)}</div>`;
   chat.appendChild(userMsg);
 
   // Clear input
   input.value = '';
+
+  // Grab current attachments and clear them
+  const currentAttachments = attachments.length > 0 ? [...attachments] : undefined;
+  attachments = [];
+  renderAttachments();
 
   // Send to main process
   window.electronAPI.sendClaudePrompt({
@@ -297,6 +548,7 @@ function sendPrompt(): void {
       customParams,
     },
     renderMode,
+    attachments: currentAttachments,
   });
 }
 
@@ -346,7 +598,7 @@ function handleError(data: { error: string }): void {
     responseContent.innerHTML = `<div class="error-message">Error: ${escapeHtml(data.error)}</div>`;
   }
 
-  setStatus(`Claude error: ${data.error}`, 'error');
+  setStatus(`AI error: ${data.error}`, 'error');
 }
 
 function cancelRequest(): void {

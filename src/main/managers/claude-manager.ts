@@ -1,21 +1,31 @@
-// ClaudeManager — manages Claude API key, model selection, and streaming prompts
-// Extracted from main.js Claude-related code
+// AIManager — manages AI provider keys, model selection, and streaming prompts.
+// Supports Anthropic and OpenRouter providers.
 
 import https from 'https';
 import fs from 'fs';
 import path from 'path';
 import { Logger } from '@shared/logger.js';
-import type { ClaudeSettings, ClaudeModel } from '@shared/types/settings.js';
+import type { AISettings, AIProvider, ClaudeModel } from '@shared/types/settings.js';
 
 const fsPromises = fs.promises;
-const log = new Logger('Claude');
+const log = new Logger('AI');
 
-const DEFAULT_MODEL = 'claude-sonnet-4-20250514';
-const API_HOSTNAME = 'api.anthropic.com';
+const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-4-20250514';
+const DEFAULT_OPENROUTER_MODEL = 'anthropic/claude-sonnet-4';
+
+const ANTHROPIC_HOSTNAME = 'api.anthropic.com';
+const OPENROUTER_HOSTNAME = 'openrouter.ai';
 const API_VERSION = '2023-06-01';
 const REQUEST_TIMEOUT = 10000;
 
-/** Context passed alongside a Claude prompt */
+/** An image/video-frame attachment sent with a prompt */
+export interface AIAttachment {
+  dataUrl: string;      // data:image/png;base64,...
+  name: string;         // filename or "Preview Capture"
+  mediaType: string;    // image/png, image/jpeg, etc.
+}
+
+/** Context passed alongside a prompt */
 export interface ClaudePromptContext {
   currentCode?: string;
   customParams?: string;
@@ -24,10 +34,29 @@ export interface ClaudePromptContext {
 /** Render mode determines the system prompt flavour */
 export type RenderMode = 'shader' | 'scene';
 
+/** Persisted key-file structure */
+interface KeyFileData {
+  apiKey?: string | null;
+  model?: string;
+  provider?: AIProvider;
+  openrouterApiKey?: string | null;
+  openrouterModel?: string;
+}
+
 export class ClaudeManager {
+  // Anthropic
   private apiKey: string | null = null;
-  private model: string = DEFAULT_MODEL;
+  private model: string = DEFAULT_ANTHROPIC_MODEL;
   private models: ClaudeModel[] = [];
+
+  // OpenRouter
+  private openrouterApiKey: string | null = null;
+  private openrouterModel: string = DEFAULT_OPENROUTER_MODEL;
+  private openrouterModels: ClaudeModel[] = [];
+
+  // Active provider
+  private provider: AIProvider = 'anthropic';
+
   private activeRequest: ReturnType<typeof https.request> | null = null;
   private readonly keyFilePath: string;
 
@@ -39,69 +68,106 @@ export class ClaudeManager {
   // Key management
   // ---------------------------------------------------------------------------
 
-  /** Load API key and model from the key file on disk */
+  /** Load all settings from the key file on disk */
   async loadKey(): Promise<void> {
     try {
       const raw = await this.readFileOrNull(this.keyFilePath);
       if (raw) {
-        const data = JSON.parse(raw);
+        const data: KeyFileData = JSON.parse(raw);
         this.apiKey = data.apiKey || null;
-        this.model = data.model || DEFAULT_MODEL;
+        this.model = data.model || DEFAULT_ANTHROPIC_MODEL;
+        this.provider = data.provider || 'anthropic';
+        this.openrouterApiKey = data.openrouterApiKey || null;
+        this.openrouterModel = data.openrouterModel || DEFAULT_OPENROUTER_MODEL;
       }
     } catch (err) {
-      log.error('Failed to load Claude API key:', err);
+      log.error('Failed to load AI settings:', err);
     }
   }
 
-  /** Save API key and model to the key file.
-   *  If `key` is falsy the existing key is kept. */
+  /** Persist all settings to the key file */
+  private async saveToFile(): Promise<void> {
+    const dir = path.dirname(this.keyFilePath);
+    await fsPromises.mkdir(dir, { recursive: true });
+    await fsPromises.writeFile(this.keyFilePath, JSON.stringify({
+      apiKey: this.apiKey,
+      model: this.model,
+      provider: this.provider,
+      openrouterApiKey: this.openrouterApiKey,
+      openrouterModel: this.openrouterModel,
+    } satisfies KeyFileData, null, 2), 'utf-8');
+  }
+
+  /** Save Anthropic API key and model.  If `key` is falsy the existing key is kept. */
   async saveKey(key: string | null, model: string | null): Promise<{ success: boolean; error?: string }> {
     try {
-      if (key) {
-        this.apiKey = key;
-      }
-      this.model = model || DEFAULT_MODEL;
-
-      // Ensure parent directory exists
-      const dir = path.dirname(this.keyFilePath);
-      await fsPromises.mkdir(dir, { recursive: true });
-
-      await fsPromises.writeFile(this.keyFilePath, JSON.stringify({
-        apiKey: this.apiKey,
-        model: this.model,
-      }, null, 2), 'utf-8');
-
-      // Refresh model list if we have a key
-      if (this.apiKey) {
-        await this.fetchModels();
-      }
+      if (key) this.apiKey = key;
+      this.model = model || DEFAULT_ANTHROPIC_MODEL;
+      await this.saveToFile();
+      if (this.apiKey) await this.fetchModels();
       return { success: true };
     } catch (err: any) {
-      log.error('Failed to save Claude API key:', err);
+      log.error('Failed to save Anthropic API key:', err);
       return { success: false, error: err.message };
     }
   }
 
-  /** Whether an API key is currently loaded */
-  hasKey(): boolean {
-    return !!this.apiKey;
+  /** Save OpenRouter API key.  If `key` is falsy the existing key is kept. */
+  async saveOpenRouterKey(key: string | null): Promise<{ success: boolean; error?: string }> {
+    try {
+      if (key) this.openrouterApiKey = key;
+      await this.saveToFile();
+      if (this.openrouterApiKey) await this.fetchOpenRouterModels();
+      return { success: true };
+    } catch (err: any) {
+      log.error('Failed to save OpenRouter API key:', err);
+      return { success: false, error: err.message };
+    }
   }
 
-  /** Return settings suitable for the renderer settings dialog */
-  getSettings(): ClaudeSettings {
+  /** Whether the *active* provider has a key */
+  hasKey(): boolean {
+    return this.provider === 'anthropic' ? !!this.apiKey : !!this.openrouterApiKey;
+  }
+
+  /** Return full AI settings for the renderer */
+  getSettings(): AISettings {
     return {
+      provider: this.provider,
       hasKey: !!this.apiKey,
+      maskedKey: this.apiKey ? '****' + this.apiKey.slice(-4) : '',
       model: this.model,
       models: this.models,
-      maskedKey: this.apiKey ? '****' + this.apiKey.slice(-4) : '',
+      hasOpenrouterKey: !!this.openrouterApiKey,
+      maskedOpenrouterKey: this.openrouterApiKey ? '****' + this.openrouterApiKey.slice(-4) : '',
+      openrouterModel: this.openrouterModel,
+      openrouterModels: this.openrouterModels,
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Provider / model switching (called from AI dialog)
+  // ---------------------------------------------------------------------------
+
+  async setProvider(provider: AIProvider): Promise<void> {
+    this.provider = provider;
+    await this.saveToFile();
+  }
+
+  async setModel(provider: AIProvider, modelId: string): Promise<void> {
+    if (provider === 'anthropic') {
+      this.model = modelId;
+    } else {
+      this.openrouterModel = modelId;
+    }
+    await this.saveToFile();
   }
 
   // ---------------------------------------------------------------------------
   // API key validation
   // ---------------------------------------------------------------------------
 
-  /** Test an API key (or the stored key) by sending a minimal request */
+  /** Test an Anthropic API key (or the stored key) */
   testKey(key?: string | null): Promise<{ success: boolean; error?: string }> {
     return new Promise((resolve) => {
       const testKey = key || this.apiKey;
@@ -117,7 +183,7 @@ export class ClaudeManager {
       });
 
       const options: https.RequestOptions = {
-        hostname: API_HOSTNAME,
+        hostname: ANTHROPIC_HOSTNAME,
         port: 443,
         path: '/v1/messages',
         method: 'POST',
@@ -145,15 +211,58 @@ export class ClaudeManager {
         });
       });
 
-      req.on('error', (err: Error) => {
-        resolve({ success: false, error: err.message });
+      req.on('error', (err: Error) => resolve({ success: false, error: err.message }));
+      req.setTimeout(REQUEST_TIMEOUT, () => { req.destroy(); resolve({ success: false, error: 'Request timeout' }); });
+      req.write(postData);
+      req.end();
+    });
+  }
+
+  /** Test an OpenRouter API key (or the stored key) */
+  testOpenRouterKey(key?: string | null): Promise<{ success: boolean; error?: string }> {
+    return new Promise((resolve) => {
+      const testKey = key || this.openrouterApiKey;
+      if (!testKey) {
+        resolve({ success: false, error: 'No API key provided' });
+        return;
+      }
+
+      const postData = JSON.stringify({
+        model: 'openai/gpt-4o-mini',
+        max_tokens: 10,
+        messages: [{ role: 'user', content: 'Hi' }],
       });
 
-      req.setTimeout(REQUEST_TIMEOUT, () => {
-        req.destroy();
-        resolve({ success: false, error: 'Request timeout' });
+      const options: https.RequestOptions = {
+        hostname: OPENROUTER_HOSTNAME,
+        port: 443,
+        path: '/api/v1/chat/completions',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${testKey}`,
+        },
+      };
+
+      const req = https.request(options, (res) => {
+        let data = '';
+        res.on('data', (chunk: Buffer) => data += chunk);
+        res.on('end', () => {
+          if (res.statusCode === 200) {
+            resolve({ success: true });
+          } else {
+            try {
+              const errorData = JSON.parse(data);
+              resolve({ success: false, error: errorData.error?.message || `HTTP ${res.statusCode}` });
+            } catch {
+              resolve({ success: false, error: `HTTP ${res.statusCode}` });
+            }
+          }
+        });
       });
 
+      req.on('error', (err: Error) => resolve({ success: false, error: err.message }));
+      req.setTimeout(REQUEST_TIMEOUT, () => { req.destroy(); resolve({ success: false, error: 'Request timeout' }); });
       req.write(postData);
       req.end();
     });
@@ -163,13 +272,13 @@ export class ClaudeManager {
   // Model listing
   // ---------------------------------------------------------------------------
 
-  /** Fetch the list of available Claude models from the API */
+  /** Fetch available Anthropic models */
   async fetchModels(): Promise<ClaudeModel[]> {
     if (!this.apiKey) return this.models;
 
     return new Promise((resolve) => {
       const options: https.RequestOptions = {
-        hostname: API_HOSTNAME,
+        hostname: ANTHROPIC_HOSTNAME,
         port: 443,
         path: '/v1/models',
         method: 'GET',
@@ -191,36 +300,77 @@ export class ClaudeManager {
                   id: m.id,
                   display_name: m.display_name || m.id,
                 }));
-                log.debug(`Fetched ${this.models.length} Claude models from API`);
+                log.debug(`Fetched ${this.models.length} Anthropic models`);
               }
             } catch (err: any) {
-              log.warn('Failed to parse Claude models response:', err.message);
+              log.warn('Failed to parse Anthropic models response:', err.message);
             }
           } else {
-            log.warn(`Failed to fetch Claude models: HTTP ${res.statusCode}`);
+            log.warn(`Failed to fetch Anthropic models: HTTP ${res.statusCode}`);
           }
           resolve(this.models);
         });
       });
 
-      req.on('error', (err: Error) => {
-        log.warn('Failed to fetch Claude models:', err.message);
-        resolve(this.models);
-      });
-
-      req.setTimeout(REQUEST_TIMEOUT, () => {
-        req.destroy();
-        log.warn('Claude models fetch timed out');
-        resolve(this.models);
-      });
-
+      req.on('error', (err: Error) => { log.warn('Failed to fetch Anthropic models:', err.message); resolve(this.models); });
+      req.setTimeout(REQUEST_TIMEOUT, () => { req.destroy(); log.warn('Anthropic models fetch timed out'); resolve(this.models); });
       req.end();
     });
   }
 
-  /** Return the cached models list */
-  getModels(): ClaudeModel[] {
-    return this.models;
+  /** Fetch available OpenRouter models */
+  async fetchOpenRouterModels(): Promise<ClaudeModel[]> {
+    if (!this.openrouterApiKey) return this.openrouterModels;
+
+    return new Promise((resolve) => {
+      const options: https.RequestOptions = {
+        hostname: OPENROUTER_HOSTNAME,
+        port: 443,
+        path: '/api/v1/models',
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.openrouterApiKey!}`,
+        },
+      };
+
+      const req = https.request(options, (res) => {
+        let data = '';
+        res.on('data', (chunk: Buffer) => data += chunk);
+        res.on('end', () => {
+          if (res.statusCode === 200) {
+            try {
+              const parsed = JSON.parse(data);
+              if (Array.isArray(parsed.data)) {
+                this.openrouterModels = parsed.data.map((m: any) => ({
+                  id: m.id,
+                  display_name: m.name || m.id,
+                }));
+                log.debug(`Fetched ${this.openrouterModels.length} OpenRouter models`);
+              }
+            } catch (err: any) {
+              log.warn('Failed to parse OpenRouter models response:', err.message);
+            }
+          } else {
+            log.warn(`Failed to fetch OpenRouter models: HTTP ${res.statusCode}`);
+          }
+          resolve(this.openrouterModels);
+        });
+      });
+
+      req.on('error', (err: Error) => { log.warn('Failed to fetch OpenRouter models:', err.message); resolve(this.openrouterModels); });
+      req.setTimeout(REQUEST_TIMEOUT, () => { req.destroy(); log.warn('OpenRouter models fetch timed out'); resolve(this.openrouterModels); });
+      req.end();
+    });
+  }
+
+  /** Return the cached models list for a provider */
+  getModels(provider?: AIProvider): ClaudeModel[] {
+    return (provider || this.provider) === 'anthropic' ? this.models : this.openrouterModels;
+  }
+
+  /** Fetch models for a given provider (triggers API request) */
+  async fetchModelsForProvider(provider: AIProvider): Promise<ClaudeModel[]> {
+    return provider === 'anthropic' ? this.fetchModels() : this.fetchOpenRouterModels();
   }
 
   // ---------------------------------------------------------------------------
@@ -228,14 +378,7 @@ export class ClaudeManager {
   // ---------------------------------------------------------------------------
 
   /**
-   * Stream a Claude prompt.
-   *
-   * @param prompt      User message to send
-   * @param context     Optional shader context (current code, custom params)
-   * @param renderMode  'shader' or 'scene' — determines system prompt flavour
-   * @param onChunk     Called with each text chunk as it arrives
-   * @param onEnd       Called when the stream completes
-   * @param onError     Called on error
+   * Stream a prompt via the active provider.
    */
   streamPrompt(
     prompt: string,
@@ -244,24 +387,58 @@ export class ClaudeManager {
     onChunk: (text: string) => void,
     onEnd: () => void,
     onError: (error: string) => void,
+    attachments?: AIAttachment[],
+  ): void {
+    if (this.provider === 'anthropic') {
+      this.streamAnthropicPrompt(prompt, context, renderMode, onChunk, onEnd, onError, attachments);
+    } else {
+      this.streamOpenRouterPrompt(prompt, context, renderMode, onChunk, onEnd, onError, attachments);
+    }
+  }
+
+  /** Stream via Anthropic API */
+  private streamAnthropicPrompt(
+    prompt: string,
+    context: ClaudePromptContext | undefined,
+    renderMode: RenderMode,
+    onChunk: (text: string) => void,
+    onEnd: () => void,
+    onError: (error: string) => void,
+    attachments?: AIAttachment[],
   ): void {
     if (!this.apiKey) {
-      onError('No API key configured. Please add your Claude API key in Settings.');
+      onError('No Anthropic API key configured. Please add your key in Settings.');
       return;
     }
 
     const systemPrompt = this.buildSystemPrompt(context, renderMode);
+
+    // Build user content — plain string if no attachments, array if attachments present
+    let userContent: string | unknown[];
+    if (attachments && attachments.length > 0) {
+      userContent = [];
+      for (const att of attachments) {
+        const base64 = att.dataUrl.replace(/^data:[^;]+;base64,/, '');
+        (userContent as unknown[]).push({
+          type: 'image',
+          source: { type: 'base64', media_type: att.mediaType, data: base64 },
+        });
+      }
+      (userContent as unknown[]).push({ type: 'text', text: prompt });
+    } else {
+      userContent = prompt;
+    }
 
     const postData = JSON.stringify({
       model: this.model,
       max_tokens: 8192,
       stream: true,
       system: systemPrompt,
-      messages: [{ role: 'user', content: prompt }],
+      messages: [{ role: 'user', content: userContent }],
     });
 
     const options: https.RequestOptions = {
-      hostname: API_HOSTNAME,
+      hostname: ANTHROPIC_HOSTNAME,
       port: 443,
       path: '/v1/messages',
       method: 'POST',
@@ -292,24 +469,18 @@ export class ClaudeManager {
 
       res.on('data', (chunk: Buffer) => {
         buffer += chunk.toString();
-
-        // Process complete SSE events
         const lines = buffer.split('\n');
-        buffer = lines.pop()!; // Keep incomplete line in buffer
+        buffer = lines.pop()!;
 
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             const jsonStr = line.slice(6);
             if (jsonStr === '[DONE]') continue;
-
             try {
               const parsed = JSON.parse(jsonStr);
-
               if (parsed.type === 'content_block_delta') {
                 const text = parsed.delta?.text;
-                if (text) {
-                  onChunk(text);
-                }
+                if (text) onChunk(text);
               } else if (parsed.type === 'message_stop') {
                 streamEndSent = true;
                 onEnd();
@@ -324,32 +495,140 @@ export class ClaudeManager {
       });
 
       res.on('end', () => {
-        // Process any remaining buffer
         if (buffer.startsWith('data: ')) {
           try {
             const parsed = JSON.parse(buffer.slice(6));
             if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
               onChunk(parsed.delta.text);
             }
-          } catch {
-            // Ignore
-          }
+          } catch { /* Ignore */ }
         }
-        if (!streamEndSent) {
-          onEnd();
-        }
+        if (!streamEndSent) onEnd();
         this.activeRequest = null;
       });
     });
 
-    req.on('error', (err: Error) => {
-      onError(err.message);
-      this.activeRequest = null;
+    req.on('error', (err: Error) => { onError(err.message); this.activeRequest = null; });
+    this.activeRequest = req;
+    req.write(postData);
+    req.end();
+  }
+
+  /** Stream via OpenRouter API (OpenAI-compatible SSE) */
+  private streamOpenRouterPrompt(
+    prompt: string,
+    context: ClaudePromptContext | undefined,
+    renderMode: RenderMode,
+    onChunk: (text: string) => void,
+    onEnd: () => void,
+    onError: (error: string) => void,
+    attachments?: AIAttachment[],
+  ): void {
+    if (!this.openrouterApiKey) {
+      onError('No OpenRouter API key configured. Please add your key in Settings.');
+      return;
+    }
+
+    const systemPrompt = this.buildSystemPrompt(context, renderMode);
+
+    // Build user content — plain string if no attachments, array if attachments present
+    let userContent: string | unknown[];
+    if (attachments && attachments.length > 0) {
+      userContent = [];
+      for (const att of attachments) {
+        (userContent as unknown[]).push({
+          type: 'image_url',
+          image_url: { url: att.dataUrl },
+        });
+      }
+      (userContent as unknown[]).push({ type: 'text', text: prompt });
+    } else {
+      userContent = prompt;
+    }
+
+    const postData = JSON.stringify({
+      model: this.openrouterModel,
+      max_tokens: 8192,
+      stream: true,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userContent },
+      ],
     });
 
-    // Store reference for cancellation
-    this.activeRequest = req;
+    const options: https.RequestOptions = {
+      hostname: OPENROUTER_HOSTNAME,
+      port: 443,
+      path: '/api/v1/chat/completions',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.openrouterApiKey}`,
+      },
+    };
 
+    const req = https.request(options, (res) => {
+      if (res.statusCode !== 200) {
+        let errorData = '';
+        res.on('data', (chunk: Buffer) => errorData += chunk);
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(errorData);
+            onError(parsed.error?.message || `HTTP ${res.statusCode}`);
+          } catch {
+            onError(`HTTP ${res.statusCode}`);
+          }
+        });
+        return;
+      }
+
+      let buffer = '';
+      let streamEndSent = false;
+
+      res.on('data', (chunk: Buffer) => {
+        buffer += chunk.toString();
+        const lines = buffer.split('\n');
+        buffer = lines.pop()!;
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const jsonStr = line.slice(6).trim();
+            if (jsonStr === '[DONE]') {
+              if (!streamEndSent) { streamEndSent = true; onEnd(); }
+              continue;
+            }
+            try {
+              const parsed = JSON.parse(jsonStr);
+              const content = parsed.choices?.[0]?.delta?.content;
+              if (content) onChunk(content);
+            } catch {
+              // Ignore parse errors for incomplete chunks
+            }
+          }
+        }
+      });
+
+      res.on('end', () => {
+        // Process remaining buffer
+        if (buffer.startsWith('data: ')) {
+          const jsonStr = buffer.slice(6).trim();
+          if (jsonStr === '[DONE]') {
+            if (!streamEndSent) { streamEndSent = true; onEnd(); }
+          } else {
+            try {
+              const parsed = JSON.parse(jsonStr);
+              const content = parsed.choices?.[0]?.delta?.content;
+              if (content) onChunk(content);
+            } catch { /* Ignore */ }
+          }
+        }
+        if (!streamEndSent) onEnd();
+        this.activeRequest = null;
+      });
+    });
+
+    req.on('error', (err: Error) => { onError(err.message); this.activeRequest = null; });
+    this.activeRequest = req;
     req.write(postData);
     req.end();
   }
@@ -358,7 +637,6 @@ export class ClaudeManager {
   // Cancellation
   // ---------------------------------------------------------------------------
 
-  /** Cancel the currently active streaming request, if any */
   cancelRequest(): void {
     if (this.activeRequest) {
       this.activeRequest.destroy();
@@ -370,7 +648,6 @@ export class ClaudeManager {
   // System prompt construction
   // ---------------------------------------------------------------------------
 
-  /** Build the system prompt for Claude based on render mode and context */
   buildSystemPrompt(context: ClaudePromptContext | undefined, renderMode: RenderMode): string {
     const basePrompt = `You are an expert GLSL shader and Three.js developer helping with ShaderShow, a real-time shader visualization tool.
 
@@ -463,7 +740,6 @@ ${context?.currentCode ? `\nCURRENT CODE:\n${context.currentCode}` : ''}`;
   // Helpers
   // ---------------------------------------------------------------------------
 
-  /** Read a file and return its contents, or null if missing/error */
   private async readFileOrNull(filePath: string): Promise<string | null> {
     try {
       return await fsPromises.readFile(filePath, 'utf-8');

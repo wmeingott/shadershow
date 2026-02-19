@@ -50,15 +50,28 @@ export interface SettingsDialogData {
   remoteIPs: string[];
 }
 
-/** Claude AI settings */
-export interface ClaudeSettings {
+/** AI provider identifier */
+export type AIProvider = 'anthropic' | 'openrouter';
+
+/** AI settings (returned to renderer) */
+export interface AISettings {
+  provider: AIProvider;
+  // Anthropic
   hasKey: boolean;
   maskedKey: string;
   model: string;
   models: ClaudeModel[];
+  // OpenRouter
+  hasOpenrouterKey: boolean;
+  maskedOpenrouterKey: string;
+  openrouterModel: string;
+  openrouterModels: ClaudeModel[];
 }
 
-/** Claude model definition */
+/** @deprecated Use AISettings — kept as alias for backward compatibility */
+export type ClaudeSettings = AISettings;
+
+/** Model definition (works for both providers) */
 export interface ClaudeModel {
   id: string;
   display_name: string;

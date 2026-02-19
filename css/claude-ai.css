@@ -41,7 +41,46 @@
   font-weight: 600;
   margin: 0;
   color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+/* Provider / model dropdowns in header */
+.claude-ai-header-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   flex: 1;
+  min-width: 0;
+}
+
+.ai-header-select {
+  height: 28px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  outline: none;
+}
+
+.ai-header-select:hover {
+  border-color: var(--text-dim);
+  color: var(--text-primary);
+}
+
+.ai-header-select:focus {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 2px rgba(14, 99, 156, 0.15);
+}
+
+.ai-model-select {
+  max-width: 260px;
+  min-width: 120px;
+  text-overflow: ellipsis;
 }
 
 .claude-ai-mode-badge {
@@ -315,9 +354,88 @@
   color: var(--text-dim);
 }
 
+/* Attachment strip */
+.ai-attachments {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-bottom: 4px;
+}
+
+.ai-attachment-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 4px 8px 4px 4px;
+  max-width: 180px;
+}
+
+.ai-attachment-item img {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.ai-attachment-name {
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100px;
+}
+
+.ai-attachment-remove {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+
+.ai-attachment-remove:hover {
+  color: var(--error-color);
+}
+
+/* Chat attachment thumbnails */
+.chat-attachments {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.chat-attachment-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.2);
+}
+
 .input-actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.input-actions-left {
+  display: flex;
+  gap: 4px;
+}
+
+.input-actions-right {
+  display: flex;
   gap: 10px;
 }
 
@@ -334,6 +452,25 @@
 .input-actions .btn-secondary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.btn-icon {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.btn-icon:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
 }
 
 .send-icon {

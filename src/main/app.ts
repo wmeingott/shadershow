@@ -380,9 +380,10 @@ app.whenReady().then(async () => {
   await fileManager.ensureDataDir(app.getPath('userData'));
   await settingsManager.load();
   await claudeManager.loadKey();
-  if (claudeManager.hasKey()) {
-    claudeManager.fetchModels();
-  }
+  // Fetch models for whichever providers have keys
+  const aiSettings = claudeManager.getSettings();
+  if (aiSettings.hasKey) claudeManager.fetchModels();
+  if (aiSettings.hasOpenrouterKey) claudeManager.fetchOpenRouterModels();
 
   // Apply loaded settings to managers
   ndiManager.setFrameSkip(settingsManager.ndiFrameSkip);

@@ -275,14 +275,19 @@ function parseRest(restStr: string, baseType: ParamBaseType, arraySize: number |
   // For vector/color types, check if [x,y,z] is a default value (not a range)
   const expectedComponents = VEC_COMPONENTS[baseType];
   if (expectedComponents) {
-    // Per-element array defaults: [[x,y,z],[a,b,c]]
+    // Per-element array defaults: [[x,y,z],[a,b,c]] optionally followed by [min,max] range
     if (arraySize) {
-      const nestedMatch = remaining.match(/^\s*\[((?:\s*\[[^\]]+\]\s*,?\s*)+)\]\s*$/);
-      if (nestedMatch) {
+      // Use extractBracketGroups to separate the nested-defaults group from
+      // an optional trailing range group (e.g. [[-0.5,-0.45],...] [-0.5,0.5]).
+      const groups = extractBracketGroups(remaining);
+      if (groups.length >= 1) {
+        // First group should be the nested defaults
+        const defGroup = groups[0];
+        const innerContent = defGroup.slice(1, -1); // strip outer []
         const innerBrackets: ParamValue[] = [];
         const innerRegex = /\[([^\]]+)\]/g;
         let m;
-        while ((m = innerRegex.exec(nestedMatch[1])) !== null) {
+        while ((m = innerRegex.exec(innerContent)) !== null) {
           const parts = m[1].split(',').map((s: string) => s.trim());
           if (parts.length === expectedComponents) {
             innerBrackets.push(parseValue(parts.join(', '), baseType));
@@ -290,6 +295,18 @@ function parseRest(restStr: string, baseType: ParamBaseType, arraySize: number |
         }
         if (innerBrackets.length === arraySize) {
           defaultValue = innerBrackets;
+
+          // Second group (if present): [min,max] range
+          if (groups.length >= 2) {
+            const rangeInner = groups[1].slice(1, -1);
+            const rangeParts = rangeInner.split(',').map(s => s.trim());
+            if (rangeParts.length >= 2) {
+              min = parseFloat(rangeParts[0]);
+              max = parseFloat(rangeParts[1]);
+              if (isNaN(min)) min = null;
+              if (isNaN(max)) max = null;
+            }
+          }
           return { defaultValue, min, max, mins, maxs, description };
         }
       }

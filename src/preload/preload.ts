@@ -214,15 +214,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   exportTexturesToFolder: (folder: string, textureNames: string[]) => ipcRenderer.invoke('export-textures-to-folder', folder, textureNames),
   importTexturesFromFolder: (sourceFolder: string) => ipcRenderer.invoke('import-textures-from-folder', sourceFolder),
 
-  // Claude AI
+  // AI Assistant
   sendClaudePrompt: (data: any) => ipcRenderer.send('stream-claude-prompt', data),
   onClaudeStreamChunk: (callback: (data: any) => void) => onIPC('claude-stream-chunk', (_event: any, data: any) => callback(data)),
   onClaudeStreamEnd: (callback: (data: any) => void) => onIPC('claude-stream-end', (_event: any, data: any) => callback(data)),
   onClaudeError: (callback: (data: any) => void) => onIPC('claude-error', (_event: any, data: any) => callback(data)),
   cancelClaudeRequest: () => ipcRenderer.send('cancel-claude-request'),
   saveClaudeKey: (key: string | null, model: string) => ipcRenderer.invoke('save-claude-key', key, model),
+  saveOpenRouterKey: (key: string | null) => ipcRenderer.invoke('save-openrouter-key', key),
   hasClaudeKey: () => ipcRenderer.invoke('has-claude-key'),
   getClaudeSettings: () => ipcRenderer.invoke('get-claude-settings'),
   testClaudeKey: (key: string | null) => ipcRenderer.invoke('test-claude-key', key),
+  testOpenRouterKey: (key: string | null) => ipcRenderer.invoke('test-openrouter-key', key),
   getClaudeModels: () => ipcRenderer.invoke('get-claude-models'),
+  setAIProvider: (provider: string) => ipcRenderer.invoke('set-ai-provider', provider),
+  setAIModel: (provider: string, model: string) => ipcRenderer.invoke('set-ai-model', provider, model),
+  getAIModels: (provider: string) => ipcRenderer.invoke('get-ai-models', provider),
 });

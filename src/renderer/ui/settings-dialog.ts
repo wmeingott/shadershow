@@ -4,9 +4,10 @@
 import { state } from '../core/state.js';
 import type {
   SettingsDialogData,
-  ClaudeSettings,
+  AISettings,
   ClaudeModel,
   Resolution,
+  AIProvider,
 } from '@shared/types/settings.js';
 
 // ---------------------------------------------------------------------------
@@ -27,11 +28,14 @@ interface SettingsData {
 declare const window: Window & {
   electronAPI: {
     getSettings(): Promise<SettingsDialogData>;
-    getClaudeSettings(): Promise<ClaudeSettings>;
+    getClaudeSettings(): Promise<AISettings>;
     testClaudeKey(key: string | null): Promise<{ success: boolean; error?: string }>;
+    testOpenRouterKey(key: string | null): Promise<{ success: boolean; error?: string }>;
     saveClaudeKey(key: string | null, model: string): Promise<void>;
+    saveOpenRouterKey(key: string | null): Promise<void>;
     getClaudeModels(): Promise<ClaudeModel[]>;
     saveSettings(data: SettingsData): void;
+    setAIProvider(provider: string): Promise<void>;
   };
 };
 
@@ -42,23 +46,6 @@ import { setStatus } from './utils.js';
 // ---------------------------------------------------------------------------
 
 let settingsKeyHandler: ((e: KeyboardEvent) => void) | null = null;
-
-const FALLBACK_MODELS: ClaudeModel[] = [
-  { id: 'claude-sonnet-4-20250514', display_name: 'Claude Sonnet 4 (Recommended)' },
-  { id: 'claude-opus-4-5-20251101', display_name: 'Claude Opus 4.5 (Most Capable)' },
-  { id: 'claude-3-5-haiku-20241022', display_name: 'Claude 3.5 Haiku (Fast)' },
-];
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-function buildModelOptions(models: ClaudeModel[] | null, selectedModel: string): string {
-  const list = (models && models.length > 0) ? models : FALLBACK_MODELS;
-  return list.map(m =>
-    `<option value="${m.id}" ${m.id === selectedModel ? 'selected' : ''}>${m.display_name}</option>`
-  ).join('');
-}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -80,8 +67,8 @@ export async function showSettingsDialog(): Promise<void> {
   // Get current settings
   const settings = await window.electronAPI.getSettings();
 
-  // Get Claude settings
-  const claudeSettings = await window.electronAPI.getClaudeSettings();
+  // Get AI settings
+  const aiSettings = await window.electronAPI.getClaudeSettings();
 
   // Create settings dialog overlay
   const overlay = document.createElement('div');
@@ -173,20 +160,29 @@ export async function showSettingsDialog(): Promise<void> {
         </div>
 
         <div class="settings-section claude-settings-section">
-          <h3>Claude AI Assistant</h3>
+          <h3>AI Assistant</h3>
           <div class="setting-row">
+            <label>Provider:</label>
+            <select id="settings-ai-provider">
+              <option value="anthropic" ${aiSettings.provider === 'anthropic' ? 'selected' : ''}>Anthropic</option>
+              <option value="openrouter" ${aiSettings.provider === 'openrouter' ? 'selected' : ''}>OpenRouter</option>
+            </select>
+          </div>
+          <div id="settings-anthropic-key-row" class="setting-row ${aiSettings.provider !== 'anthropic' ? 'hidden' : ''}">
             <label>API Key:</label>
             <input type="password" id="settings-claude-key" class="api-key-input"
-                   placeholder="${claudeSettings.hasKey ? 'Key saved (' + claudeSettings.maskedKey + ')' : 'Enter your Anthropic API key'}"
+                   placeholder="${aiSettings.hasKey ? 'Key saved (' + aiSettings.maskedKey + ')' : 'Enter your Anthropic API key'}"
                    value="">
-            <button class="btn-secondary" id="settings-test-key">Test</button>
-            <span id="claude-test-result" class="test-result"></span>
+            <button class="btn-secondary" id="settings-test-anthropic-key">Test</button>
+            <span id="anthropic-test-result" class="test-result"></span>
           </div>
-          <div class="setting-row">
-            <label>Model:</label>
-            <select id="settings-claude-model">
-              ${buildModelOptions(claudeSettings.models, claudeSettings.model)}
-            </select>
+          <div id="settings-openrouter-key-row" class="setting-row ${aiSettings.provider !== 'openrouter' ? 'hidden' : ''}">
+            <label>API Key:</label>
+            <input type="password" id="settings-openrouter-key" class="api-key-input"
+                   placeholder="${aiSettings.hasOpenrouterKey ? 'Key saved (' + aiSettings.maskedOpenrouterKey + ')' : 'Enter your OpenRouter API key'}"
+                   value="">
+            <button class="btn-secondary" id="settings-test-openrouter-key">Test</button>
+            <span id="openrouter-test-result" class="test-result"></span>
           </div>
           <div class="setting-row">
             <label>Shortcut:</label>
@@ -247,6 +243,20 @@ export async function showSettingsDialog(): Promise<void> {
   remoteEnabledCb.addEventListener('change', updateRemoteUrlDisplay);
   remotePortInput.addEventListener('input', updateRemoteUrlDisplay);
 
+  // AI provider toggle — show/hide key rows
+  const providerSelect = document.getElementById('settings-ai-provider') as HTMLSelectElement;
+  providerSelect.addEventListener('change', () => {
+    const anthropicRow = document.getElementById('settings-anthropic-key-row') as HTMLElement;
+    const openrouterRow = document.getElementById('settings-openrouter-key-row') as HTMLElement;
+    if (providerSelect.value === 'anthropic') {
+      anthropicRow.classList.remove('hidden');
+      openrouterRow.classList.add('hidden');
+    } else {
+      anthropicRow.classList.add('hidden');
+      openrouterRow.classList.remove('hidden');
+    }
+  });
+
   // Close on overlay click
   overlay.addEventListener('click', (e: MouseEvent) => {
     if (e.target === overlay) closeSettingsDialog();
@@ -258,23 +268,23 @@ export async function showSettingsDialog(): Promise<void> {
   };
   document.addEventListener('keydown', settingsKeyHandler);
 
-  // Claude API key test button
-  (document.getElementById('settings-test-key') as HTMLButtonElement).addEventListener('click', testClaudeKey);
+  // Test key buttons
+  (document.getElementById('settings-test-anthropic-key') as HTMLButtonElement).addEventListener('click', testAnthropicKey);
+  (document.getElementById('settings-test-openrouter-key') as HTMLButtonElement).addEventListener('click', testOpenRouterKey);
 }
 
 // ---------------------------------------------------------------------------
 // Internal functions
 // ---------------------------------------------------------------------------
 
-async function testClaudeKey(): Promise<void> {
+async function testAnthropicKey(): Promise<void> {
   const keyInput = document.getElementById('settings-claude-key') as HTMLInputElement;
-  const resultSpan = document.getElementById('claude-test-result') as HTMLSpanElement;
-  const testBtn = document.getElementById('settings-test-key') as HTMLButtonElement;
+  const resultSpan = document.getElementById('anthropic-test-result') as HTMLSpanElement;
+  const testBtn = document.getElementById('settings-test-anthropic-key') as HTMLButtonElement;
 
   const key = keyInput.value.trim();
 
   if (!key) {
-    // Test existing key
     const settings = await window.electronAPI.getClaudeSettings();
     if (!settings.hasKey) {
       resultSpan.textContent = 'No key to test';
@@ -289,20 +299,46 @@ async function testClaudeKey(): Promise<void> {
 
   try {
     const result = await window.electronAPI.testClaudeKey(key || null);
-
     if (result.success) {
       resultSpan.textContent = 'Valid!';
       resultSpan.className = 'test-result success';
-      // Save the key so fetchClaudeModels can use it, then refresh dropdown
-      if (key) {
-        const modelSelect = document.getElementById('settings-claude-model') as HTMLSelectElement;
-        const currentModel = modelSelect.value;
-        await window.electronAPI.saveClaudeKey(key, currentModel);
-        const models = await window.electronAPI.getClaudeModels();
-        if (models && models.length > 0) {
-          modelSelect.innerHTML = buildModelOptions(models, currentModel);
-        }
-      }
+    } else {
+      resultSpan.textContent = result.error || 'Invalid';
+      resultSpan.className = 'test-result error';
+    }
+  } catch (_err) {
+    resultSpan.textContent = 'Test failed';
+    resultSpan.className = 'test-result error';
+  }
+
+  testBtn.disabled = false;
+}
+
+async function testOpenRouterKey(): Promise<void> {
+  const keyInput = document.getElementById('settings-openrouter-key') as HTMLInputElement;
+  const resultSpan = document.getElementById('openrouter-test-result') as HTMLSpanElement;
+  const testBtn = document.getElementById('settings-test-openrouter-key') as HTMLButtonElement;
+
+  const key = keyInput.value.trim();
+
+  if (!key) {
+    const settings = await window.electronAPI.getClaudeSettings();
+    if (!settings.hasOpenrouterKey) {
+      resultSpan.textContent = 'No key to test';
+      resultSpan.className = 'test-result error';
+      return;
+    }
+  }
+
+  testBtn.disabled = true;
+  resultSpan.textContent = 'Testing...';
+  resultSpan.className = 'test-result';
+
+  try {
+    const result = await window.electronAPI.testOpenRouterKey(key || null);
+    if (result.success) {
+      resultSpan.textContent = 'Valid!';
+      resultSpan.className = 'test-result success';
     } else {
       resultSpan.textContent = result.error || 'Invalid';
       resultSpan.className = 'test-result error';
@@ -387,18 +423,22 @@ async function applySettings(): Promise<void> {
   // Apply grid slot width immediately
   applyGridSlotWidth(gridSlotWidth);
 
-  // Save Claude settings if key was entered
-  const claudeKey = (document.getElementById('settings-claude-key') as HTMLInputElement).value.trim();
-  const claudeModel = (document.getElementById('settings-claude-model') as HTMLSelectElement).value;
+  // Save AI provider
+  const providerSelect = document.getElementById('settings-ai-provider') as HTMLSelectElement;
+  const provider = providerSelect.value as AIProvider;
+  await window.electronAPI.setAIProvider(provider);
 
+  // Save Anthropic key if entered
+  const claudeKey = (document.getElementById('settings-claude-key') as HTMLInputElement).value.trim();
   if (claudeKey) {
-    await window.electronAPI.saveClaudeKey(claudeKey, claudeModel);
-  } else {
-    // Still save model selection even without new key
     const currentSettings = await window.electronAPI.getClaudeSettings();
-    if (currentSettings.hasKey) {
-      await window.electronAPI.saveClaudeKey(null, claudeModel);
-    }
+    await window.electronAPI.saveClaudeKey(claudeKey, currentSettings.model);
+  }
+
+  // Save OpenRouter key if entered
+  const openrouterKey = (document.getElementById('settings-openrouter-key') as HTMLInputElement).value.trim();
+  if (openrouterKey) {
+    await window.electronAPI.saveOpenRouterKey(openrouterKey);
   }
 
   closeSettingsDialog();

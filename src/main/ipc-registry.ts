@@ -615,46 +615,71 @@ export class IPCRegistry {
       return primaryDisplay.displayFrequency || 60;
     });
 
-    // ── Claude IPC handlers ────────────────────────────────────────────
+    // ── AI IPC handlers ─────────────────────────────────────────────────
 
-    // 32. get-claude-key
+    // 32. get-claude-key (compat)
     ipcMain.handle('get-claude-key', async () => {
       return claudeManager.getSettings();
     });
 
-    // 32b. has-claude-key
+    // 32b. has-claude-key — checks the *active* provider's key
     ipcMain.handle('has-claude-key', () => {
       return claudeManager.hasKey();
     });
 
-    // 32c. get-claude-settings
+    // 32c. get-claude-settings — returns full AI settings
     ipcMain.handle('get-claude-settings', () => {
       return claudeManager.getSettings();
     });
 
-    // 33. save-claude-key
+    // 33. save-claude-key (Anthropic)
     ipcMain.handle('save-claude-key', async (_event, apiKey: string, model: string) => {
       return claudeManager.saveKey(apiKey, model);
     });
 
-    // 34. get-claude-models
+    // 33b. save-openrouter-key
+    ipcMain.handle('save-openrouter-key', async (_event, apiKey: string) => {
+      return claudeManager.saveOpenRouterKey(apiKey);
+    });
+
+    // 34. get-claude-models (for a specific provider, defaults to active)
     ipcMain.handle('get-claude-models', async () => {
       return claudeManager.getModels();
     });
 
-    // 35. set-claude-model
+    // 34b. get-ai-models — fetch models for a given provider (triggers API fetch)
+    ipcMain.handle('get-ai-models', async (_event, provider: string) => {
+      return claudeManager.fetchModelsForProvider(provider as import('@shared/types/settings.js').AIProvider);
+    });
+
+    // 35. set-claude-model (compat)
     ipcMain.handle('set-claude-model', async (_event, model: string) => {
       return claudeManager.saveKey(null, model);
     });
 
-    // 35b. test-claude-key
+    // 35b. test-claude-key (Anthropic)
     ipcMain.handle('test-claude-key', async (_event, key: string | null) => {
       return claudeManager.testKey(key);
     });
 
+    // 35c. test-openrouter-key
+    ipcMain.handle('test-openrouter-key', async (_event, key: string | null) => {
+      return claudeManager.testOpenRouterKey(key);
+    });
+
+    // 35d. set-ai-provider — switch active provider
+    ipcMain.handle('set-ai-provider', async (_event, provider: string) => {
+      await claudeManager.setProvider(provider as import('@shared/types/settings.js').AIProvider);
+    });
+
+    // 35e. set-ai-model — switch model for a provider
+    ipcMain.handle('set-ai-model', async (_event, provider: string, model: string) => {
+      await claudeManager.setModel(provider as import('@shared/types/settings.js').AIProvider, model);
+    });
+
     // 36. stream-claude-prompt
-    ipcMain.on('stream-claude-prompt', (event, data: { prompt: string; context?: { currentCode?: string; customParams?: string }; renderMode?: 'shader' | 'scene' }) => {
-      const { prompt, context, renderMode } = data;
+    ipcMain.on('stream-claude-prompt', (event, data: { prompt: string; context?: { currentCode?: string; customParams?: string }; renderMode?: 'shader' | 'scene'; attachments?: Array<{ dataUrl: string; name: string; mediaType: string }> }) => {
+      const { prompt, context, renderMode, attachments } = data;
       claudeManager.streamPrompt(
         prompt,
         context,
@@ -662,6 +687,7 @@ export class IPCRegistry {
         (text) => { event.sender.send('claude-stream-chunk', { text }); },
         () => { event.sender.send('claude-stream-end', { complete: true }); },
         (error) => { event.sender.send('claude-error', { error }); },
+        attachments,
       );
     });
 

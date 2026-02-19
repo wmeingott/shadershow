@@ -9,7 +9,7 @@ import { setStatus } from './utils.js';
 import { saveGridState } from '../grid/grid-persistence.js';
 import { loadParamsToSliders, generateCustomParamUI } from './params.js';
 import { updateMixerChannelParam } from './mixer.js';
-import { resetTiling } from './tiling.js';
+import { resetTiling, getTilingParams } from './tiling.js';
 
 // ---------------------------------------------------------------------------
 // window.electronAPI subset used in this module
@@ -230,7 +230,7 @@ function addLocalPreset(): void {
     return;
   }
 
-  const params: Record<string, unknown> = cloneParams(renderer!.getParams());
+  const params: Record<string, unknown> = { ...cloneParams(renderer!.getParams()), ...getTilingParams() };
   const slotData = state.gridSlots[state.activeGridSlot] as GridSlotData;
   if (!slotData.presets) {
     slotData.presets = [];
@@ -484,7 +484,7 @@ function updateLocalPreset(index: number): void {
   const presets: PresetEntry[] | undefined = slotData.presets;
   if (!presets || index >= presets.length) return;
 
-  const params: Record<string, unknown> = cloneParams(renderer!.getParams());
+  const params: Record<string, unknown> = { ...cloneParams(renderer!.getParams()), ...getTilingParams() };
   presets[index].params = params;
   saveGridState();
 

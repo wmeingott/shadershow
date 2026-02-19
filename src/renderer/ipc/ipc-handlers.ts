@@ -97,6 +97,8 @@ import { createTab, openInTab, activeTabHasChanges, markTabSaved, getActiveTab }
 import { isMixerActive, assignShaderToMixer, clearMixerChannel, resetMixer, recallMixState } from '../ui/mixer.js';
 import { recallVisualPreset, rebuildVisualPresetsDOM } from '../grid/visual-presets.js';
 import { tileState } from '../tiles/tile-state.js';
+import { ppValues } from '../ui/post-process.js';
+import { tilingValues } from '../ui/tiling.js';
 
 /** Benchmark not yet ported to TS — no-op stub */
 function runBenchmark(): void { /* no-op */ }
@@ -294,6 +296,8 @@ interface FullscreenState {
   activeLocalPresetIndex: number | null;
   tiledConfig: TiledConfig | null;
   mixerConfig: MixerConfig | null;
+  ppValues: { luminance: number; hue: number; saturation: number; contrast: number };
+  tilingValues: { cols: number; rows: number; spaceX: number; spaceY: number; bgR: number; bgG: number; bgB: number };
 }
 
 // ===========================================================================
@@ -566,6 +570,8 @@ export async function initIPC(): Promise<void> {
       activeLocalPresetIndex: state.activeLocalPresetIndex,
       tiledConfig,
       mixerConfig,
+      ppValues: { ...ppValues },
+      tilingValues: { ...tilingValues },
     };
     window.electronAPI.sendFullscreenState(fullscreenState);
   });

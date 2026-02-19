@@ -15,6 +15,16 @@ export const ppValues = {
 };
 
 // ---------------------------------------------------------------------------
+// Fullscreen sync
+// ---------------------------------------------------------------------------
+
+declare const window: Window & { electronAPI?: { sendPostProcessUpdate?(data: typeof ppValues): void } };
+
+function sendPPToFullscreen(): void {
+  window.electronAPI?.sendPostProcessUpdate?.(ppValues);
+}
+
+// ---------------------------------------------------------------------------
 // Slider config
 // ---------------------------------------------------------------------------
 
@@ -58,6 +68,7 @@ export function initPostProcess(): void {
       const raw = parseFloat(slider.value);
       ppValues[cfg.key] = cfg.toStored(raw);
       valueSpan.textContent = cfg.toDisplay(raw);
+      sendPPToFullscreen();
     });
 
     slider.addEventListener('dblclick', () => {
@@ -77,6 +88,7 @@ export function initPostProcess(): void {
       onCommit(value: number) {
         ppValues[cfg.key] = cfg.toStored(value);
         valueSpan.textContent = cfg.toDisplay(value);
+        sendPPToFullscreen();
       },
     });
   }
@@ -90,6 +102,7 @@ function resetOne(cfg: PPSliderConfig, slider: HTMLInputElement, valueSpan: HTML
   ppValues[cfg.key] = cfg.toStored(cfg.defaultVal);
   slider.value = String(cfg.defaultVal);
   valueSpan.textContent = cfg.toDisplay(cfg.defaultVal);
+  sendPPToFullscreen();
 }
 
 export function resetPostProcess(): void {

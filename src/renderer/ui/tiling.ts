@@ -20,6 +20,16 @@ export const tilingValues = {
 };
 
 // ---------------------------------------------------------------------------
+// Fullscreen sync
+// ---------------------------------------------------------------------------
+
+declare const window: Window & { electronAPI?: { sendTilingUpdate?(data: typeof tilingValues): void } };
+
+function sendTilingToFullscreen(): void {
+  window.electronAPI?.sendTilingUpdate?.(tilingValues);
+}
+
+// ---------------------------------------------------------------------------
 // Persistence
 // ---------------------------------------------------------------------------
 
@@ -62,6 +72,27 @@ function rgbToHex(r: number, g: number, b: number): string {
   return '#' + toHex(r) + toHex(g) + toHex(b);
 }
 
+/** Return tiling values in the format used by slot.params (for preset save/recall). */
+export function getTilingParams(): Record<string, unknown> {
+  return {
+    cols: tilingValues.cols,
+    rows: tilingValues.rows,
+    spaceX: tilingValues.spaceX,
+    spaceY: tilingValues.spaceY,
+    tilingBg: rgbToHex(tilingValues.bgR, tilingValues.bgG, tilingValues.bgB),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Fix-values guard
+// ---------------------------------------------------------------------------
+
+/** Returns true when the "Fix" checkbox is checked (tiling should not be overwritten by presets). */
+export function isTilingFixed(): boolean {
+  const cb = document.getElementById('tiling-fix-values') as HTMLInputElement | null;
+  return cb?.checked ?? false;
+}
+
 // ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
@@ -86,6 +117,7 @@ export function initTiling(): void {
       tilingValues[cfg.key] = val;
       valueSpan.textContent = val.toString();
       syncToActiveSlot(cfg.key, val);
+      sendTilingToFullscreen();
     });
 
     slider.addEventListener('dblclick', () => {
@@ -93,6 +125,7 @@ export function initTiling(): void {
       slider.value = String(cfg.def);
       valueSpan.textContent = String(cfg.def);
       syncToActiveSlot(cfg.key, cfg.def);
+      sendTilingToFullscreen();
     });
 
     const label = slider.closest('.param-row')?.querySelector('label');
@@ -103,6 +136,7 @@ export function initTiling(): void {
         slider.value = String(cfg.def);
         valueSpan.textContent = String(cfg.def);
         syncToActiveSlot(cfg.key, cfg.def);
+        sendTilingToFullscreen();
       });
     }
 
@@ -112,6 +146,7 @@ export function initTiling(): void {
         tilingValues[cfg.key] = value;
         valueSpan.textContent = value.toString();
         syncToActiveSlot(cfg.key, value);
+        sendTilingToFullscreen();
       },
     });
   }
@@ -130,6 +165,7 @@ export function initTiling(): void {
       tilingValues[cfg.key] = val;
       valueSpan.textContent = val.toFixed(2);
       syncToActiveSlot(cfg.key, val);
+      sendTilingToFullscreen();
     });
 
     slider.addEventListener('dblclick', () => {
@@ -137,6 +173,7 @@ export function initTiling(): void {
       slider.value = '0';
       valueSpan.textContent = '0.00';
       syncToActiveSlot(cfg.key, 0);
+      sendTilingToFullscreen();
     });
 
     const label = slider.closest('.param-row')?.querySelector('label');
@@ -147,6 +184,7 @@ export function initTiling(): void {
         slider.value = '0';
         valueSpan.textContent = '0.00';
         syncToActiveSlot(cfg.key, 0);
+        sendTilingToFullscreen();
       });
     }
 
@@ -156,6 +194,7 @@ export function initTiling(): void {
         tilingValues[cfg.key] = value;
         valueSpan.textContent = value.toFixed(2);
         syncToActiveSlot(cfg.key, value);
+        sendTilingToFullscreen();
       },
     });
   }
@@ -169,6 +208,7 @@ export function initTiling(): void {
       tilingValues.bgG = g;
       tilingValues.bgB = b;
       syncToActiveSlot('tilingBg', bgPicker.value);
+      sendTilingToFullscreen();
     });
 
     const label = bgPicker.closest('.param-row')?.querySelector('label');
@@ -180,6 +220,7 @@ export function initTiling(): void {
         tilingValues.bgB = 0;
         bgPicker.value = '#000000';
         syncToActiveSlot('tilingBg', '#000000');
+        sendTilingToFullscreen();
       });
     }
   }
@@ -189,8 +230,9 @@ export function initTiling(): void {
 // Load / Reset
 // ---------------------------------------------------------------------------
 
-/** Load tiling from slot params. Resets to defaults when keys are absent. */
+/** Load tiling from slot params. Resets to defaults when keys are absent. Skips when "Fix" is checked. */
 export function loadTilingToSliders(params: Record<string, unknown> | null): void {
+  if (isTilingFixed()) return;
   tilingValues.cols = (params?.cols as number) || 1;
   tilingValues.rows = (params?.rows as number) || 1;
   tilingValues.spaceX = (params?.spaceX as number) || 0;
@@ -225,6 +267,8 @@ export function loadTilingToSliders(params: Record<string, unknown> | null): voi
 
   const bgPicker = document.getElementById('tiling-bg') as HTMLInputElement | null;
   if (bgPicker) bgPicker.value = bgHex;
+
+  sendTilingToFullscreen();
 }
 
 export function resetTiling(): void {
@@ -264,4 +308,6 @@ export function resetTiling(): void {
   syncToActiveSlot('spaceX', 0);
   syncToActiveSlot('spaceY', 0);
   syncToActiveSlot('tilingBg', '#000000');
+
+  sendTilingToFullscreen();
 }

@@ -12,6 +12,8 @@ import { ShaderRenderer } from '@renderer/renderers/shader-renderer.js';
 import { ThreeSceneRenderer } from '@renderer/renderers/three-scene-renderer.js';
 import { TileRenderer } from '@renderer/renderers/tile-renderer.js';
 import type { TileBounds, TileSharedState } from '@renderer/renderers/tile-renderer.js';
+import { ppValues } from '@renderer/ui/post-process.js';
+import { tilingValues } from '@renderer/ui/tiling.js';
 
 // =============================================================================
 // Logger
@@ -118,6 +120,8 @@ interface InitFullscreenState {
   activeLocalPresetIndex?: number | null;
   tiledConfig?: TileConfig;
   mixerConfig?: MixerConfig;
+  ppValues?: { luminance: number; hue: number; saturation: number; contrast: number };
+  tilingValues?: { cols: number; rows: number; spaceX: number; spaceY: number; bgR: number; bgG: number; bgB: number };
 }
 
 interface ShaderUpdateData {
@@ -222,6 +226,8 @@ declare const window: Window & {
     onTileAssign?(cb: (data: TileAssignData) => void): void;
     onTileParamUpdate?(cb: (data: TileParamUpdateData) => void): void;
     onExitTiledMode?(cb: () => void): void;
+    onPostProcessUpdate?(cb: (data: { luminance: number; hue: number; saturation: number; contrast: number }) => void): void;
+    onTilingUpdate?(cb: (data: { cols: number; rows: number; spaceX: number; spaceY: number; bgR: number; bgG: number; bgB: number }) => void): void;
   };
   loadThreeJS(): Promise<void>;
 };
@@ -1232,6 +1238,14 @@ export function registerIPCHandlers(): void {
     if (state.mixerConfig) {
       initMixerMode(state.mixerConfig);
     }
+
+    // Apply post-processing and tiling values from main window
+    if (state.ppValues) {
+      Object.assign(ppValues, state.ppValues);
+    }
+    if (state.tilingValues) {
+      Object.assign(tilingValues, state.tilingValues);
+    }
   });
 
   // Handle shader/scene updates from main window
@@ -1569,5 +1583,17 @@ export function registerIPCHandlers(): void {
   // Exit tiled mode
   window.electronAPI.onExitTiledMode?.(() => {
     exitTiledMode();
+  });
+
+  // =========================================================================
+  // Post-processing & Tiling sync from main window
+  // =========================================================================
+
+  window.electronAPI.onPostProcessUpdate?.((data) => {
+    Object.assign(ppValues, data);
+  });
+
+  window.electronAPI.onTilingUpdate?.((data) => {
+    Object.assign(tilingValues, data);
   });
 }

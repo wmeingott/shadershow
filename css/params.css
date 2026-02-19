@@ -51,6 +51,22 @@
   border-color: var(--text-secondary);
 }
 
+.fix-tiling-label {
+  font-size: 10px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+  color: var(--text-secondary);
+  margin-right: auto;
+  margin-left: 8px;
+}
+
+.fix-tiling-label input[type="checkbox"] {
+  vertical-align: middle;
+  margin: 0 2px 0 0;
+}
+
 .param-row {
   display: flex;
   align-items: center;

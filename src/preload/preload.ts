@@ -46,6 +46,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendTimeSync: (data: any) => ipcRenderer.send('time-sync', data),
   sendParamUpdate: (data: any) => ipcRenderer.send('param-update', data),
   sendBatchParamUpdate: (params: any) => ipcRenderer.send('batch-param-update', params),
+  sendPostProcessUpdate: (data: any) => ipcRenderer.send('post-process-update', data),
+  sendTilingUpdate: (data: any) => ipcRenderer.send('tiling-update', data),
 
   // Fullscreen operations (fullscreen window)
   onInitFullscreen: (callback: (data: any) => void) => onIPC('init-fullscreen', (_event: any, data: any) => callback(data)),
@@ -53,6 +55,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onTimeSync: (callback: (data: any) => void) => onIPC('time-sync', (_event: any, data: any) => callback(data)),
   onParamUpdate: (callback: (data: any) => void) => onIPC('param-update', (_event: any, data: any) => callback(data)),
   onBatchParamUpdate: (callback: (data: any) => void) => onIPC('batch-param-update', (_event: any, data: any) => callback(data)),
+  onPostProcessUpdate: (callback: (data: any) => void) => onIPC('post-process-update', (_event: any, data: any) => callback(data)),
+  onTilingUpdate: (callback: (data: any) => void) => onIPC('tiling-update', (_event: any, data: any) => callback(data)),
   onPresetSync: (callback: (data: any) => void) => onIPC('preset-sync', (_event: any, data: any) => callback(data)),
   sendPresetSync: (data: any) => ipcRenderer.send('preset-sync', data),
   onBlackout: (callback: (data: any) => void) => onIPC('blackout', (_event: any, data: any) => callback(data)),

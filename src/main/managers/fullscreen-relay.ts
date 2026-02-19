@@ -33,6 +33,8 @@ const MAIN_TO_FULLSCREEN_CHANNELS = [
   'mixer-blend-mode',
   'mixer-channel-update',
   'init-tiled-fullscreen',
+  'post-process-update',
+  'tiling-update',
 ] as const;
 
 /**

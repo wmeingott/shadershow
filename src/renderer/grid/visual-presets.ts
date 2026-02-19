@@ -39,6 +39,7 @@ import { setStatus } from '../ui/utils.js';
 import { compileShader } from '../ui/editor.js';
 import { setRenderMode, ensureSceneRenderer, detectRenderMode } from '../core/renderer-manager.js';
 import { loadParamsToSliders, generateCustomParamUI } from '../ui/params.js';
+import { getTilingParams, loadTilingToSliders } from '../ui/tiling.js';
 
 // ---------------------------------------------------------------------------
 // Local interfaces
@@ -408,7 +409,7 @@ async function saveVisualPreset(): Promise<void> {
     thumbnail: captureVisualPresetThumbnail(),
     renderMode: state.renderMode || 'shader',
     shaderCode,
-    params: { speed },
+    params: { speed, ...getTilingParams() },
     customParams: { ...customParams },
     mixerEnabled: mixerActive,
     mixerBlendMode: mixerActive ? state.mixerBlendMode : undefined,
@@ -619,7 +620,7 @@ function updateVisualPreset(presetIndex: number): void {
   preset.thumbnail = captureVisualPresetThumbnail();
   preset.renderMode = state.renderMode || 'shader';
   preset.shaderCode = shaderCode;
-  preset.params = { speed };
+  preset.params = { speed, ...getTilingParams() };
   preset.customParams = { ...customParams };
   preset.mixerEnabled = mixerActive;
   preset.mixerBlendMode = mixerActive ? state.mixerBlendMode : undefined;

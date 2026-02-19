@@ -179,9 +179,9 @@ export class WindowManager {
     this.fullscreenWindow.loadFile(path.join(this.appDir, 'fullscreen.html'));
 
     // Pipe fullscreen console.log to main process terminal for debugging
-    this.fullscreenWindow.webContents.on('console-message', (_event, _level, message) => {
-      if (message.startsWith('[Fullscreen]')) {
-        console.log(message);
+    this.fullscreenWindow.webContents.on('console-message', (event) => {
+      if (event.message.startsWith('[Fullscreen]')) {
+        console.log(event.message);
       }
     });
 

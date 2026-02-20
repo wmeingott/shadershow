@@ -70,6 +70,7 @@ import { saveGridState } from '../grid/grid-persistence.js';
 import { setStatus } from './utils.js';
 import { parseShaderParams } from '@shared/param-parser.js';
 import { loadTilingToSliders } from './tiling.js';
+import { showContextMenu, hideContextMenu } from './context-menu.js';
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -90,6 +91,7 @@ let rightDragState: {
 let rightDragTarget: ColorPickerInput | null = null;
 
 let rightDragListenersInit = false;
+let rightSwapOccurred = false;
 
 const selectedColorPickers = new Set<ColorPickerInput>();
 
@@ -153,11 +155,43 @@ function initRightDragListeners(): void {
       const sourceRgb = [...source.rgb];
       rightDragTarget._colorSwapApply(sourceRgb);
       source.sourcePicker._colorSwapApply(targetRgb);
+      rightSwapOccurred = true;
     }
 
     rightDragState = null;
     rightDragTarget = null;
   });
+}
+
+// ---------------------------------------------------------------------------
+// Array color picker selection
+// ---------------------------------------------------------------------------
+
+function selectArrayColorPickers(arrayName: string, mode: 'odd' | 'even' | 'all' | 'none'): void {
+  const container = document.getElementById('custom-params-container');
+  if (!container) return;
+
+  const pickers = [...container.querySelectorAll(
+    `.color-picker-input[data-array-name="${arrayName}"]`
+  )] as ColorPickerInput[];
+
+  // Clear existing selection of these pickers
+  for (const picker of pickers) {
+    selectedColorPickers.delete(picker);
+    picker.classList.remove('color-selected');
+  }
+
+  for (const picker of pickers) {
+    const idx = parseInt(picker.dataset.arrayIndex!, 10);
+    // 1-based convention: odd positions (1st,3rd,5th) = indices 0,2,4
+    const select = mode === 'all'
+      || (mode === 'odd' && idx % 2 === 0)
+      || (mode === 'even' && idx % 2 === 1);
+    if (select) {
+      selectedColorPickers.add(picker);
+      picker.classList.add('color-selected');
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -797,11 +831,43 @@ function createColorControl(
     update(paramName, rgb, arrayIndex);
   };
 
+  // Tag array color pickers for selection queries
+  if (arrayIndex !== null) {
+    colorPicker.dataset.arrayName = paramName;
+    colorPicker.dataset.arrayIndex = String(arrayIndex);
+  }
+
   if (!rightDragListenersInit) {
     initRightDragListeners();
     rightDragListenersInit = true;
   }
-  colorPicker.addEventListener('contextmenu', (e: MouseEvent) => e.preventDefault());
+  colorPicker.addEventListener('contextmenu', (e: MouseEvent) => {
+    e.preventDefault();
+    // Skip if a drag-swap just happened
+    if (rightSwapOccurred) { rightSwapOccurred = false; return; }
+    // Show selection context menu for array color pickers
+    if (arrayIndex === null) return;
+    hideContextMenu('color-select-menu');
+    showContextMenu(e.clientX, e.clientY, [
+      {
+        label: 'Select Odd',
+        action: () => selectArrayColorPickers(paramName, 'odd'),
+      },
+      {
+        label: 'Select Even',
+        action: () => selectArrayColorPickers(paramName, 'even'),
+      },
+      { separator: true },
+      {
+        label: 'Select All',
+        action: () => selectArrayColorPickers(paramName, 'all'),
+      },
+      {
+        label: 'Deselect All',
+        action: () => selectArrayColorPickers(paramName, 'none'),
+      },
+    ], { menuId: 'color-select-menu' });
+  });
   colorPicker.addEventListener('mousedown', (e: MouseEvent) => {
     if (e.button !== 2) return;
     e.preventDefault();

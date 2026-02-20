@@ -9,7 +9,7 @@
 
 import type { ParamDef, ParamValues, TextureDirective } from '@shared/types/params.js';
 import type { CompileResult } from '@shared/types/renderer.js';
-import { parseShaderParams, generateUniformDeclarations, createParamValues, parseTextureDirectives, parseOption25D } from '@shared/param-parser.js';
+import { parseShaderParams, parseShaderConsts, generateConstDefines, generateUniformDeclarations, createParamValues, parseTextureDirectives, parseOption25D } from '@shared/param-parser.js';
 import {
   setupFullscreenQuad,
   buildFragmentWrapper,
@@ -20,7 +20,7 @@ import {
   setCustomUniforms,
   loadTextureFromDataUrl,
   parseShaderError,
-  apply25DExtras,
+  buildShaderExtras,
 } from './gl-utils.js';
 import type { StandardUniforms, CustomParamUniforms, ShaderErrorInfo } from './gl-utils.js';
 
@@ -55,6 +55,10 @@ export interface TileSharedState {
   date: [number, number, number, number];
   channelTextures: (WebGLTexture | null)[];
   channelResolutions: Float32Array | number[];
+  ppLuminance?: number;
+  ppHue?: number;
+  ppSaturation?: number;
+  ppContrast?: number;
 }
 
 /** Extended uniforms for tile renderer (standard + iTileOffset) */
@@ -87,8 +91,16 @@ export class TileRenderer {
   // Legacy fixed params
   private params: { speed: number; [key: string]: number } = { speed: 1.0 };
 
-  // Extra wrapper lines from shader options (e.g. 2.5D)
+  // Extra wrapper lines from shader options (e.g. 2.5D, post-processing)
   private _extraEffectLines: number = 0;
+
+  // Post-processing uniform locations
+  private _ppUniforms: {
+    luminance: WebGLUniformLocation | null;
+    hue: WebGLUniformLocation | null;
+    saturation: WebGLUniformLocation | null;
+    contrast: WebGLUniformLocation | null;
+  } = { luminance: null, hue: null, saturation: null, contrast: null };
 
   // Shader source
   private shaderSource: string | null = null;
@@ -127,20 +139,25 @@ export class TileRenderer {
 
     this.shaderSource = fragmentSource;
 
+    // Parse @const directives
+    const consts = parseShaderConsts(fragmentSource);
+    const constDefines = generateConstDefines(consts);
+
     // Parse custom parameters
     this.parseParams(fragmentSource);
 
-    // Generate uniform declarations for custom params
-    const customUniformDecls = generateUniformDeclarations(this.customParams);
+    // Generate uniform declarations for custom params (with const defines prepended)
+    const uniformDecls = generateUniformDeclarations(this.customParams);
+    const customUniformDecls = [constDefines, uniformDecls].filter(Boolean).join('\n');
 
-    // Build wrapped fragment shader with tile offset support + optional 2.5D relief
+    // Build composed GLSL extras (tile offset + 2.5D + post-processing)
     const depthPct = parseOption25D(fragmentSource);
-    const tileExtras = {
-      extraUniforms: '// Tile offset for coordinate adjustment\nuniform vec2 iTileOffset;',
-      mainBody: '// Adjust gl_FragCoord to be relative to tile, not window\nvec2 fragCoord = gl_FragCoord.xy - iTileOffset;\nmainImage(outColor, fragCoord);'
-    };
-    const { extras: finalExtras, extraLines } = apply25DExtras(tileExtras, depthPct);
-    this._extraEffectLines = extraLines;
+    const { extras: finalExtras, extraUniformLines } = buildShaderExtras({
+      tileOffset: true,
+      postProcess: true,
+      depthPct,
+    });
+    this._extraEffectLines = extraUniformLines + consts.size;
     const wrappedFragment = buildFragmentWrapper(fragmentSource, customUniformDecls, finalExtras);
 
     // Compile and link
@@ -172,6 +189,14 @@ export class TileRenderer {
 
     // Cache uniform locations for custom parameters
     this.customParamUniforms = cacheCustomParamUniforms(gl, program, this.customParams);
+
+    // Cache post-processing uniform locations
+    this._ppUniforms = {
+      luminance:  gl.getUniformLocation(program, '_pp_luminance'),
+      hue:        gl.getUniformLocation(program, '_pp_hue'),
+      saturation: gl.getUniformLocation(program, '_pp_saturation'),
+      contrast:   gl.getUniformLocation(program, '_pp_contrast'),
+    };
 
     // Parse @texture directives for file textures
     this.fileTextureDirectives = [];
@@ -276,6 +301,14 @@ export class TileRenderer {
 
     // Set custom parameter uniforms
     this.setCustomUniforms();
+
+    // Set post-processing uniforms
+    if (this._ppUniforms.luminance !== null) {
+      gl.uniform1f(this._ppUniforms.luminance, sharedState.ppLuminance ?? 1);
+      gl.uniform1f(this._ppUniforms.hue, sharedState.ppHue ?? 0);
+      gl.uniform1f(this._ppUniforms.saturation, sharedState.ppSaturation ?? 1);
+      gl.uniform1f(this._ppUniforms.contrast, sharedState.ppContrast ?? 1);
+    }
 
     // Bind textures (per-tile overrides shared when available)
     const resArray = this._resArray;

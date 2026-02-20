@@ -18,6 +18,8 @@ import type {
 
 import {
   parseShaderParams,
+  parseShaderConsts,
+  generateConstDefines,
   generateUniformDeclarations,
   createParamValues,
   parseTextureDirectives,
@@ -35,16 +37,13 @@ import {
   createBuiltinTexture,
   BUILTIN_TEXTURES,
   VERTEX_SHADER_SOURCE,
-  apply25DExtras,
-  applyPostProcessExtras,
-  applyTilingGapExtras,
+  buildShaderExtras,
 } from './gl-utils.js';
 
 import type {
   StandardUniforms,
   CustomParamUniforms,
   TextureInfo,
-  FragmentWrapperExtras,
 } from './gl-utils.js';
 
 import { BeatDetector } from './beat-detector.js';
@@ -910,40 +909,28 @@ export class ShaderRenderer {
     // Store for potential recompile after context restore
     this._lastShaderSource = fragmentSource;
 
+    // Parse @const directives
+    const consts = parseShaderConsts(fragmentSource);
+    const constDefines = generateConstDefines(consts);
+
     // Parse custom parameters from shader source
     this.customParams = parseShaderParams(fragmentSource);
     this.customParamValues = createParamValues(this.customParams);
     this.customParamUniforms = {};
     this._paramsDirty = true; // Invalidate params cache on recompile
 
-    // Generate uniform declarations for custom params
-    const customUniformDecls = generateUniformDeclarations(this.customParams);
+    // Generate uniform declarations for custom params (with const defines prepended)
+    const uniformDecls = generateUniformDeclarations(this.customParams);
+    const customUniformDecls = [constDefines, uniformDecls].filter(Boolean).join('\n');
 
-    // Tiling: coordinate wrapping + gap detection (identity when cols=rows=1, space=0)
-    // tile_cols, tile_rows = uniforms; tile_col, tile_row = per-pixel globals
-    const tilingUniformStr =
-`uniform vec2 _tile_space;
-uniform vec3 _tile_bg;`;
-    const tilingBody =
-`vec2 _tile_safeInv = max(1.0 - _tile_space, vec2(0.001));
-vec2 _tile_ts = iResolution.xy * _tile_safeInv;
-vec2 _tile_pc = mod(gl_FragCoord.xy, iResolution.xy);
-bool _tile_inGap = _tile_pc.x >= _tile_ts.x || _tile_pc.y >= _tile_ts.y;
-tile_col = floor(gl_FragCoord.x / iResolution.x);
-tile_row = floor(gl_FragCoord.y / iResolution.y);
-mainImage(outColor, _tile_pc / _tile_safeInv);`;
-    const tilingExtras: FragmentWrapperExtras = {
-      extraUniforms: tilingUniformStr,
-      mainBody: tilingBody,
-    };
-    const tilingUniformNewlines = (tilingUniformStr.match(/\n/g)?.length ?? 0);
-
-    // Parse 2.5D relief option and compose extras, then chain post-processing, then gap overwrite
+    // Build composed GLSL extras (tiling + 2.5D + post-processing + gap overwrite)
     const depthPct = parseOption25D(fragmentSource);
-    const { extras: d25Extras, extraLines: d25Lines } = apply25DExtras(tilingExtras, depthPct);
-    const { extras: ppExtras, extraLines: ppLines } = applyPostProcessExtras(d25Extras);
-    const effectExtras = applyTilingGapExtras(ppExtras);
-    this._extraEffectLines = tilingUniformNewlines + d25Lines + ppLines;
+    const { extras: effectExtras, extraUniformLines } = buildShaderExtras({
+      tiling: true,
+      postProcess: true,
+      depthPct,
+    });
+    this._extraEffectLines = extraUniformLines + consts.size;
 
     // Build wrapped fragment shader
     const wrappedFragment = buildFragmentWrapper(fragmentSource, customUniformDecls, effectExtras);

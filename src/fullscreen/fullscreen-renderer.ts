@@ -326,6 +326,10 @@ function prepareSharedState(): TileSharedState {
     date: dateValues,
     channelTextures: sr.channelTextures,
     channelResolutions: _sharedResolutions,
+    ppLuminance: ppValues.luminance,
+    ppHue: ppValues.hue,
+    ppSaturation: ppValues.saturation,
+    ppContrast: ppValues.contrast,
   };
 }
 

@@ -453,6 +453,90 @@ outColor.rgb = clamp(_pp_rgb, 0.0, 1.0);`;
   };
 }
 
+// ---------------------------------------------------------------------------
+// Unified shader extras pipeline
+// ---------------------------------------------------------------------------
+
+export interface ShaderExtrasOptions {
+  /** Enable tiling uniforms + coordinate wrapping (ShaderRenderer) */
+  tiling?: boolean;
+  /** Enable post-processing uniforms (ShaderRenderer, TileRenderer) */
+  postProcess?: boolean;
+  /** Enable tile offset uniform (TileRenderer) */
+  tileOffset?: boolean;
+  /** Enable legacy uniforms for thumbnails (MiniShaderRenderer) */
+  legacyUniforms?: boolean;
+  /** 2.5D relief depth percentage (null = disabled) */
+  depthPct?: number | null;
+}
+
+export interface ShaderExtrasResult {
+  extras: FragmentWrapperExtras;
+  /** Extra lines added to uniforms section (for error line offset) */
+  extraUniformLines: number;
+}
+
+/**
+ * Build composed GLSL extras for the fragment wrapper in the correct order:
+ * 1. Base extras (tiling | tileOffset | legacy uniforms)
+ * 2. apply25DExtras (if depthPct !== null/undefined)
+ * 3. applyPostProcessExtras (if postProcess)
+ * 4. applyTilingGapExtras (if tiling — must come last)
+ */
+export function buildShaderExtras(options: ShaderExtrasOptions): ShaderExtrasResult {
+  let extras: FragmentWrapperExtras | undefined;
+  let totalExtraLines = 0;
+
+  // 1. Base extras — mutually exclusive
+  if (options.tiling) {
+    const tilingUniformStr =
+`uniform vec2 _tile_space;
+uniform vec3 _tile_bg;`;
+    const tilingBody =
+`vec2 _tile_safeInv = max(1.0 - _tile_space, vec2(0.001));
+vec2 _tile_ts = iResolution.xy * _tile_safeInv;
+vec2 _tile_pc = mod(gl_FragCoord.xy, iResolution.xy);
+bool _tile_inGap = _tile_pc.x >= _tile_ts.x || _tile_pc.y >= _tile_ts.y;
+tile_col = floor(gl_FragCoord.x / iResolution.x);
+tile_row = floor(gl_FragCoord.y / iResolution.y);
+mainImage(outColor, _tile_pc / _tile_safeInv);`;
+    extras = { extraUniforms: tilingUniformStr, mainBody: tilingBody };
+    totalExtraLines += (tilingUniformStr.match(/\n/g)?.length ?? 0);
+  } else if (options.tileOffset) {
+    extras = {
+      extraUniforms: '// Tile offset for coordinate adjustment\nuniform vec2 iTileOffset;',
+      mainBody: '// Adjust gl_FragCoord to be relative to tile, not window\nvec2 fragCoord = gl_FragCoord.xy - iTileOffset;\nmainImage(outColor, fragCoord);',
+    };
+  } else if (options.legacyUniforms) {
+    extras = {
+      extraUniforms: 'uniform vec3 iColorRGB[10];\nuniform float iParams[5];\nuniform float iSpeed;',
+    };
+  }
+
+  // 2. 2.5D relief
+  const depthPct = options.depthPct ?? null;
+  const { extras: d25Extras, extraLines: d25Lines } = apply25DExtras(extras, depthPct);
+  extras = d25Extras;
+  totalExtraLines += d25Lines;
+
+  // 3. Post-processing
+  if (options.postProcess) {
+    const { extras: ppExtras, extraLines: ppLines } = applyPostProcessExtras(extras);
+    extras = ppExtras;
+    totalExtraLines += ppLines;
+  }
+
+  // 4. Tiling gap overwrite (must come last, only when tiling enabled)
+  if (options.tiling && extras) {
+    extras = applyTilingGapExtras(extras);
+  }
+
+  return {
+    extras: extras || {},
+    extraUniformLines: totalExtraLines,
+  };
+}
+
 export function parseShaderError(error: string, wrapperLineCount: number): ShaderErrorInfo {
   const match = error.match(/ERROR:\s*\d+:(\d+):\s*(.+)/);
   if (match) {

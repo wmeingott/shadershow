@@ -11,6 +11,7 @@ const PARAM_REGEX = /^\s*\/\/\s*@param\s+(\w+)\s+(int|float|vec[234]|color)\b(\[
 const STRUCT_PARAM_REGEX = /^\s*\/\/\s*@param\s+(\w+)\s+(\w+)(\[(\d+)\])?\s*(.*)/;
 const STRUCTURE_REGEX = /^\s*\/\/\s*@structure\s+(\w+)\s+(.*)/s;
 const TEXTURE_REGEX = /^\s*\/\/\s*@texture\s+(iChannel[0-3])\s+(texture:(\w+)|(\w+)(?:\((\d+)\))?)/;
+const CONST_REGEX = /^\s*\/\/\s*@const\s+([A-Z_]\w*)\s+(\d+)/;
 const FILE_TEXTURE_NAME_REGEX = /^[\w-]+$/;
 const BASE_TYPES = new Set<string>(['int', 'float', 'vec2', 'vec3', 'vec4', 'color']);
 
@@ -38,7 +39,7 @@ function handleDirectiveLine(content: string, pending: string, result: string[])
     // Inside @structure continuation, @param lines are fields — not new directives
     const inStructure = pending.startsWith('@structure');
 
-    if (!inStructure && /^@(?:param|texture|structure)\b/.test(content)) {
+    if (!inStructure && /^@(?:param|texture|structure|const)\b/.test(content)) {
       // New directive starts — finalize the pending one
       result.push('// ' + pending.trim());
       pending = '';
@@ -54,7 +55,7 @@ function handleDirectiveLine(content: string, pending: string, result: string[])
   }
 
   // Check if this is a directive start
-  if (/^@(?:param|texture|structure)\b/.test(content)) {
+  if (/^@(?:param|texture|structure|const)\b/.test(content)) {
     if (content.endsWith('>')) {
       return content.slice(0, -1).trimEnd();
     }
@@ -243,6 +244,17 @@ function extractBracketGroups(str: string): string[] {
   return groups;
 }
 
+/** Cycle/truncate an array of defaults to match targetSize. */
+function cycleToSize<T>(arr: T[], targetSize: number, clone?: (v: T) => T): T[] {
+  if (arr.length === targetSize) return clone ? arr.map(clone) : arr;
+  const result: T[] = [];
+  for (let i = 0; i < targetSize; i++) {
+    const src = arr[i % arr.length];
+    result.push(clone ? clone(src) : src);
+  }
+  return result;
+}
+
 function parseRest(restStr: string, baseType: ParamBaseType, arraySize: number | null): ParseRestResult {
   let defaultValue = getDefaultValue(baseType, arraySize);
   let min: number | null = null;
@@ -293,8 +305,9 @@ function parseRest(restStr: string, baseType: ParamBaseType, arraySize: number |
             innerBrackets.push(parseValue(parts.join(', '), baseType));
           }
         }
-        if (innerBrackets.length === arraySize) {
-          defaultValue = innerBrackets;
+        if (innerBrackets.length > 0) {
+          const cloneVal = (v: ParamValue) => Array.isArray(v) ? [...v] : v;
+          defaultValue = cycleToSize(innerBrackets, arraySize, cloneVal);
 
           // Second group (if present): [min,max] range
           if (groups.length >= 2) {
@@ -333,8 +346,9 @@ function parseRest(restStr: string, baseType: ParamBaseType, arraySize: number |
     if (groups.length >= 1) {
       // First bracket group: per-element defaults [0.3,0.3,0.5]
       const defaultParts = groups[0].slice(1, -1).split(',').map(s => s.trim());
-      if (defaultParts.length === arraySize) {
-        defaultValue = defaultParts.map(s => baseType === 'int' ? (parseInt(s, 10) || 0) : (parseFloat(s) || 0));
+      if (defaultParts.length > 0) {
+        const parsed = defaultParts.map(s => baseType === 'int' ? (parseInt(s, 10) || 0) : (parseFloat(s) || 0));
+        defaultValue = cycleToSize(parsed, arraySize);
       }
 
       if (groups.length >= 2) {
@@ -349,9 +363,10 @@ function parseRest(restStr: string, baseType: ParamBaseType, arraySize: number |
             ranges.push([parseFloat(rp[0]), parseFloat(rp[1])]);
           }
         }
-        if (ranges.length === arraySize) {
-          mins = ranges.map(r => isNaN(r[0]) ? 0 : r[0]);
-          maxs = ranges.map(r => isNaN(r[1]) ? 1 : r[1]);
+        if (ranges.length > 0 && ranges.length !== 1) {
+          const cycled = cycleToSize(ranges, arraySize);
+          mins = cycled.map(r => isNaN(r[0]) ? 0 : r[0]);
+          maxs = cycled.map(r => isNaN(r[1]) ? 1 : r[1]);
         } else if (ranges.length === 1) {
           // Single range applied to all elements
           min = isNaN(ranges[0][0]) ? null : ranges[0][0];
@@ -594,10 +609,52 @@ export function parseParamLine(line: string): ParamDef | null {
   };
 }
 
+/** Parse @const directives from shader source. Returns name→value map. */
+export function parseShaderConsts(source: string): Map<string, string> {
+  const consts = new Map<string, string>();
+  for (const line of extractDirectiveLines(source)) {
+    const match = line.match(CONST_REGEX);
+    if (match) {
+      consts.set(match[1], match[2]);
+    }
+  }
+  return consts;
+}
+
+/** Substitute [CONSTNAME] → [value] in a directive line. */
+function substituteConsts(line: string, consts: Map<string, string>): string {
+  let result = line;
+  for (const [name, value] of consts) {
+    result = result.replace(new RegExp(`\\[${name}\\]`, 'g'), `[${value}]`);
+  }
+  return result;
+}
+
+/** Generate #define lines for shader consts. Returns empty string if no consts. */
+export function generateConstDefines(consts: Map<string, string>): string {
+  if (consts.size === 0) return '';
+  const lines: string[] = [];
+  for (const [name, value] of consts) {
+    lines.push(`#define ${name} ${value}`);
+  }
+  return lines.join('\n');
+}
+
 /** Parse all @param and @structure comments from shader source */
 export function parseShaderParams(shaderSource: string): ParamDef[] {
   const params: ParamDef[] = [];
-  const directiveLines = extractDirectiveLines(shaderSource);
+  const rawDirectiveLines = extractDirectiveLines(shaderSource);
+
+  // Pass 0: collect @const definitions and substitute in all directive lines
+  const consts = new Map<string, string>();
+  for (const line of rawDirectiveLines) {
+    const match = line.match(CONST_REGEX);
+    if (match) consts.set(match[1], match[2]);
+  }
+  const directiveLines = consts.size > 0
+    ? rawDirectiveLines.map(line => substituteConsts(line, consts))
+    : rawDirectiveLines;
+
   const structs = new Map<string, StructDef>();
 
   // First pass: collect struct definitions

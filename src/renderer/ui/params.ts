@@ -750,6 +750,9 @@ function createVec2Control(
     return arrayIndex !== null ? [...(vals[paramName] as number[][])[arrayIndex]] : [...(vals[paramName] as number[])];
   });
 
+  // Coerce value elements to numbers (VP presets may store non-numeric types)
+  const safeValue = Array.isArray(value) ? value.map(Number) : [0, 0];
+
   ['X', 'Y'].forEach((axis, i) => {
     const subLabel = document.createElement('label');
     subLabel.textContent = axis;
@@ -761,12 +764,12 @@ function createVec2Control(
     slider.min = String(min);
     slider.max = String(max);
     slider.step = '0.01';
-    slider.value = String(value[i]);
+    slider.value = String(safeValue[i]);
     slider.style.width = '60px';
 
     const valueDisplay = document.createElement('span');
     valueDisplay.className = 'param-value';
-    valueDisplay.textContent = value[i].toFixed(2);
+    valueDisplay.textContent = (safeValue[i] || 0).toFixed(2);
 
     slider.addEventListener('input', () => {
       const newValue = parseFloat(slider.value);
@@ -807,10 +810,13 @@ function createColorControl(
     return arrayIndex !== null ? [...(vals[paramName] as number[][])[arrayIndex]] : [...(vals[paramName] as number[])];
   });
 
+  // Coerce value elements to numbers (VP presets may store non-numeric types)
+  const safeValue = Array.isArray(value) ? value.map(Number) : [0, 0, 0];
+
   const colorPicker = document.createElement('input') as ColorPickerInput;
   colorPicker.type = 'color';
   colorPicker.className = 'color-picker-input';
-  colorPicker.value = rgbToHex(value[0], value[1], value[2]);
+  colorPicker.value = rgbToHex(safeValue[0], safeValue[1], safeValue[2]);
   colorPicker.title = 'Click to pick color';
 
   const slidersDiv = document.createElement('div');
@@ -834,7 +840,7 @@ function createColorControl(
     slider.min = '0';
     slider.max = '1';
     slider.step = '0.01';
-    slider.value = String(value[i]);
+    slider.value = String(safeValue[i]);
     sliders.push(slider);
 
     slider.addEventListener('input', () => {
@@ -977,6 +983,9 @@ function createVec3Control(
     return arrayIndex !== null ? [...(vals[paramName] as number[][])[arrayIndex]] : [...(vals[paramName] as number[])];
   });
 
+  // Coerce value elements to numbers (VP presets may store non-numeric types)
+  const safeValue = Array.isArray(value) ? value.map(Number) : [0, 0, 0];
+
   ['X', 'Y', 'Z'].forEach((axis, i) => {
     const subLabel = document.createElement('label');
     subLabel.textContent = axis;
@@ -988,12 +997,12 @@ function createVec3Control(
     slider.min = String(min);
     slider.max = String(max);
     slider.step = '0.01';
-    slider.value = String(value[i]);
+    slider.value = String(safeValue[i]);
     slider.style.width = '50px';
 
     const valueDisplay = document.createElement('span');
     valueDisplay.className = 'param-value';
-    valueDisplay.textContent = value[i].toFixed(2);
+    valueDisplay.textContent = (safeValue[i] || 0).toFixed(2);
 
     slider.addEventListener('input', () => {
       const newValue = parseFloat(slider.value);
@@ -1035,6 +1044,9 @@ function createVec4Control(
     return arrayIndex !== null ? [...(vals[paramName] as number[][])[arrayIndex]] : [...(vals[paramName] as number[])];
   });
 
+  // Coerce value elements to numbers (VP presets may store non-numeric types)
+  const safeValue = Array.isArray(value) ? value.map(Number) : [0, 0, 0, 0];
+
   ['X', 'Y', 'Z', 'W'].forEach((axis, i) => {
     const subLabel = document.createElement('label');
     subLabel.textContent = axis;
@@ -1046,12 +1058,12 @@ function createVec4Control(
     slider.min = String(min);
     slider.max = String(max);
     slider.step = '0.01';
-    slider.value = String(value[i]);
+    slider.value = String(safeValue[i]);
     slider.style.width = '50px';
 
     const valueDisplay = document.createElement('span');
     valueDisplay.className = 'param-value';
-    valueDisplay.textContent = value[i].toFixed(2);
+    valueDisplay.textContent = (safeValue[i] || 0).toFixed(2);
 
     slider.addEventListener('input', () => {
       const newValue = parseFloat(slider.value);

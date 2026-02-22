@@ -451,7 +451,10 @@ export async function recallVisualPreset(presetIndex: number): Promise<void> {
     if (ed && preset.shaderCode) {
       ed.setValue(preset.shaderCode, -1);
       // Cancel debounced compile set by setValue's change event
-      if (state.compileTimeout) clearTimeout(state.compileTimeout);
+      if (state.compileTimeout) {
+        clearTimeout(state.compileTimeout);
+        state.compileTimeout = null;
+      }
       // Use the full compile pipeline (handles textures, custom params, fullscreen sync)
       await compileShader();
     }

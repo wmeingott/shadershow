@@ -71,6 +71,7 @@ import { setStatus } from './utils.js';
 import { parseShaderParams } from '@shared/param-parser.js';
 import { loadTilingToSliders } from './tiling.js';
 import { showContextMenu, hideContextMenu } from './context-menu.js';
+import { getActiveABParamSource, handleABParamChange } from './ab-preview.js';
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -81,6 +82,7 @@ const SAVE_DEBOUNCE_MS = 500;
 
 let usingCustomParams = false;
 let draggedColor: number[] | null = null;
+let abParamValuesOverride: Record<string, ParamValue | ParamArrayValue> | null = null;
 
 let rightDragState: {
   rgb: number[];
@@ -126,6 +128,15 @@ function slots(): Array<GridSlotLike | null> {
 
 function getRenderer(): RendererSurface {
   return state.renderer as RendererSurface;
+}
+
+/** Get current custom param values, respecting A/B mode override */
+function getCurrentParamValues(): Record<string, ParamValue | ParamArrayValue> {
+  if (state.abEnabled) {
+    const abSource = getActiveABParamSource();
+    if (abSource) return abSource.paramValues;
+  }
+  return getRenderer().getCustomParamValues();
 }
 
 // ---------------------------------------------------------------------------
@@ -318,13 +329,17 @@ export function initParams(): void {
       speedLabel.title = 'Double-click to reset';
       speedLabel.addEventListener('dblclick', () => {
         speedSlider.value = '1';
-        getRenderer().setParam('speed', 1);
         speedValue.textContent = '1.00';
-        window.electronAPI.sendParamUpdate({ name: 'speed', value: 1 });
-        if (state.mixerSelectedChannel !== null) {
-          updateMixerChannelParam('speed', 1);
+        if (state.abEnabled) {
+          handleABParamChange('speed', 1);
         } else {
-          syncSpeedToActiveSlot(1);
+          getRenderer().setParam('speed', 1);
+          window.electronAPI.sendParamUpdate({ name: 'speed', value: 1 });
+          if (state.mixerSelectedChannel !== null) {
+            updateMixerChannelParam('speed', 1);
+          } else {
+            syncSpeedToActiveSlot(1);
+          }
         }
         updateSelectedTileParam('speed', 1);
       });
@@ -332,26 +347,33 @@ export function initParams(): void {
 
     speedSlider.addEventListener('input', () => {
       const value = parseFloat(speedSlider.value);
-      getRenderer().setParam('speed', value);
       speedValue.textContent = value.toFixed(2);
-      window.electronAPI.sendParamUpdate({ name: 'speed', value });
-
-      if (state.mixerSelectedChannel !== null) {
-        updateMixerChannelParam('speed', value);
+      if (state.abEnabled) {
+        handleABParamChange('speed', value);
       } else {
-        syncSpeedToActiveSlot(value);
-      }
-      updateSelectedTileParam('speed', value);
-    });
-
-    makeValueEditable(speedValue, speedSlider, {
-      onCommit(value: number) {
         getRenderer().setParam('speed', value);
         window.electronAPI.sendParamUpdate({ name: 'speed', value });
         if (state.mixerSelectedChannel !== null) {
           updateMixerChannelParam('speed', value);
         } else {
           syncSpeedToActiveSlot(value);
+        }
+      }
+      updateSelectedTileParam('speed', value);
+    });
+
+    makeValueEditable(speedValue, speedSlider, {
+      onCommit(value: number) {
+        if (state.abEnabled) {
+          handleABParamChange('speed', value);
+        } else {
+          getRenderer().setParam('speed', value);
+          window.electronAPI.sendParamUpdate({ name: 'speed', value });
+          if (state.mixerSelectedChannel !== null) {
+            updateMixerChannelParam('speed', value);
+          } else {
+            syncSpeedToActiveSlot(value);
+          }
         }
         updateSelectedTileParam('speed', value);
       }
@@ -371,13 +393,17 @@ export function initParams(): void {
 
     speedSlider.addEventListener('dblclick', () => {
       speedSlider.value = '1';
-      getRenderer().setParam('speed', 1);
       speedValue.textContent = '1.00';
-      window.electronAPI.sendParamUpdate({ name: 'speed', value: 1 });
-      if (state.mixerSelectedChannel !== null) {
-        updateMixerChannelParam('speed', 1);
+      if (state.abEnabled) {
+        handleABParamChange('speed', 1);
       } else {
-        syncSpeedToActiveSlot(1);
+        getRenderer().setParam('speed', 1);
+        window.electronAPI.sendParamUpdate({ name: 'speed', value: 1 });
+        if (state.mixerSelectedChannel !== null) {
+          updateMixerChannelParam('speed', 1);
+        } else {
+          syncSpeedToActiveSlot(1);
+        }
       }
       updateSelectedTileParam('speed', 1);
     });
@@ -486,10 +512,28 @@ export function generateCustomParamUI(): void {
     return;
   }
 
+  // A/B mode: use param defs/values from the active AB side
+  // This is essential for scenes/compositions where state.renderer can't provide param defs
+  if (state.abEnabled) {
+    const abSource = getActiveABParamSource();
+    if (abSource && abSource.paramDefs.length > 0) {
+      renderCustomParamUI(container, abSource.paramDefs, abSource.paramValues);
+      return;
+    }
+  }
+
   if (!state.renderer) return;
 
   const params = getRenderer().getCustomParamDefs();
+  const values = getRenderer().getCustomParamValues();
+  renderCustomParamUI(container, params, values);
+}
 
+function renderCustomParamUI(
+  container: HTMLElement,
+  params: ParamDef[],
+  values: Record<string, ParamValue | ParamArrayValue>,
+): void {
   selectedColorPickers.clear();
   container.innerHTML = '';
 
@@ -499,6 +543,9 @@ export function generateCustomParamUI(): void {
   }
 
   usingCustomParams = true;
+
+  // Store values so createParamControl can read them via the getter override
+  abParamValuesOverride = values;
 
   const scalarParams = params.filter(p => !p.isArray && !p.structParent);
   const arrayParams = params.filter(p => p.isArray);
@@ -551,6 +598,9 @@ export function generateCustomParamUI(): void {
       container.appendChild(section);
     }
   }
+
+  // Clear override after rendering
+  abParamValuesOverride = null;
 }
 
 export function loadCustomParamsToUI(): void {
@@ -601,7 +651,7 @@ function createParamControl(
   });
   row.appendChild(label);
 
-  const values = getRenderer().getCustomParamValues();
+  const values = abParamValuesOverride || getRenderer().getCustomParamValues();
   const currentValue = index !== null
     ? (values[paramName] as ParamArrayValue)[index]
     : values[paramName];
@@ -696,7 +746,7 @@ function createVec2Control(
   const max = param.max !== null ? param.max : 1;
   const update = onValueChange || ((name: string, val: ParamValue, idx: number | null) => updateCustomParamValue(name, val, idx));
   const getVal = getFullValue || (() => {
-    const vals = getRenderer().getCustomParamValues();
+    const vals = getCurrentParamValues();
     return arrayIndex !== null ? [...(vals[paramName] as number[][])[arrayIndex]] : [...(vals[paramName] as number[])];
   });
 
@@ -753,7 +803,7 @@ function createColorControl(
   row.className = 'color-row color-picker-row';
   const update = onValueChange || ((name: string, val: ParamValue, idx: number | null) => updateCustomParamValue(name, val, idx));
   const getVal = getFullValue || (() => {
-    const vals = getRenderer().getCustomParamValues();
+    const vals = getCurrentParamValues();
     return arrayIndex !== null ? [...(vals[paramName] as number[][])[arrayIndex]] : [...(vals[paramName] as number[])];
   });
 
@@ -923,7 +973,7 @@ function createVec3Control(
   const max = param.max !== null ? param.max : 1;
   const update = onValueChange || ((name: string, val: ParamValue, idx: number | null) => updateCustomParamValue(name, val, idx));
   const getVal = getFullValue || (() => {
-    const vals = getRenderer().getCustomParamValues();
+    const vals = getCurrentParamValues();
     return arrayIndex !== null ? [...(vals[paramName] as number[][])[arrayIndex]] : [...(vals[paramName] as number[])];
   });
 
@@ -981,7 +1031,7 @@ function createVec4Control(
   const max = param.max !== null ? param.max : 1;
   const update = onValueChange || ((name: string, val: ParamValue, idx: number | null) => updateCustomParamValue(name, val, idx));
   const getVal = getFullValue || (() => {
-    const vals = getRenderer().getCustomParamValues();
+    const vals = getCurrentParamValues();
     return arrayIndex !== null ? [...(vals[paramName] as number[][])[arrayIndex]] : [...(vals[paramName] as number[])];
   });
 
@@ -1039,7 +1089,7 @@ function createStructFieldControl(param: ParamDef): HTMLDivElement {
   });
   row.appendChild(label);
 
-  const values = getRenderer().getCustomParamValues();
+  const values = abParamValuesOverride || getRenderer().getCustomParamValues();
   const currentValue = values[param.name];
 
   switch (param.type) {
@@ -1082,6 +1132,22 @@ function updateCustomParamValue(
   value: ParamValue,
   arrayIndex: number | null = null
 ): void {
+  // In A/B mode, route param changes to the active side's renderer
+  if (state.abEnabled) {
+    let fullValue: ParamValue = value;
+    if (arrayIndex !== null) {
+      const values = getCurrentParamValues();
+      const arr = values[paramName];
+      if (arr && Array.isArray(arr)) {
+        (arr as ParamValue[])[arrayIndex] = value;
+        fullValue = arr as ParamValue;
+      }
+    }
+    handleABParamChange(paramName, fullValue);
+    updateSelectedTileParam(paramName, fullValue);
+    return;
+  }
+
   if (!state.renderer) return;
 
   if (arrayIndex !== null) {

@@ -228,6 +228,12 @@ declare const window: Window & {
     onExitTiledMode?(cb: () => void): void;
     onPostProcessUpdate?(cb: (data: { luminance: number; hue: number; saturation: number; contrast: number }) => void): void;
     onTilingUpdate?(cb: (data: { cols: number; rows: number; spaceX: number; spaceY: number; bgR: number; bgG: number; bgB: number }) => void): void;
+    onABShaderUpdate?(cb: (data: { side: 'a' | 'b'; shaderCode: string; renderMode: string; params: ParamValues; tiling?: { cols: number; rows: number; spaceX: number; spaceY: number; bgR: number; bgG: number; bgB: number } }) => void): void;
+    onABCrossfade?(cb: (value: number) => void): void;
+    onABParamUpdate?(cb: (data: { side: 'a' | 'b'; paramName: string; value: ParamValue | ParamArrayValue }) => void): void;
+    onABCompositionUpdate?(cb: (data: { side: 'a' | 'b'; channels: Array<{ shaderCode: string; alpha: number; params: ParamValues; customParams: ParamValues }>; blendMode: string; tiling?: { cols: number; rows: number; spaceX: number; spaceY: number; bgR: number; bgG: number; bgB: number } }) => void): void;
+    onABTilingUpdate?(cb: (data: { side: 'a' | 'b'; tiling: { cols: number; rows: number; spaceX: number; spaceY: number; bgR: number; bgG: number; bgB: number } }) => void): void;
+    onABExit?(cb: () => void): void;
   };
   loadThreeJS(): Promise<void>;
 };
@@ -277,6 +283,36 @@ let mixerOverlayCtx: CanvasRenderingContext2D | null = null;
 
 // Asset mixer state
 let mixerAssets: (AssetEntry | null)[] = [];
+
+// A/B crossfade mode state
+let abMode: boolean = false;
+let abRendererA: TileRenderer | null = null;
+let abRendererB: TileRenderer | null = null;
+let abSceneRendererA: ThreeSceneRenderer | null = null;
+let abSceneRendererB: ThreeSceneRenderer | null = null;
+let abSceneCanvasA: HTMLCanvasElement | null = null;
+let abSceneCanvasB: HTMLCanvasElement | null = null;
+let abCompRenderersA: TileRenderer[] = [];
+let abCompRenderersB: TileRenderer[] = [];
+let abCompAlphasA: number[] = [];
+let abCompAlphasB: number[] = [];
+let abCompBlendA: string = 'lighter';
+let abCompBlendB: string = 'lighter';
+let abModeA: 'shader' | 'scene' | 'composition' = 'shader';
+let abModeB: 'shader' | 'scene' | 'composition' = 'shader';
+let abCrossfade: number = 0.0;
+let abOverlayCanvas: HTMLCanvasElement | null = null;
+let abOverlayCtx: CanvasRenderingContext2D | null = null;
+
+// Per-side tiling state for A/B mode
+interface ABTilingSnapshot {
+  cols: number; rows: number;
+  spaceX: number; spaceY: number;
+  bgR: number; bgG: number; bgB: number;
+}
+const DEFAULT_AB_TILING: ABTilingSnapshot = { cols: 1, rows: 1, spaceX: 0, spaceY: 0, bgR: 0, bgG: 0, bgB: 0 };
+let abTilingA: ABTilingSnapshot = { ...DEFAULT_AB_TILING };
+let abTilingB: ABTilingSnapshot = { ...DEFAULT_AB_TILING };
 
 // Standalone asset state
 let standaloneAsset: AssetEntry | null = null;
@@ -330,6 +366,13 @@ function prepareSharedState(): TileSharedState {
     ppHue: ppValues.hue,
     ppSaturation: ppValues.saturation,
     ppContrast: ppValues.contrast,
+    tilingCols: tilingValues.cols,
+    tilingRows: tilingValues.rows,
+    tilingSpaceX: tilingValues.spaceX,
+    tilingSpaceY: tilingValues.spaceY,
+    tilingBgR: tilingValues.bgR,
+    tilingBgG: tilingValues.bgG,
+    tilingBgB: tilingValues.bgB,
   };
 }
 
@@ -1048,6 +1091,220 @@ function initMixerModeIfNeeded(canvas: HTMLCanvasElement): void {
   mixerOverlayCtx = mixerOverlayCanvas.getContext('2d');
 }
 
+// =============================================================================
+// A/B Crossfade Mode Functions
+// =============================================================================
+
+function initABModeIfNeeded(canvas: HTMLCanvasElement): void {
+  if (!abOverlayCanvas) {
+    abOverlayCanvas = document.createElement('canvas');
+    abOverlayCanvas.id = 'ab-overlay-canvas';
+    abOverlayCanvas.style.cssText =
+      'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:2';
+    const parent = canvas.parentElement;
+    if (parent) {
+      parent.style.position = 'relative';
+      parent.appendChild(abOverlayCanvas);
+    }
+  }
+  abOverlayCanvas.width = canvas.width;
+  abOverlayCanvas.height = canvas.height;
+  abOverlayCtx = abOverlayCanvas.getContext('2d');
+}
+
+let _abFrameLogOnce = false;
+let _abFrameLogCounter = 0;
+function renderABFrame(): void {
+  const canvas = document.getElementById('shader-canvas') as HTMLCanvasElement;
+
+  if (!_abFrameLogOnce || ++_abFrameLogCounter % 300 === 0) {
+    _abFrameLogOnce = true;
+    log.info(`[AB] renderABFrame: crossfade=${abCrossfade}, rendererA=${!!abRendererA}, rendererB=${!!abRendererB}, modeA=${abModeA}, modeB=${abModeB}`);
+  }
+
+  if (!abOverlayCanvas || !abOverlayCtx) {
+    // No overlay yet — clear the main canvas to black
+    const gl2 = sharedGL || (canvas.getContext('webgl2') || canvas.getContext('webgl'));
+    if (gl2) { gl2.clearColor(0, 0, 0, 1); gl2.clear(gl2.COLOR_BUFFER_BIT); }
+    return;
+  }
+
+  // Ensure overlay matches canvas size
+  if (abOverlayCanvas.width !== canvas.width || abOverlayCanvas.height !== canvas.height) {
+    abOverlayCanvas.width = canvas.width;
+    abOverlayCanvas.height = canvas.height;
+    abOverlayCtx = abOverlayCanvas.getContext('2d');
+
+    // Update TileRenderer bounds
+    const bounds: TileBounds = { tileIndex: 0, x: 0, y: 0, width: canvas.width, height: canvas.height };
+    if (abRendererA) abRendererA.setBounds(bounds);
+    if (abRendererB) abRendererB.setBounds({ ...bounds, tileIndex: 1 });
+    for (const tr of abCompRenderersA) tr.setBounds(bounds);
+    for (const tr of abCompRenderersB) tr.setBounds({ ...bounds, tileIndex: 1 });
+    if (abSceneRendererA) abSceneRendererA.setResolution(canvas.width, canvas.height);
+    if (abSceneRendererB) abSceneRendererB.setResolution(canvas.width, canvas.height);
+  }
+
+  const ctx = abOverlayCtx;
+  const gl = sharedGL;
+  if (!ctx || !gl) return;
+
+  const sharedState: TileSharedState = prepareSharedState();
+
+  // Clear to black
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Apply per-side tiling to sharedState before each side's render
+  function applyABTiling(t: ABTilingSnapshot): void {
+    sharedState.tilingCols = t.cols;
+    sharedState.tilingRows = t.rows;
+    sharedState.tilingSpaceX = t.spaceX;
+    sharedState.tilingSpaceY = t.spaceY;
+    sharedState.tilingBgR = t.bgR;
+    sharedState.tilingBgG = t.bgG;
+    sharedState.tilingBgB = t.bgB;
+  }
+
+  // Render side A with alpha (1 - crossfade)
+  applyABTiling(abTilingA);
+  ctx.globalAlpha = 1.0 - abCrossfade;
+  renderABSide(canvas, ctx, gl, sharedState, 'a');
+
+  // Render side B with alpha (crossfade)
+  applyABTiling(abTilingB);
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = abCrossfade;
+  renderABSide(canvas, ctx, gl, sharedState, 'b');
+
+  ctx.globalAlpha = 1.0;
+  ctx.globalCompositeOperation = 'source-over';
+  abOverlayCanvas.style.display = 'block';
+
+  if (shaderRenderer!.isPlaying) {
+    shaderRenderer!.frameCount++;
+  }
+}
+
+/** Render one A/B side (shader, scene, or composition) to the overlay ctx. */
+function renderABSide(
+  canvas: HTMLCanvasElement,
+  ctx: CanvasRenderingContext2D,
+  gl: WebGL2RenderingContext,
+  sharedState: TileSharedState,
+  side: 'a' | 'b',
+): void {
+  const mode = side === 'a' ? abModeA : abModeB;
+
+  if (mode === 'scene') {
+    // Scene mode: render ThreeSceneRenderer to its own canvas, then blit
+    const sceneR = side === 'a' ? abSceneRendererA : abSceneRendererB;
+    const sceneC = side === 'a' ? abSceneCanvasA : abSceneCanvasB;
+    if (sceneR && sceneC) {
+      try {
+        sceneR.render();
+        ctx.drawImage(sceneC, 0, 0, canvas.width, canvas.height);
+      } catch (err: unknown) {
+        log.error(`AB side ${side} scene render error:`, err);
+      }
+    }
+  } else if (mode === 'composition') {
+    // Composition mode: render each channel, composite them
+    const renderers = side === 'a' ? abCompRenderersA : abCompRenderersB;
+    const alphas = side === 'a' ? abCompAlphasA : abCompAlphasB;
+    const blend = side === 'a' ? abCompBlendA : abCompBlendB;
+
+    if (renderers.length > 0) {
+      // Create a temporary compositing canvas
+      const savedAlpha = ctx.globalAlpha;
+      const savedOp = ctx.globalCompositeOperation;
+
+      // We need a temp canvas for per-side composition
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = canvas.width;
+      tempCanvas.height = canvas.height;
+      const tempCtx = tempCanvas.getContext('2d')!;
+      tempCtx.fillStyle = '#000';
+      tempCtx.fillRect(0, 0, canvas.width, canvas.height);
+      tempCtx.globalCompositeOperation = blend as GlobalCompositeOperation;
+
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.disable(gl.DEPTH_TEST);
+      gl.disable(gl.BLEND);
+
+      for (let i = 0; i < renderers.length; i++) {
+        const tr = renderers[i];
+        if (!tr || !tr.program || (alphas[i] ?? 1) <= 0) continue;
+
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        gl.clearColor(0, 0, 0, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        try { tr.render(sharedState); } catch { continue; }
+
+        tempCtx.globalAlpha = alphas[i] ?? 1;
+        tempCtx.drawImage(canvas, 0, 0);
+      }
+
+      tempCtx.globalAlpha = 1.0;
+      tempCtx.globalCompositeOperation = 'source-over';
+
+      // Blit temp composition to the main overlay
+      ctx.globalAlpha = savedAlpha;
+      ctx.globalCompositeOperation = savedOp;
+      ctx.drawImage(tempCanvas, 0, 0);
+    }
+  } else {
+    // Shader mode: render TileRenderer to WebGL canvas, then blit
+    const tr = side === 'a' ? abRendererA : abRendererB;
+    if (tr && tr.program) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.disable(gl.DEPTH_TEST);
+      gl.disable(gl.BLEND);
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.clearColor(0, 0, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+
+      try { tr.render(sharedState); } catch (err: unknown) {
+        log.error(`AB side ${side} render error:`, err);
+      }
+
+      ctx.drawImage(canvas, 0, 0);
+    }
+  }
+}
+
+function disposeABSide(side: 'a' | 'b'): void {
+  if (side === 'a') {
+    if (abRendererA) { abRendererA.dispose(); abRendererA = null; }
+    if (abSceneRendererA) { abSceneRendererA.dispose(); abSceneRendererA = null; }
+    if (abSceneCanvasA) { abSceneCanvasA.remove(); abSceneCanvasA = null; }
+    abCompRenderersA.forEach(r => r.dispose());
+    abCompRenderersA = [];
+    abCompAlphasA = [];
+    abModeA = 'shader';
+  } else {
+    if (abRendererB) { abRendererB.dispose(); abRendererB = null; }
+    if (abSceneRendererB) { abSceneRendererB.dispose(); abSceneRendererB = null; }
+    if (abSceneCanvasB) { abSceneCanvasB.remove(); abSceneCanvasB = null; }
+    abCompRenderersB.forEach(r => r.dispose());
+    abCompRenderersB = [];
+    abCompAlphasB = [];
+    abModeB = 'shader';
+  }
+}
+
+function exitABMode(): void {
+  abMode = false;
+  disposeABSide('a');
+  disposeABSide('b');
+  abTilingA = { ...DEFAULT_AB_TILING };
+  abTilingB = { ...DEFAULT_AB_TILING };
+  if (abOverlayCanvas) {
+    abOverlayCanvas.style.display = 'none';
+  }
+}
+
 /**
  * Convert a file path to a proper file:// URL (handles Windows paths).
  */
@@ -1154,6 +1411,11 @@ export function renderLoop(currentTime?: number): void {
       gl.clear(gl.COLOR_BUFFER_BIT);
     }
     if (mixerOverlayCanvas) mixerOverlayCanvas.style.display = 'none';
+    if (abOverlayCanvas) abOverlayCanvas.style.display = 'none';
+  } else if (abMode) {
+    renderABFrame();
+    if (mixerOverlayCanvas) mixerOverlayCanvas.style.display = 'none';
+    if (standaloneOverlayCanvas) standaloneOverlayCanvas.style.display = 'none';
   } else if (mixerMode) {
     renderMixerFrame();
   } else if (tiledMode) {
@@ -1599,5 +1861,160 @@ export function registerIPCHandlers(): void {
 
   window.electronAPI.onTilingUpdate?.((data) => {
     Object.assign(tilingValues, data);
+  });
+
+  // =========================================================================
+  // A/B Crossfade mode
+  // =========================================================================
+
+  window.electronAPI.onABShaderUpdate?.((data) => {
+    log.info(`[AB] Received shader update for side ${data.side}, mode=${data.renderMode}, tiling=`, data.tiling);
+    const canvas = document.getElementById('shader-canvas') as HTMLCanvasElement;
+
+    // Initialize shared GL and overlay if needed
+    if (!sharedGL) {
+      sharedGL = shaderRenderer!.gl;
+    }
+    initABModeIfNeeded(canvas);
+    abMode = true;
+
+    // Dispose previous renderer for this side
+    disposeABSide(data.side);
+
+    if (data.renderMode === 'scene') {
+      // Scene mode: ensure Three.js is loaded, then create ThreeSceneRenderer
+      (async () => {
+        const sceneCanvas = document.createElement('canvas');
+        sceneCanvas.width = canvas.width;
+        sceneCanvas.height = canvas.height;
+        sceneCanvas.style.display = 'none';
+        document.body.appendChild(sceneCanvas);
+
+        try {
+          await window.loadThreeJS();
+          const sr = new ThreeSceneRenderer(sceneCanvas);
+          sr.setResolution(canvas.width, canvas.height);
+          sr.compile(data.shaderCode);
+          if (data.params) sr.setParams(data.params);
+          // Restore ShaderRenderer GL state after Three.js creates its WebGLRenderer
+          shaderRenderer!.reinitialize();
+
+          if (data.side === 'a') {
+            abSceneRendererA = sr;
+            abSceneCanvasA = sceneCanvas;
+            abModeA = 'scene';
+          } else {
+            abSceneRendererB = sr;
+            abSceneCanvasB = sceneCanvas;
+            abModeB = 'scene';
+          }
+        } catch (err: unknown) {
+          log.error(`Failed to create scene for AB side ${data.side}:`, err);
+          sceneCanvas.remove();
+        }
+      })();
+    } else {
+      // Shader mode: create TileRenderer (with tiling support for A/B)
+      const bounds: TileBounds = { tileIndex: data.side === 'a' ? 0 : 1, x: 0, y: 0, width: canvas.width, height: canvas.height };
+      const tr = new TileRenderer(sharedGL, bounds, { useTiling: true });
+      try {
+        tr.compile(data.shaderCode);
+        loadFileTexturesForRenderer(tr);
+        if (data.params) tr.setParams(data.params);
+      } catch (err: unknown) {
+        log.error(`Failed to compile AB side ${data.side}:`, err);
+      }
+
+      if (data.side === 'a') {
+        abRendererA = tr;
+        abModeA = 'shader';
+      } else {
+        abRendererB = tr;
+        abModeB = 'shader';
+      }
+    }
+
+    // Store per-side tiling if provided
+    if (data.tiling) {
+      if (data.side === 'a') Object.assign(abTilingA, data.tiling);
+      else Object.assign(abTilingB, data.tiling);
+    }
+  });
+
+  window.electronAPI.onABCrossfade?.((value) => {
+    log.info(`[AB] Crossfade updated: ${value}`);
+    abCrossfade = value;
+  });
+
+  window.electronAPI.onABParamUpdate?.((data) => {
+    const tr = data.side === 'a' ? abRendererA : abRendererB;
+    if (tr) {
+      tr.setParam(data.paramName, data.value);
+    }
+    // Also route to scene renderers
+    const sr = data.side === 'a' ? abSceneRendererA : abSceneRendererB;
+    if (sr) {
+      sr.setParams({ [data.paramName]: data.value });
+    }
+  });
+
+  // Handle A/B composition updates
+  window.electronAPI.onABCompositionUpdate?.((data) => {
+    const canvas = document.getElementById('shader-canvas') as HTMLCanvasElement;
+
+    if (!sharedGL) {
+      sharedGL = shaderRenderer!.gl;
+    }
+    initABModeIfNeeded(canvas);
+    abMode = true;
+
+    // Dispose previous renderer for this side
+    disposeABSide(data.side);
+
+    const bounds: TileBounds = { tileIndex: data.side === 'a' ? 0 : 1, x: 0, y: 0, width: canvas.width, height: canvas.height };
+    const renderers: TileRenderer[] = [];
+    const alphas: number[] = [];
+
+    for (const ch of data.channels) {
+      if (!ch.shaderCode) continue;
+      const tr = new TileRenderer(sharedGL, bounds, { useTiling: true });
+      try {
+        tr.compile(ch.shaderCode);
+        loadFileTexturesForRenderer(tr);
+        const allParams = { ...ch.params, ...ch.customParams };
+        if (Object.keys(allParams).length > 0) tr.setParams(allParams);
+      } catch { continue; }
+      renderers.push(tr);
+      alphas.push(ch.alpha ?? 1.0);
+    }
+
+    if (data.side === 'a') {
+      abCompRenderersA = renderers;
+      abCompAlphasA = alphas;
+      abCompBlendA = data.blendMode || 'lighter';
+      abModeA = 'composition';
+    } else {
+      abCompRenderersB = renderers;
+      abCompAlphasB = alphas;
+      abCompBlendB = data.blendMode || 'lighter';
+      abModeB = 'composition';
+    }
+
+    // Store per-side tiling if provided
+    if (data.tiling) {
+      if (data.side === 'a') Object.assign(abTilingA, data.tiling);
+      else Object.assign(abTilingB, data.tiling);
+    }
+  });
+
+  // Handle per-side tiling updates (live slider changes during A/B mode)
+  window.electronAPI.onABTilingUpdate?.((data: { side: 'a' | 'b'; tiling: ABTilingSnapshot }) => {
+    log.info(`[AB] Tiling update for side ${data.side}:`, data.tiling);
+    if (data.side === 'a') Object.assign(abTilingA, data.tiling);
+    else Object.assign(abTilingB, data.tiling);
+  });
+
+  window.electronAPI.onABExit?.(() => {
+    exitABMode();
   });
 }

@@ -35,6 +35,12 @@ const MAIN_TO_FULLSCREEN_CHANNELS = [
   'init-tiled-fullscreen',
   'post-process-update',
   'tiling-update',
+  'ab-shader-update',
+  'ab-crossfade',
+  'ab-param-update',
+  'ab-composition-update',
+  'ab-tiling-update',
+  'ab-exit',
 ] as const;
 
 /**

@@ -12,6 +12,7 @@ export interface SyphonFrameData {
   data: Uint8Array | Buffer;
   width: number;
   height: number;
+  flipped?: boolean;
   /** Legacy base64 fallback field */
   rgbaData?: string;
 }
@@ -119,7 +120,7 @@ export class SyphonManager {
     if (!this.sender || !this.enabled) return;
 
     try {
-      const { data, width, height } = frameData;
+      const { data, width, height, flipped } = frameData;
 
       // Handle both raw Uint8Array and legacy base64 format
       let sourceBuffer: Buffer;
@@ -130,6 +131,12 @@ export class SyphonManager {
         sourceBuffer = Buffer.from(frameData.rgbaData, 'base64');
       } else {
         log.warn('Syphon frame: invalid data format');
+        return;
+      }
+
+      // If already flipped (e.g. from 2D canvas getImageData), send directly
+      if (flipped) {
+        await this.sender.sendFrame(sourceBuffer, width, height);
         return;
       }
 

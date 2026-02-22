@@ -5,6 +5,7 @@
 import { state } from '../core/state.js';
 import { showContextMenu as showContextMenuHelper } from '../ui/context-menu.js';
 import { isMixerActive, captureMixerThumbnail, recallMixState } from '../ui/mixer.js';
+import { loadCompositionToSide, getActiveSide } from '../ui/ab-preview.js';
 import { createTaggedLogger } from '@shared/logger.js';
 
 // ---------------------------------------------------------------------------
@@ -261,6 +262,7 @@ function saveMixPreset(): void {
 
 /**
  * Recall a mix preset and load it into the mixer.
+ * When A/B mode is active, routes the composition to the active A/B side instead.
  */
 function recallMixPresetFromTab(presetIndex: number): void {
   const tab = getActiveMixTab();
@@ -269,6 +271,24 @@ function recallMixPresetFromTab(presetIndex: number): void {
   const preset = tab.mixPresets?.[presetIndex];
   if (!preset) return;
 
+  // When A/B mode is active, load the composition to the active side
+  // AND populate the mixer panel so the user can modify the composition
+  if (state.abEnabled && preset.channels?.length) {
+    const side = getActiveSide();
+    const channels = (preset.channels || []).map((ch: any) => ({
+      shaderCode: ch?.shaderCode || null,
+      alpha: ch?.alpha ?? 1.0,
+      params: ch?.params || {},
+      customParams: ch?.customParams || {},
+      enabled: ch?.enabled !== false,
+    }));
+    loadCompositionToSide(side, channels, preset.blendMode || 'lighter');
+
+    const presetName = preset.name || `Mix ${presetIndex + 1}`;
+    setStatus(`A/B ${side.toUpperCase()}: ${presetName}`, 'success');
+  }
+
+  // Always populate mixer panel (for both A/B and normal mode)
   recallMixState(preset as Parameters<typeof recallMixState>[0]);
 
   // Update active highlight on buttons

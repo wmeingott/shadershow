@@ -16,6 +16,8 @@ import {
   buildShaderExtras,
 } from './gl-utils.js';
 import { parseShaderParams, parseShaderConsts, generateConstDefines, generateUniformDeclarations, parseTextureDirectives, parseOption25D } from '@shared/param-parser.js';
+import { ppValues } from '../ui/post-process.js';
+import { tilingValues } from '../ui/tiling.js';
 
 // ---------------------------------------------------------------------------
 // Shared WebGL context (one context for all MiniShaderRenderer instances)
@@ -96,14 +98,25 @@ export class MiniShaderRenderer {
   private customUniformLocations: CustomParamUniforms = {};
   customParamValues: Record<string, ParamValue> = {};
 
+  // Post-processing uniform locations
+  private _ppUniforms = { luminance: null as WebGLUniformLocation | null, hue: null as WebGLUniformLocation | null, saturation: null as WebGLUniformLocation | null, contrast: null as WebGLUniformLocation | null };
+
+  // Tiling uniform locations
+  private _tilingUniforms = { space: null as WebGLUniformLocation | null, bg: null as WebGLUniformLocation | null, cols: null as WebGLUniformLocation | null, rows: null as WebGLUniformLocation | null };
+
   // File texture directives (populated on compile)
   fileTextureDirectives: TextureDirective[] = [];
 
-  constructor(canvas: HTMLCanvasElement) {
+  // When true, tiling + post-processing GLSL is compiled in and uniforms are set each frame.
+  // Used by A/B preview renderers; grid thumbnails leave this false.
+  private _enableEffects: boolean;
+
+  constructor(canvas: HTMLCanvasElement, options?: { enableEffects?: boolean }) {
     this.canvas = canvas;
     this.ctx2d = canvas.getContext('2d');
     this.gl = getSharedGL();
     this.contextValid = !!this.gl;
+    this._enableEffects = options?.enableEffects ?? false;
 
     if (!this.gl) {
       console.warn('Shared WebGL context not available');
@@ -167,6 +180,14 @@ export class MiniShaderRenderer {
     }
   }
 
+  getCustomParamDefs(): ParamDef[] {
+    return this.customParams;
+  }
+
+  getCustomParamValues(): Record<string, ParamValue> {
+    return { ...this.customParamValues };
+  }
+
   resetCustomParams(): void {
     this.customParamValues = {};
   }
@@ -185,11 +206,13 @@ export class MiniShaderRenderer {
     const uniformDecls = generateUniformDeclarations(customParams);
     const customUniformDecls = [constDefines, uniformDecls].filter(Boolean).join('\n');
 
-    // MiniShaderRenderer uses legacy uniforms in addition to standard ones
+    // MiniShaderRenderer uses legacy uniforms; A/B mode adds tiling + post-processing
     const depthPct = parseOption25D(fragmentSource);
     const { extras: finalExtras } = buildShaderExtras({
       legacyUniforms: true,
+      tiling: this._enableEffects,
       depthPct,
+      postProcess: this._enableEffects,
     });
     const wrappedFragment = buildFragmentWrapper(fragmentSource, customUniformDecls, finalExtras);
 
@@ -217,6 +240,22 @@ export class MiniShaderRenderer {
 
     this.customParams = customParams;
     this.customUniformLocations = cacheCustomParamUniforms(gl, program, customParams);
+
+    // Cache post-processing uniform locations
+    this._ppUniforms = {
+      luminance:  gl.getUniformLocation(program, '_pp_luminance'),
+      hue:        gl.getUniformLocation(program, '_pp_hue'),
+      saturation: gl.getUniformLocation(program, '_pp_saturation'),
+      contrast:   gl.getUniformLocation(program, '_pp_contrast'),
+    };
+
+    // Cache tiling uniform locations
+    this._tilingUniforms = {
+      space: gl.getUniformLocation(program, '_tile_space'),
+      bg:    gl.getUniformLocation(program, '_tile_bg'),
+      cols:  gl.getUniformLocation(program, 'tile_cols'),
+      rows:  gl.getUniformLocation(program, 'tile_rows'),
+    };
 
     // Clean up old builtin textures
     for (let i = 0; i < 4; i++) {
@@ -291,13 +330,32 @@ export class MiniShaderRenderer {
 
     gl.useProgram(this.program);
 
-    gl.uniform3f(this.uniforms.iResolution, width, height, 1);
+    if (this._enableEffects) {
+      // iResolution divided by tiling cols/rows (same as ShaderRenderer)
+      gl.uniform3f(this.uniforms.iResolution, width / tilingValues.cols, height / tilingValues.rows, 1);
+    } else {
+      gl.uniform3f(this.uniforms.iResolution, width, height, 1);
+    }
     gl.uniform1f(this.uniforms.iTime, time);
 
     // Legacy uniforms
     gl.uniform3fv(this.uniforms.iColorRGB, this._colorArray);
     gl.uniform1fv(this.uniforms.iParams, this._paramsArray);
     gl.uniform1f(this.uniforms.iSpeed, this.speed);
+
+    if (this._enableEffects) {
+      // Post-processing uniforms
+      gl.uniform1f(this._ppUniforms.luminance, ppValues.luminance);
+      gl.uniform1f(this._ppUniforms.hue, ppValues.hue);
+      gl.uniform1f(this._ppUniforms.saturation, ppValues.saturation);
+      gl.uniform1f(this._ppUniforms.contrast, ppValues.contrast);
+
+      // Tiling uniforms
+      gl.uniform2f(this._tilingUniforms.space, tilingValues.spaceX, tilingValues.spaceY);
+      gl.uniform3f(this._tilingUniforms.bg, tilingValues.bgR, tilingValues.bgG, tilingValues.bgB);
+      gl.uniform1f(this._tilingUniforms.cols, tilingValues.cols);
+      gl.uniform1f(this._tilingUniforms.rows, tilingValues.rows);
+    }
 
     // Custom param uniforms
     for (const param of this.customParams) {

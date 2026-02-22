@@ -146,6 +146,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onMixerBlendMode: (callback: (data: any) => void) => onIPC('mixer-blend-mode', (_event: any, data: any) => callback(data)),
   onMixerChannelUpdate: (callback: (data: any) => void) => onIPC('mixer-channel-update', (_event: any, data: any) => callback(data)),
 
+  // A/B preview operations
+  sendABShaderUpdate: (data: any) => ipcRenderer.send('ab-shader-update', data),
+  sendABCrossfade: (value: number) => ipcRenderer.send('ab-crossfade', value),
+  sendABParamUpdate: (data: any) => ipcRenderer.send('ab-param-update', data),
+  sendABCompositionUpdate: (data: any) => ipcRenderer.send('ab-composition-update', data),
+  sendABTilingUpdate: (data: any) => ipcRenderer.send('ab-tiling-update', data),
+  sendABExit: () => ipcRenderer.send('ab-exit'),
+  onABShaderUpdate: (callback: (data: any) => void) => onIPC('ab-shader-update', (_event: any, data: any) => callback(data)),
+  onABCrossfade: (callback: (data: any) => void) => onIPC('ab-crossfade', (_event: any, data: any) => callback(data)),
+  onABParamUpdate: (callback: (data: any) => void) => onIPC('ab-param-update', (_event: any, data: any) => callback(data)),
+  onABCompositionUpdate: (callback: (data: any) => void) => onIPC('ab-composition-update', (_event: any, data: any) => callback(data)),
+  onABTilingUpdate: (callback: (data: any) => void) => onIPC('ab-tiling-update', (_event: any, data: any) => callback(data)),
+  onABExit: (callback: () => void) => onIPC('ab-exit', () => callback()),
+
   // Tiled display operations
   initTiledFullscreen: (config: any) => ipcRenderer.send('init-tiled-fullscreen', config),
   updateTileLayout: (layout: any) => ipcRenderer.send('tile-layout-update', layout),

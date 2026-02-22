@@ -19,6 +19,7 @@ declare const window: Window & {
 };
 
 import { isMixerActive, renderMixerComposite, hideMixerOverlay } from '../ui/mixer.js';
+import { renderABFrame, hideABOverlay } from '../ui/ab-preview.js';
 import { loadParamsToSliders, generateCustomParamUI } from '../ui/params.js';
 import { updateLocalPresetsUI } from '../ui/presets.js';
 import { setStatus } from '../ui/utils.js';
@@ -155,21 +156,28 @@ export function renderLoop(currentTime: DOMHighResTimeStamp): void {
 
   let stats: RenderStats | undefined;
 
-  // Check if tiled preview mode is enabled, then mixer, then normal
+  // Check A/B first, then tiled, then mixer, then normal
   try {
-    if (state.tiledPreviewEnabled && tileState.tiles.length > 0) {
+    if (state.abEnabled) {
+      stats = renderABFrame();
+      // AB handles hiding other overlays internally
+    } else if (state.tiledPreviewEnabled && tileState.tiles.length > 0) {
       stats = renderTiledPreview();
       hideMixerOverlay();
       hideAssetOverlay();
+      hideABOverlay();
     } else if (isMixerActive()) {
       stats = renderMixerComposite();
       hideAssetOverlay();
+      hideABOverlay();
     } else if (state.renderMode === 'asset' && state.activeAsset) {
       stats = renderAssetPreview();
+      hideABOverlay();
     } else {
       stats = (state.renderer as MainRendererLike).render();
       hideMixerOverlay();
       hideAssetOverlay();
+      hideABOverlay();
     }
   } catch (err) {
     log.error('Renderer', 'Render error:', err);

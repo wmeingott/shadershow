@@ -487,11 +487,15 @@ export function buildShaderExtras(options: ShaderExtrasOptions): ShaderExtrasRes
   let extras: FragmentWrapperExtras | undefined;
   let totalExtraLines = 0;
 
-  // 1. Base extras — mutually exclusive
+  // 1. Base extras — mutually exclusive (tiling, tileOffset, legacyUniforms)
+  //    legacyUniforms can be combined with tiling (for MiniShaderRenderer in A/B mode)
   if (options.tiling) {
-    const tilingUniformStr =
+    let tilingUniformStr =
 `uniform vec2 _tile_space;
 uniform vec3 _tile_bg;`;
+    if (options.legacyUniforms) {
+      tilingUniformStr += '\nuniform vec3 iColorRGB[10];\nuniform float iParams[5];\nuniform float iSpeed;';
+    }
     const tilingBody =
 `vec2 _tile_safeInv = max(1.0 - _tile_space, vec2(0.001));
 vec2 _tile_ts = iResolution.xy * _tile_safeInv;

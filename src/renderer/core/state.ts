@@ -122,4 +122,9 @@ export const state = {
   tiledPreviewEnabled: false,
   tileRenderers: [] as unknown[],
   selectedTileIndex: 0,
+
+  // A/B preview crossfade
+  abEnabled: false,
+  abActiveTarget: 'a' as 'a' | 'b',
+  abCrossfade: 0.0, // 0.0 = full A, 1.0 = full B
 };

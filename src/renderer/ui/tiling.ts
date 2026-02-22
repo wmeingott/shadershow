@@ -25,8 +25,15 @@ export const tilingValues = {
 
 declare const window: Window & { electronAPI?: { sendTilingUpdate?(data: typeof tilingValues): void } };
 
+// Optional hook called after every tiling change (registered by ab-preview for A/B sync)
+let _onTilingChanged: (() => void) | null = null;
+export function setOnTilingChanged(cb: (() => void) | null): void {
+  _onTilingChanged = cb;
+}
+
 function sendTilingToFullscreen(): void {
   window.electronAPI?.sendTilingUpdate?.(tilingValues);
+  _onTilingChanged?.();
 }
 
 // ---------------------------------------------------------------------------

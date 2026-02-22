@@ -39,6 +39,7 @@ export interface RecordingFrameData {
   data: Uint8Array | Buffer;
   width: number;
   height: number;
+  flipped?: boolean;
 }
 
 export class RecordingManager {
@@ -175,13 +176,26 @@ export class RecordingManager {
     if (!this.process || !this.enabled) return;
 
     try {
-      const { data, width, height } = frameData;
+      const { data, width, height, flipped } = frameData;
 
       let sourceBuffer: Buffer;
       if (data instanceof Uint8Array || Buffer.isBuffer(data)) {
         sourceBuffer = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
       } else {
         log.warn('Recording frame: invalid data format');
+        return;
+      }
+
+      // If already flipped (e.g. from 2D canvas getImageData), send directly
+      if (flipped) {
+        if (this.backpressure) return;
+        const canWrite = this.process.stdin!.write(sourceBuffer);
+        if (!canWrite) {
+          this.backpressure = true;
+          this.process.stdin!.once('drain', () => {
+            this.backpressure = false;
+          });
+        }
         return;
       }
 

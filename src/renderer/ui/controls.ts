@@ -108,6 +108,7 @@ import { showSettingsDialog } from './settings-dialog.js';
 import { showTileConfigDialog, initToolbarPresetsPanel, togglePresetsPanel } from '../tiles/tile-config.js';
 import { toggleRecording } from '../ipc/frame-sender.js';
 import { showAIAssistantDialog, initAIShortcut } from './claude-ai.js';
+import { enableAB, disableAB, setActiveSide, setABCrossfade, initABPreview } from './ab-preview.js';
 import { setStatus } from './utils.js';
 
 /** Benchmark not yet ported to TS — no-op stub */
@@ -246,6 +247,27 @@ export function initControls(): void {
 
   // Double-click to open tile config dialog
   btnTiled.addEventListener('dblclick', showTileConfigDialog);
+
+  // A/B preview button
+  const btnAB = document.getElementById('btn-ab') as HTMLButtonElement;
+  btnAB.addEventListener('click', toggleABPreview);
+
+  // A/B target buttons
+  const abBtnA = document.getElementById('ab-btn-a') as HTMLButtonElement | null;
+  const abBtnB = document.getElementById('ab-btn-b') as HTMLButtonElement | null;
+  if (abBtnA) abBtnA.addEventListener('click', () => setActiveSide('a'));
+  if (abBtnB) abBtnB.addEventListener('click', () => setActiveSide('b'));
+
+  // A/B crossfade slider
+  const abSlider = document.getElementById('ab-crossfade-slider') as HTMLInputElement | null;
+  if (abSlider) {
+    abSlider.addEventListener('input', () => {
+      setABCrossfade(parseInt(abSlider.value) / 100);
+    });
+  }
+
+  // Initialize A/B renderers
+  initABPreview();
 
   // Tile presets panel toggle button
   const btnTilePresets = document.getElementById('btn-tile-presets') as HTMLButtonElement;
@@ -671,6 +693,24 @@ export function toggleTiledPreview(): void {
     if (overlay) overlay.style.display = 'none';
     // Tell fullscreen to exit tiled mode
     window.electronAPI.exitTiledMode?.();
+  }
+}
+
+export function toggleABPreview(): void {
+  if (state.abEnabled) {
+    disableAB();
+    // Remove A/B active class from preview panel
+    const previewPanel = document.getElementById('preview-panel');
+    if (previewPanel) previewPanel.classList.remove('ab-active');
+  } else {
+    // Disable tiled preview if active (mutually exclusive)
+    if (state.tiledPreviewEnabled) {
+      toggleTiledPreview();
+    }
+    enableAB();
+    // Add A/B active class to preview panel
+    const previewPanel = document.getElementById('preview-panel');
+    if (previewPanel) previewPanel.classList.add('ab-active');
   }
 }
 

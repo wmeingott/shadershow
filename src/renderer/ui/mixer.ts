@@ -99,6 +99,7 @@ import { loadParamsToSliders, generateCustomParamUI } from './params.js';
 import { updateLocalPresetsUI } from './presets.js';
 import { setStatus } from './utils.js';
 import { showContextMenu as showContextMenuHelper } from './context-menu.js';
+import { syncMixerToABComposition } from './ab-preview.js';
 import { MiniShaderRenderer } from '../renderers/mini-shader-renderer.js';
 import { AssetRenderer } from '../renderers/asset-renderer.js';
 
@@ -287,6 +288,7 @@ function createChannelElement(index: number): HTMLDivElement {
       channelIndex: index,
       enabled: ch.enabled,
     });
+    syncMixerToABComposition();
 
     setStatus(`Mixer channel ${index + 1} ${ch.enabled ? 'enabled' : 'disabled'}`, 'success');
   });
@@ -346,6 +348,7 @@ function createChannelElement(index: number): HTMLDivElement {
     const alpha = parseFloat(slider.value);
     channels()[index].alpha = alpha;
     window.electronAPI.sendMixerAlphaUpdate({ channelIndex: index, alpha });
+    syncMixerToABComposition();
   });
 
   return channelEl;
@@ -494,6 +497,7 @@ export function initMixer(): void {
     blendSelect.addEventListener('change', () => {
       state.mixerBlendMode = blendSelect.value as typeof state.mixerBlendMode;
       window.electronAPI.sendMixerBlendMode({ blendMode: blendSelect.value });
+      syncMixerToABComposition();
     });
   }
 
@@ -583,6 +587,8 @@ export function assignShaderToMixer(channelIndex: number, slotIndex: number): vo
     params: { speed: ch.params.speed ?? 1, ...ch.customParams }
   });
 
+  syncMixerToABComposition();
+
   const name = slotData?.filePath?.split('/').pop()?.split('\\').pop() || `Slot ${slotIndex + 1}`;
   setStatus(`Mixer ${channelIndex + 1} \u2190 ${name}`, 'success');
   notifyRemoteStateChanged();
@@ -643,6 +649,8 @@ export function assignAssetToMixer(channelIndex: number, slotIndex: number): voi
     window.electronAPI.sendMixerChannelUpdate(updateData);
   }
 
+  syncMixerToABComposition();
+
   const name = slotData?.label || slotData?.mediaPath || `Asset ${slotIndex + 1}`;
   setStatus(`Mixer ${channelIndex + 1} \u2190 ${name}`, 'success');
   notifyRemoteStateChanged();
@@ -682,6 +690,7 @@ export function clearMixerChannel(channelIndex: number): void {
 
     if (!isMixerActive()) hideMixerOverlay();
     generateCustomParamUI();
+    syncMixerToABComposition();
 
     setStatus(`Mixer channel ${channelIndex + 1} removed`, 'success');
     notifyRemoteStateChanged();
@@ -717,6 +726,7 @@ export function clearMixerChannel(channelIndex: number): void {
   if (!isMixerActive()) hideMixerOverlay();
   window.electronAPI.sendMixerChannelUpdate({ channelIndex, clear: true });
   generateCustomParamUI();
+  syncMixerToABComposition();
 
   setStatus(`Mixer channel ${channelIndex + 1} cleared`, 'success');
   notifyRemoteStateChanged();
@@ -775,6 +785,7 @@ export function updateMixerChannelParam(paramName: string, value: ParamValue): v
   }
 
   window.electronAPI.sendMixerParamUpdate({ channelIndex: chIdx, paramName, value });
+  syncMixerToABComposition();
 }
 
 export function renderMixerComposite(): { time: number; frame: number; fps: number } {
@@ -864,6 +875,23 @@ export function captureMixerThumbnail(): string | null {
   const ctx = tmp.getContext('2d')!;
   ctx.drawImage(mixerOverlayCanvas, 0, 0, thumbW, thumbH);
   return tmp.toDataURL('image/jpeg', 0.7);
+}
+
+/** Snapshot current mixer state as a MixPreset (for A/B side storage). */
+export function snapshotMixerState(): MixPreset {
+  return {
+    name: 'A/B Composition',
+    blendMode: state.mixerBlendMode,
+    channels: channels().map(ch => ({
+      shaderCode: ch.shaderCode || undefined,
+      alpha: ch.alpha,
+      params: { ...ch.params },
+      customParams: { ...ch.customParams },
+      enabled: ch.enabled,
+      assetType: ch.assetType || undefined,
+      mediaPath: ch.mediaPath || undefined,
+    })),
+  };
 }
 
 export function recallMixState(preset: MixPreset): void {

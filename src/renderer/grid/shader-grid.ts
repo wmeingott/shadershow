@@ -132,6 +132,7 @@ import { updateLocalPresetsUI } from '../ui/presets.js';
 import { compileShader, setEditorMode } from '../ui/editor.js';
 import { setRenderMode, ensureSceneRenderer, detectRenderMode } from '../core/renderer-manager.js';
 import { hideAssetOverlay } from '../core/render-loop.js';
+import { loadShaderToSide, getActiveSide } from '../ui/ab-preview.js';
 import { openInTab } from '../ui/tabs.js';
 
 // ---------------------------------------------------------------------------
@@ -824,6 +825,39 @@ function showGridContextMenu(x: number, y: number, slotIndex: number): void {
     importShaderSlot(slotIndex);
   });
   menu.appendChild(importItem);
+
+  // A/B mode: Send to A / Send to B
+  if (state.abEnabled && hasShader) {
+    const abSep = document.createElement('div');
+    abSep.className = 'context-menu-separator';
+    menu.appendChild(abSep);
+
+    for (const side of ['a', 'b'] as const) {
+      const abItem = document.createElement('div');
+      abItem.className = 'context-menu-item';
+      abItem.textContent = `Send to ${side.toUpperCase()}`;
+      abItem.addEventListener('click', () => {
+        hideContextMenu();
+        const slotData = state.gridSlots[slotIndex] as GridSlotData | null;
+        if (!slotData?.shaderCode) return;
+        const isScene = slotData.type === 'scene';
+        const mainRenderer = state.renderer as MiniRendererLike;
+        const customParams = slotData.customParams || mainRenderer.getCustomParamValues?.() || {};
+        loadShaderToSide(
+          side,
+          slotData.shaderCode,
+          (slotData.params || {}) as Record<string, ParamValue>,
+          customParams as Record<string, ParamValue>,
+          isScene ? 'scene' : 'shader',
+          slotIndex,
+          state.activeShaderTab,
+        );
+        const slotName = slotData.filePath?.split('/').pop()?.split('\\').pop() || `Slot ${slotIndex + 1}`;
+        setStatus(`A/B ${side.toUpperCase()}: ${slotName}`, 'success');
+      });
+      menu.appendChild(abItem);
+    }
+  }
 
   // Move/Copy to Tab submenus (only shader tabs, not mix tabs)
   if (hasShader) {
@@ -1930,6 +1964,49 @@ export async function selectGridSlot(slotIndex: number): Promise<void> {
   }
 
   log.debug('Grid', `selectGridSlot: slot=${slotIndex}, type=${slotData.type || 'shader'}`);
+
+  // If A/B mode is enabled, route to the active side
+  if (state.abEnabled && slotData.shaderCode) {
+    const side = getActiveSide();
+    const isScene = slotData.type === 'scene';
+    const mainRenderer = state.renderer as MiniRendererLike;
+    const customParams = slotData.customParams || mainRenderer.getCustomParamValues?.() || {};
+
+    // Update active slot highlight
+    if (state.activeGridSlot !== null) {
+      const prevSlot = document.querySelector(`.grid-slot[data-slot="${state.activeGridSlot}"]`);
+      if (prevSlot) prevSlot.classList.remove('active');
+    }
+    state.activeGridSlot = slotIndex;
+    const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`) as HTMLElement | null;
+    if (slot) slot.classList.add('active');
+
+    // Also compile to main renderer for param UI
+    try {
+      mainRenderer.compile(slotData.shaderCode);
+      loadFileTexturesForRenderer(mainRenderer as unknown as Parameters<typeof loadFileTexturesForRenderer>[0]);
+    } catch { /* ignore */ }
+
+    // Load params and custom param UI
+    if (slotData.params) loadParamsToSliders(slotData.params as Record<string, ParamValue>);
+    generateCustomParamUI();
+    updateLocalPresetsUI();
+
+    loadShaderToSide(
+      side,
+      slotData.shaderCode,
+      (slotData.params || {}) as Record<string, ParamValue>,
+      customParams as Record<string, ParamValue>,
+      isScene ? 'scene' : 'shader',
+      slotIndex,
+      state.activeShaderTab,
+    );
+
+    const slotName = slotData.filePath?.split('/').pop()?.split('\\').pop() || `Slot ${slotIndex + 1}`;
+    setStatus(`A/B ${side.toUpperCase()}: ${slotName}`, 'success');
+    notifyRemoteStateChanged();
+    return;
+  }
 
   // Clear asset mode if previously active
   if (state.renderMode === 'asset') {

@@ -63,6 +63,9 @@
         <button id="btn-tiled" title="Toggle Tiled Preview">
           <span class="icon">&#9638;</span>
         </button>
+        <button id="btn-ab" title="Enable A/B Preview">
+          <span class="icon">A|B</span>
+        </button>
         <button id="btn-tile-presets" title="Toggle State Presets">
           <span class="icon">S</span>
         </button>
@@ -158,6 +161,18 @@
         <div id="preview-panel">
           <div id="preview-canvas-container">
             <canvas id="shader-canvas"></canvas>
+          </div>
+          <!-- A/B Controls Bar (hidden by default, shown below main preview) -->
+          <div id="ab-previews" class="hidden">
+            <div id="ab-controls-row">
+              <button id="ab-btn-a" class="ab-target-btn active" title="Load to side A">A</button>
+              <div id="ab-preview-a" class="ab-preview-side active"></div>
+              <div id="ab-crossfade-bar">
+                <input type="range" id="ab-crossfade-slider" min="0" max="100" value="0" title="Crossfade A/B">
+              </div>
+              <div id="ab-preview-b" class="ab-preview-side"></div>
+              <button id="ab-btn-b" class="ab-target-btn" title="Load to side B">B</button>
+            </div>
           </div>
         </div>
 

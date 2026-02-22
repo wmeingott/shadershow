@@ -2,6 +2,7 @@
 // Merges js/ndi.js, js/syphon.js, and js/recording.js into a single class.
 
 import { state } from '../core/state.js';
+import { getABOverlayCanvas } from '../ui/ab-preview.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -21,6 +22,7 @@ interface FrameData {
   data: Uint8Array;
   width: number;
   height: number;
+  flipped?: boolean;
 }
 
 interface RecordingResult {
@@ -59,7 +61,26 @@ function readCanvasPixels(
   buffer: Uint8Array | null,
   lastW: number,
   lastH: number,
-): { buffer: Uint8Array; width: number; height: number; lastW: number; lastH: number } | null {
+): { buffer: Uint8Array; width: number; height: number; lastW: number; lastH: number; flipped: boolean } | null {
+  // When A/B mode is active, read from the composite 2D overlay canvas
+  if (state.abEnabled) {
+    const abCanvas = getABOverlayCanvas();
+    if (abCanvas && abCanvas.width > 0 && abCanvas.height > 0) {
+      const ctx = abCanvas.getContext('2d');
+      if (ctx) {
+        const width = abCanvas.width;
+        const height = abCanvas.height;
+        if (width !== lastW || height !== lastH) {
+          buffer = new Uint8Array(width * height * 4);
+        }
+        const imageData = ctx.getImageData(0, 0, width, height);
+        buffer!.set(imageData.data);
+        // getImageData returns top-to-bottom (already correct orientation)
+        return { buffer: buffer!, width, height, lastW: width, lastH: height, flipped: true };
+      }
+    }
+  }
+
   const canvas = document.getElementById('shader-canvas') as HTMLCanvasElement | null;
   if (!canvas) return null;
   const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
@@ -73,7 +94,8 @@ function readCanvasPixels(
   }
 
   gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, buffer!);
-  return { buffer: buffer!, width, height, lastW: width, lastH: height };
+  // gl.readPixels returns bottom-to-top (needs flipping by receiver)
+  return { buffer: buffer!, width, height, lastW: width, lastH: height, flipped: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -87,7 +109,7 @@ export function sendNDIFrame(): void {
     ndiBuffer = result.buffer;
     ndiLastW = result.lastW;
     ndiLastH = result.lastH;
-    window.electronAPI.sendNDIFrame({ data: result.buffer, width: result.width, height: result.height });
+    window.electronAPI.sendNDIFrame({ data: result.buffer, width: result.width, height: result.height, flipped: result.flipped });
   } catch (err) {
     console.warn('Failed to send NDI frame:', err);
   }
@@ -100,7 +122,7 @@ export function sendSyphonFrame(): void {
     syphonBuffer = result.buffer;
     syphonLastW = result.lastW;
     syphonLastH = result.lastH;
-    window.electronAPI.sendSyphonFrame({ data: result.buffer, width: result.width, height: result.height });
+    window.electronAPI.sendSyphonFrame({ data: result.buffer, width: result.width, height: result.height, flipped: result.flipped });
   } catch (err) {
     console.warn('Failed to send Syphon frame:', err);
   }
@@ -113,7 +135,7 @@ export function sendRecordingFrame(): void {
     recordingBuffer = result.buffer;
     recordingLastW = result.lastW;
     recordingLastH = result.lastH;
-    window.electronAPI.sendRecordingFrame({ data: result.buffer, width: result.width, height: result.height });
+    window.electronAPI.sendRecordingFrame({ data: result.buffer, width: result.width, height: result.height, flipped: result.flipped });
   } catch (err) {
     console.warn('Failed to send recording frame:', err);
   }

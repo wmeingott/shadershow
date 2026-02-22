@@ -7,7 +7,7 @@
 // Uses GLUtils (gl-utils.ts) for shared WebGL utilities
 // =============================================================================
 
-import type { ParamDef, ParamValues, TextureDirective } from '@shared/types/params.js';
+import type { ParamDef, ParamValues, TextureDirective, ParamValue } from '@shared/types/params.js';
 import type { CompileResult } from '@shared/types/renderer.js';
 import { parseShaderParams, parseShaderConsts, generateConstDefines, generateUniformDeclarations, createParamValues, parseTextureDirectives, parseOption25D } from '@shared/param-parser.js';
 import {
@@ -59,6 +59,13 @@ export interface TileSharedState {
   ppHue?: number;
   ppSaturation?: number;
   ppContrast?: number;
+  tilingCols?: number;
+  tilingRows?: number;
+  tilingSpaceX?: number;
+  tilingSpaceY?: number;
+  tilingBgR?: number;
+  tilingBgG?: number;
+  tilingBgB?: number;
 }
 
 /** Extended uniforms for tile renderer (standard + iTileOffset) */
@@ -116,10 +123,16 @@ export class TileRenderer {
   // Setup geometry (shared quad vertices)
   private vao: WebGLVertexArrayObject | null;
 
-  constructor(gl: WebGL2RenderingContext, bounds: TileBounds) {
+  // When true, compile with tiling GLSL and set tiling uniforms each frame.
+  // Used by fullscreen A/B mode; normal tile grid mode uses tileOffset instead.
+  private _useTiling: boolean;
+  private _tilingUniforms = { space: null as WebGLUniformLocation | null, bg: null as WebGLUniformLocation | null, cols: null as WebGLUniformLocation | null, rows: null as WebGLUniformLocation | null };
+
+  constructor(gl: WebGL2RenderingContext, bounds: TileBounds, options?: { useTiling?: boolean }) {
     this.gl = gl;
     this.bounds = bounds;
     this.vao = setupFullscreenQuad(gl);
+    this._useTiling = options?.useTiling ?? false;
   }
 
   // Update bounds (when layout changes)
@@ -150,10 +163,11 @@ export class TileRenderer {
     const uniformDecls = generateUniformDeclarations(this.customParams);
     const customUniformDecls = [constDefines, uniformDecls].filter(Boolean).join('\n');
 
-    // Build composed GLSL extras (tile offset + 2.5D + post-processing)
+    // Build composed GLSL extras (tile offset or tiling + 2.5D + post-processing)
     const depthPct = parseOption25D(fragmentSource);
     const { extras: finalExtras, extraUniformLines } = buildShaderExtras({
-      tileOffset: true,
+      tileOffset: !this._useTiling,
+      tiling: this._useTiling,
       postProcess: true,
       depthPct,
     });
@@ -197,6 +211,16 @@ export class TileRenderer {
       saturation: gl.getUniformLocation(program, '_pp_saturation'),
       contrast:   gl.getUniformLocation(program, '_pp_contrast'),
     };
+
+    // Cache tiling uniform locations (when useTiling mode)
+    if (this._useTiling) {
+      this._tilingUniforms = {
+        space: gl.getUniformLocation(program, '_tile_space'),
+        bg:    gl.getUniformLocation(program, '_tile_bg'),
+        cols:  gl.getUniformLocation(program, 'tile_cols'),
+        rows:  gl.getUniformLocation(program, 'tile_rows'),
+      };
+    }
 
     // Parse @texture directives for file textures
     this.fileTextureDirectives = [];
@@ -285,7 +309,9 @@ export class TileRenderer {
     gl.useProgram(this.program);
 
     // Set standard uniforms (resolution is tile size, not canvas size)
-    gl.uniform3f(this.uniforms.iResolution, width, height, 1);
+    const tileCols = this._useTiling ? (sharedState.tilingCols ?? 1) : 1;
+    const tileRows = this._useTiling ? (sharedState.tilingRows ?? 1) : 1;
+    gl.uniform3f(this.uniforms.iResolution, width / tileCols, height / tileRows, 1);
     gl.uniform1f(this.uniforms.iTime, time * this.params.speed);
     gl.uniform1f(this.uniforms.iTimeDelta, timeDelta * this.params.speed);
     gl.uniform1i(this.uniforms.iFrame, frame);
@@ -298,6 +324,14 @@ export class TileRenderer {
 
     // Set tile offset for coordinate adjustment (gl_FragCoord is in window coords)
     gl.uniform2f(this.uniforms.iTileOffset, x, y);
+
+    // Set tiling uniforms (when useTiling mode)
+    if (this._useTiling) {
+      gl.uniform2f(this._tilingUniforms.space, sharedState.tilingSpaceX ?? 0, sharedState.tilingSpaceY ?? 0);
+      gl.uniform3f(this._tilingUniforms.bg, sharedState.tilingBgR ?? 0, sharedState.tilingBgG ?? 0, sharedState.tilingBgB ?? 0);
+      gl.uniform1f(this._tilingUniforms.cols, tileCols);
+      gl.uniform1f(this._tilingUniforms.rows, tileRows);
+    }
 
     // Set custom parameter uniforms
     this.setCustomUniforms();

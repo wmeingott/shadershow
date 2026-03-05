@@ -234,13 +234,28 @@ export class FileManager {
     return null;
   }
 
-  // ── Arbitrary file read ─────────────────────────────────────────────
+  // ── File read (path-validated) ──────────────────────────────────────
+
+  private static readonly ALLOWED_READ_EXTENSIONS = /\.(frag|glsl|vert|js|jsx|ts|json|scene\.js)$/i;
 
   async readFileContent(
     filePath: string,
   ): Promise<{ success: boolean; content?: string; error?: string }> {
     try {
-      const content = await fsPromises.readFile(filePath, 'utf-8');
+      if (!filePath) {
+        return { success: false, error: 'No file path provided' };
+      }
+      // Only allow shader / scene / config file extensions
+      if (!FileManager.ALLOWED_READ_EXTENSIONS.test(filePath)) {
+        return { success: false, error: 'File type not allowed' };
+      }
+      // Resolve and restrict to the app directory tree
+      const appDir = path.dirname(this.dataDir);
+      const resolved = path.resolve(appDir, filePath);
+      if (!resolved.startsWith(appDir + path.sep) && resolved !== appDir) {
+        return { success: false, error: 'Path outside application directory' };
+      }
+      const content = await fsPromises.readFile(resolved, 'utf-8');
       return { success: true, content };
     } catch (err: unknown) {
       return { success: false, error: (err as Error).message };
@@ -408,6 +423,37 @@ export class FileManager {
     }
   }
 
+  // ── Shader texture files ────────────────────────────────────────────
+
+  /**
+   * Load a shader file (.frag/.glsl) by path relative to the app root.
+   * Validates the path to prevent directory traversal.
+   */
+  async loadShaderFile(
+    relPath: string,
+  ): Promise<{ success: boolean; source?: string; error?: string }> {
+    try {
+      if (!relPath || !/\.(frag|glsl|vert)$/.test(relPath)) {
+        return { success: false, error: 'Invalid shader file extension (must be .frag, .glsl, or .vert)' };
+      }
+      // Resolve relative to app root (parent of dataDir)
+      const appDir = path.dirname(this.dataDir);
+      const resolved = path.resolve(appDir, relPath);
+      // Security: ensure resolved path is within the app directory
+      if (!resolved.startsWith(appDir + path.sep) && resolved !== appDir) {
+        return { success: false, error: 'Path traversal not allowed' };
+      }
+      const source = await fsPromises.readFile(resolved, 'utf-8');
+      return { success: true, source };
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return { success: false, error: `Shader file "${relPath}" not found` };
+      }
+      log.error(`Failed to load shader file "${relPath}":`, err);
+      return { success: false, error: (err as Error).message };
+    }
+  }
+
   // ── Media (asset images / videos) ───────────────────────────────────
 
   /**
@@ -417,7 +463,10 @@ export class FileManager {
     mediaPath: string,
   ): Promise<{ success: boolean; dataUrl?: string; error?: string }> {
     try {
-      const filePath = path.join(this.mediaDir, mediaPath);
+      const filePath = path.resolve(this.mediaDir, mediaPath);
+      if (!filePath.startsWith(path.resolve(this.mediaDir) + path.sep)) {
+        return { success: false, error: 'Path traversal not allowed' };
+      }
       const data = await fsPromises.readFile(filePath);
       const ext = path.extname(mediaPath).toLowerCase();
       const mimeTypes: Record<string, string> = {
@@ -441,7 +490,12 @@ export class FileManager {
    * absolute file system path.
    */
   getMediaAbsolutePath(mediaPath: string): string {
-    return path.join(this.mediaDir, mediaPath);
+    const resolved = path.resolve(this.mediaDir, mediaPath);
+    const resolvedMedia = path.resolve(this.mediaDir);
+    if (!resolved.startsWith(resolvedMedia + path.sep) && resolved !== resolvedMedia) {
+      throw new Error('Path traversal not allowed');
+    }
+    return resolved;
   }
 
   /**

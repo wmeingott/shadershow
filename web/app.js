@@ -2,6 +2,10 @@
 (function () {
   'use strict';
 
+  // ---- Auth token (from URL ?token=...) ----
+  const urlParams = new URLSearchParams(location.search);
+  const authToken = urlParams.get('token') || '';
+
   // ---- State ----
   let appState = null;
   let ws = null;
@@ -14,7 +18,7 @@
   let thumbnailRefreshTimer = null;
 
   function getThumbnailUrl(tab, slot) {
-    return `/api/thumbnail/${tab}/${slot}?v=${thumbnailRevision}`;
+    return `/api/thumbnail/${tab}/${slot}?v=${thumbnailRevision}&token=${authToken}`;
   }
 
   function bumpAllThumbnails() {
@@ -42,7 +46,7 @@
   // ---- WebSocket ----
   function connect() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    ws = new WebSocket(`${proto}//${location.host}/ws`);
+    ws = new WebSocket(`${proto}//${location.host}/ws?token=${authToken}`);
 
     ws.onopen = () => {
       setConnectionStatus('Connected', 'connected');
@@ -82,9 +86,15 @@
   }
 
   // ---- HTTP API ----
+  function apiHeaders() {
+    const h = { 'Content-Type': 'application/json' };
+    if (authToken) h['Authorization'] = `Bearer ${authToken}`;
+    return h;
+  }
+
   async function fetchState() {
     try {
-      const res = await fetch('/api/state');
+      const res = await fetch('/api/state', { headers: apiHeaders() });
       if (res.ok) {
         appState = await res.json();
         renderAll();
@@ -98,7 +108,7 @@
     try {
       await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: apiHeaders(),
         body: JSON.stringify(data)
       });
     } catch (err) {
@@ -932,7 +942,7 @@
 
   async function fetchDisplays() {
     try {
-      const res = await fetch('/api/displays');
+      const res = await fetch('/api/displays', { headers: apiHeaders() });
       if (!res.ok) return;
       const displays = await res.json();
       const select = document.getElementById('display-select');
@@ -969,7 +979,7 @@
     const btn = document.getElementById('btn-preview');
 
     if (previewActive) {
-      img.src = '/api/preview/stream';
+      img.src = `/api/preview/stream?token=${authToken}`;
       container.classList.remove('hidden');
       btn.classList.add('active');
     } else {

@@ -154,8 +154,12 @@ export async function showSettingsDialog(): Promise<void> {
           <div class="setting-row">
             <label>URL:</label>
             <span id="settings-remote-url" style="color: var(--text-secondary); user-select: all">${settings.remoteEnabled && settings.remoteIPs?.length
-              ? `http://${settings.remoteIPs[0]}:${settings.remotePort || 9876}`
+              ? `http://${settings.remoteIPs[0]}:${settings.remotePort || 9876}?token=${settings.remoteToken || ''}`
               : '(disabled)'}</span>
+          </div>
+          <div class="setting-row">
+            <label>Token:</label>
+            <code id="settings-remote-token" style="color: var(--text-secondary); user-select: all; font-size: 11px">${settings.remoteToken || '(generated on enable)'}</code>
           </div>
         </div>
 
@@ -235,7 +239,8 @@ export async function showSettingsDialog(): Promise<void> {
     const enabled = remoteEnabledCb.checked;
     const port = parseInt(remotePortInput.value) || 9876;
     if (enabled && settings.remoteIPs?.length) {
-      remoteUrlSpan.textContent = `http://${settings.remoteIPs[0]}:${port}`;
+      const token = settings.remoteToken || '';
+      remoteUrlSpan.textContent = `http://${settings.remoteIPs[0]}:${port}?token=${token}`;
     } else {
       remoteUrlSpan.textContent = '(disabled)';
     }

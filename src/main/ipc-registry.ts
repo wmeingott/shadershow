@@ -179,14 +179,15 @@ export class IPCRegistry {
     });
 
     // 11b. toggle-remote — start/stop the web remote server
-    ipcMain.on('toggle-remote', () => {
+    ipcMain.on('toggle-remote', async () => {
       if (remoteManager.isRunning()) {
         remoteManager.stop();
         settingsManager.remoteEnabled = false;
         windowManager.sendToMain('remote-status', { enabled: false });
       } else {
         const port = settingsManager.remotePort;
-        remoteManager.start(port);
+        const token = await settingsManager.ensureRemoteToken();
+        remoteManager.start(port, token);
         settingsManager.remoteEnabled = true;
         const ips = remoteManager.getLocalIPs();
         const url = ips.length > 0 ? `http://${ips[0]}:${port}` : `http://localhost:${port}`;
@@ -422,6 +423,11 @@ export class IPCRegistry {
     // 14. load-file-texture
     ipcMain.handle('load-file-texture', async (_event, name: string) => {
       return fileManager.loadFileTexture(name);
+    });
+
+    // 14b. load-shader-file (for @texture shader(file:...) directives)
+    ipcMain.handle('load-shader-file', async (_event, relPath: string) => {
+      return fileManager.loadShaderFile(relPath);
     });
 
     // 15. save-texture
@@ -755,7 +761,8 @@ export class IPCRegistry {
             }
           }
         }
-        remoteManager.start(settingsManager.remotePort);
+        const token = await settingsManager.ensureRemoteToken();
+        remoteManager.start(settingsManager.remotePort, token);
       } else {
         remoteManager.stop();
       }
@@ -1005,29 +1012,34 @@ export class IPCRegistry {
 // =============================================================================
 
 const DEFAULT_SHADER = `/*
- * ShaderShow - Available Uniforms
- * ================================
- * vec3  iResolution      - Viewport resolution (width, height, 1.0)
- * float iTime            - Playback time in seconds
- * float iTimeDelta       - Time since last frame in seconds
- * int   iFrame           - Current frame number
- * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)
- * vec4  iDate            - (year, month, day, time in seconds)
+ * ShaderShow — Shader Reference
+ * ==============================
+ * Uniforms:
+ *   vec3  iResolution           Viewport size (width, height, 1.0)
+ *   float iTime                 Playback time in seconds
+ *   float iTimeDelta            Time since last frame
+ *   int   iFrame                Frame number
+ *   vec4  iMouse                Mouse coords (xy: current, zw: click)
+ *   vec4  iDate                 (year, month, day, seconds)
+ *   sampler2D iChannel0-3       Input textures (image, video, camera, audio, NDI, shader)
+ *   vec3  iChannelResolution[4] Channel resolutions
+ *   float iBPM                  Detected BPM (needs audio channel)
+ *   float iBassLevel            Low-freq audio 0-1
+ *   float iMidLevel             Mid-freq audio 0-1
+ *   float iHighLevel            High-freq audio 0-1
  *
- * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)
- * vec3  iChannelResolution[4] - Resolution of each channel
+ * Directives (in comments):
+ *   @param <name> <type> [default] [min,max] [bind:...] ["desc"]
+ *     Types: int, float, vec2, vec3, vec4, color — arrays: float[N], color[N], ...
+ *     Bind:  bind:<source>[,factor=F][,offset=O][,range=[lo,hi]][,mode=add][,smooth=S][,toggle=on|off]
+ *   @texture iChannel<N> <source>
+ *     Sources: AudioFFT, AudioFFT(size), RGBANoise, GrayNoise, texture:name
+ *              shader(func, w, h, dynamic), shader(file:path, w, h, dynamic)
+ *   @const <NAME> <int>         Compile-time constant (usable in array sizes)
+ *   @structure <Type> @param... Struct type with grouped fields
+ *   @option 2.5d <N>%           Parallax relief effect
  *
- * Custom Parameters (@param)
- * --------------------------
- * Define custom uniforms with UI controls using @param comments:
- *   // @param name type [default] [min, max] "description"
- *
- * Supported types: int, float, vec2, vec3, vec4, color
- *
- * Examples:
- *   // @param speed float 1.0 [0.0, 2.0] "Animation speed"
- *   // @param center vec2 0.5, 0.5 "Center position"
- *   // @param tint color [1.0, 0.5, 0.0] "Tint color"
+ * Full reference: shaders.md
  */
 
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
@@ -1037,25 +1049,22 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 }`;
 
 const DEFAULT_SCENE = `/*
- * ShaderShow - Three.js Scene
- * ===========================
- * Write a setup() function that creates and returns your scene.
- * Write an animate() function for per-frame updates.
+ * ShaderShow — Three.js Scene
+ * ============================
+ * setup(THREE, canvas, params)
+ *   Returns: { scene, camera, renderer, ...custom }
  *
- * Available in setup(THREE, canvas, params):
- *   THREE   - Three.js library
- *   canvas  - The rendering canvas
- *   params  - Custom parameter values
+ * animate(time, deltaTime, params, objects, mouse, channels)
+ *   params includes: bpm, bassLevel, midLevel, highLevel (with audio channel)
+ *   channels: array of THREE.Texture for iChannel0-3
  *
- * animate() signature:
- *   animate(time, deltaTime, params, objects, mouse, channels)
+ * Directives (in comments):
+ *   @param <name> <type> [default] [min,max] [bind:...] ["desc"]
+ *     Types: int, float, vec2, vec3, vec4, color — arrays: float[N], color[N], ...
+ *   @texture iChannel<N> <source>
+ *   @const <NAME> <int>
  *
- * Custom Parameters (@param)
- * --------------------------
- * Define custom uniforms with UI controls using @param comments:
- *   // @param name type [default] [min, max] "description"
- *
- * Supported types: int, float, vec2, vec3, vec4, color
+ * Full reference: shaders.md
  */
 
 // @param rotationSpeed float 1.0 [0.0, 5.0] "Rotation speed"

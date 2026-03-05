@@ -399,7 +399,8 @@ app.whenReady().then(async () => {
   // Start remote control server if enabled (forced in headless mode)
   if (settingsManager.remoteEnabled || cliOptions.headless) {
     const port = cliOptions.port ?? settingsManager.remotePort;
-    remoteManager.start(port);
+    const token = await settingsManager.ensureRemoteToken();
+    remoteManager.start(port, token);
   }
 
   app.on('activate', () => {

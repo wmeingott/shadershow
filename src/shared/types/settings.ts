@@ -34,6 +34,7 @@ export interface AppSettings {
   gridSlotWidth: number;
   remoteEnabled: boolean;
   remotePort: number;
+  remoteToken: string;
 }
 
 /** Settings returned to renderer for the settings dialog */
@@ -47,6 +48,7 @@ export interface SettingsDialogData {
   gridSlotWidth: number;
   remoteEnabled: boolean;
   remotePort: number;
+  remoteToken: string;
   remoteIPs: string[];
 }
 

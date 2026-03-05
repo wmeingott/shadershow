@@ -36,10 +36,10 @@ export class RemoteManager {
    * Start the remote control server on the given port.
    * No-op if the server is already running.
    */
-  start(port: number): void {
+  start(port: number, token?: string): void {
     if (this.server) return;
 
-    log.info(`Starting remote control server on port ${port}`);
+    log.info(`Starting remote control server on port ${port}${token ? ' (token auth enabled)' : ''}`);
 
     this.server = new RemoteServer({
       queryRenderer: (channel: string, data?: unknown) => this.queryRenderer(channel, data),
@@ -48,6 +48,7 @@ export class RemoteManager {
       openFullscreenOnDisplay: (displayId: number) => this.openFullscreenOnDisplay(displayId),
       closeFullscreen: () => this.closeFullscreenWindow(),
       getPreviewFrame: () => this.getPreviewFrame(),
+      token,
     });
 
     this.server.start(port);

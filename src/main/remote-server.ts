@@ -48,6 +48,7 @@ export interface RemoteServerOptions {
   openFullscreenOnDisplay?: (displayId: number) => void;
   closeFullscreen?: () => void;
   getPreviewFrame?: () => Promise<Buffer | null>;
+  token?: string;
 }
 
 export class RemoteServer {
@@ -57,6 +58,7 @@ export class RemoteServer {
   private openFullscreenOnDisplay?: (displayId: number) => void;
   private closeFullscreen?: () => void;
   private getPreviewFrame?: () => Promise<Buffer | null>;
+  private token: string;
   private server: http.Server | null = null;
   private wss: WebSocketServer | null = null;
   private app: Express | null = null;
@@ -72,6 +74,7 @@ export class RemoteServer {
     this.openFullscreenOnDisplay = opts.openFullscreenOnDisplay;
     this.closeFullscreen = opts.closeFullscreen;
     this.getPreviewFrame = opts.getPreviewFrame;
+    this.token = opts.token || '';
   }
 
   start(port = 9876): void {
@@ -81,8 +84,22 @@ export class RemoteServer {
     this.app = express();
     this.app.use(express.json());
 
-    // Serve static files from web/ directory
+    // Serve static files from web/ directory (no auth required for the UI itself)
     this.app.use(express.static(path.join(__dirname, '..', '..', 'web')));
+
+    // Token auth middleware for /api routes
+    if (this.token) {
+      this.app.use('/api', (req: Request, res: Response, next) => {
+        const queryToken = req.query.token as string | undefined;
+        const authHeader = req.headers.authorization;
+        const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
+        if (queryToken === this.token || bearerToken === this.token) {
+          next();
+        } else {
+          res.status(401).json({ error: 'Unauthorized — token required' });
+        }
+      });
+    }
 
     this.setupRoutes();
 
@@ -276,7 +293,21 @@ export class RemoteServer {
   }
 
   private setupWebSocket(): void {
-    this.wss = new WebSocketServer({ server: this.server!, path: '/ws' });
+    this.wss = new WebSocketServer({
+      server: this.server!,
+      path: '/ws',
+      verifyClient: this.token
+        ? (info, callback) => {
+            const url = new URL(info.req.url || '', `http://${info.req.headers.host}`);
+            const queryToken = url.searchParams.get('token');
+            if (queryToken === this.token) {
+              callback(true);
+            } else {
+              callback(false, 401, 'Unauthorized');
+            }
+          }
+        : undefined,
+    });
 
     this.wss.on('connection', (ws: WebSocket) => {
       log.info('WebSocket client connected');

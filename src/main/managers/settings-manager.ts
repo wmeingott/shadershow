@@ -1,6 +1,7 @@
 // SettingsManager — loads, saves, and serves application settings
 // Extracted from main.js settings-related code
 
+import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import { Logger } from '@shared/logger.js';
@@ -22,6 +23,7 @@ const DEFAULTS: AppSettings = {
   gridSlotWidth: 0,
   remoteEnabled: false,
   remotePort: 9876,
+  remoteToken: '',
 };
 
 /**
@@ -41,6 +43,7 @@ export class SettingsManager {
   gridSlotWidth: number;
   remoteEnabled: boolean;
   remotePort: number;
+  remoteToken: string;
 
   constructor(settingsFile: string) {
     this.settingsFile = settingsFile;
@@ -52,6 +55,7 @@ export class SettingsManager {
     this.gridSlotWidth = DEFAULTS.gridSlotWidth;
     this.remoteEnabled = DEFAULTS.remoteEnabled;
     this.remotePort = DEFAULTS.remotePort;
+    this.remoteToken = DEFAULTS.remoteToken;
   }
 
   /**
@@ -83,6 +87,9 @@ export class SettingsManager {
         if (typeof data.remotePort === 'number' && data.remotePort >= 1024 && data.remotePort <= 65535) {
           this.remotePort = data.remotePort;
         }
+        if (typeof data.remoteToken === 'string' && data.remoteToken) {
+          this.remoteToken = data.remoteToken;
+        }
       }
     } catch (err) {
       log.error('Failed to load settings:', err);
@@ -112,6 +119,7 @@ export class SettingsManager {
         recordingResolution: this.recordingResolution,
         remoteEnabled: this.remoteEnabled,
         remotePort: this.remotePort,
+        remoteToken: this.remoteToken,
         ...additionalData,
       };
 
@@ -154,6 +162,7 @@ export class SettingsManager {
       gridSlotWidth: gridSlotWidth ?? 0,
       remoteEnabled: this.remoteEnabled,
       remotePort: this.remotePort,
+      remoteToken: this.remoteToken,
       remoteIPs: this.getRemoteIPs(),
     };
   }
@@ -174,6 +183,25 @@ export class SettingsManager {
       }
     }
     return ips;
+  }
+
+  /**
+   * Generate a remote token if one doesn't exist yet.
+   * Called when the remote server is about to start.
+   */
+  async ensureRemoteToken(): Promise<string> {
+    if (!this.remoteToken) {
+      this.remoteToken = crypto.randomBytes(16).toString('hex');
+      await this.save();
+    }
+    return this.remoteToken;
+  }
+
+  /** Regenerate the remote control token. */
+  async regenerateRemoteToken(): Promise<string> {
+    this.remoteToken = crypto.randomBytes(16).toString('hex');
+    await this.save();
+    return this.remoteToken;
   }
 
   // ---------------------------------------------------------------------------

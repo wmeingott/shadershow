@@ -108,6 +108,58 @@
   background: rgba(0, 120, 212, 0.1);
 }
 
+/* Thumbnail rendering toggle switch */
+.grid-render-toggle {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  cursor: pointer;
+  flex-shrink: 0;
+  position: relative;
+  width: 28px;
+  height: 16px;
+  align-self: center;
+}
+
+.grid-render-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.grid-render-toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.grid-render-toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  left: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--text-dim);
+  border-radius: 50%;
+  transition: transform 0.2s, background 0.2s;
+}
+
+.grid-render-toggle input:checked + .grid-render-toggle-slider {
+  background: var(--accent-color);
+  border-color: var(--accent-color);
+}
+
+.grid-render-toggle input:checked + .grid-render-toggle-slider::before {
+  transform: translate(12px, -50%);
+  background: #fff;
+}
+
 /* Inline rename input */
 .shader-tab-rename-input {
   padding: 2px 6px;
@@ -145,6 +197,22 @@
 .grid-slot:hover {
   border-color: var(--accent-color);
   transform: scale(1.02);
+}
+
+/* Frozen snapshot overlay — shown when thumbnail rendering is off */
+.grid-slot .slot-snapshot {
+  display: none;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.grid-render-paused .grid-slot.has-shader .slot-snapshot[src]:not([src=""]) {
+  display: block;
 }
 
 .grid-slot.has-shader {
@@ -218,6 +286,7 @@
   opacity: 0.7;
   pointer-events: none;
   text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+  z-index: 2;
 }
 
 .grid-slot.has-shader .slot-number {
@@ -234,6 +303,8 @@
   text-overflow: ellipsis;
   min-height: 18px;
   line-height: 18px;
+  position: relative;
+  z-index: 2;
 }
 
 /* Add shader button */

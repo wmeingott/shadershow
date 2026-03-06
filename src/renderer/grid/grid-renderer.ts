@@ -170,6 +170,21 @@ export function initGridVisibilityObserver(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Grid thumbnail rendering toggle
+// ---------------------------------------------------------------------------
+
+let gridThumbnailsEnabled = true;
+
+export function setGridThumbnailsEnabled(enabled: boolean): void {
+  gridThumbnailsEnabled = enabled;
+  document.getElementById('shader-grid-container')?.classList.toggle('grid-render-paused', !enabled);
+}
+
+export function isGridThumbnailsEnabled(): boolean {
+  return gridThumbnailsEnabled;
+}
+
+// ---------------------------------------------------------------------------
 // Grid animation loop
 // ---------------------------------------------------------------------------
 
@@ -193,12 +208,14 @@ export function startGridAnimation(): void {
       return;
     }
 
-    // Only render slots that are currently visible
-    for (const slotIndex of visibleSlots) {
-      const slot = state.gridSlots[slotIndex] as GridSlot | undefined;
-      if (slot?.renderer) {
-        slot.renderer.setSpeed(slot.params?.speed ?? 1);
-        slot.renderer.render();
+    // Only render slots that are currently visible (and rendering is enabled)
+    if (gridThumbnailsEnabled) {
+      for (const slotIndex of visibleSlots) {
+        const slot = state.gridSlots[slotIndex] as GridSlot | undefined;
+        if (slot?.renderer) {
+          slot.renderer.setSpeed(slot.params?.speed ?? 1);
+          slot.renderer.render();
+        }
       }
     }
 

@@ -124,7 +124,7 @@ declare const window: Window & {
 import { buildTabBar } from './grid-tabs.js';
 import { rebuildMixPanelDOM } from './mix-presets.js';
 import { rebuildAssetGridDOM, selectAssetSlot } from './asset-grid.js';
-import { cleanupGridVisibilityObserver, initGridVisibilityObserver } from './grid-renderer.js';
+import { cleanupGridVisibilityObserver, initGridVisibilityObserver, isGridThumbnailsEnabled } from './grid-renderer.js';
 import { loadGridState, saveGridState } from './grid-persistence.js';
 import { setStatus } from '../ui/utils.js';
 import { loadParamsToSliders, generateCustomParamUI } from '../ui/params.js';
@@ -298,6 +298,11 @@ function createGridSlotElement(index: number): HTMLDivElement {
   const labelSpan = document.createElement('span');
   labelSpan.className = 'slot-label';
   slot.appendChild(labelSpan);
+
+  const snapshotImg = document.createElement('img');
+  snapshotImg.className = 'slot-snapshot';
+  snapshotImg.alt = '';
+  slot.appendChild(snapshotImg);
 
   // Store listeners for this slot
   const listeners: Array<{ event: string; handler: EventListener }> = [];
@@ -694,14 +699,27 @@ export function rebuildGridDOM(): void {
       }
 
       // Update renderer's canvas reference to the new DOM element
+      const newCanvas = slotEl.querySelector('canvas') as HTMLCanvasElement;
       if (data.renderer) {
-        const newCanvas = slotEl.querySelector('canvas') as HTMLCanvasElement;
         const renderer = data.renderer as MiniRendererLike;
         renderer.canvas = newCanvas;
         renderer.ctx2d = newCanvas.getContext('2d');
       }
+
+      // Restore snapshot: draw thumbnail on canvas and set img src
+      if (data.thumbnail) {
+        const snapshotImg = slotEl.querySelector('.slot-snapshot') as HTMLImageElement | null;
+        if (snapshotImg) snapshotImg.src = data.thumbnail;
+        if (!isGridThumbnailsEnabled()) {
+          const ctx = newCanvas.getContext('2d');
+          if (ctx) drawThumbnailFromDataUrl(ctx, newCanvas, data.thumbnail);
+        }
+      }
     }
   }
+
+  // Sync grid-render-paused class with current rendering state
+  container.classList.toggle('grid-render-paused', !isGridThumbnailsEnabled());
 
   // Add the "+" button at the end
   container.appendChild(createAddButton());
@@ -1161,6 +1179,13 @@ function setCurrentParamsAsDefault(slotIndex: number): void {
   // Update the slot's params
   slotData.params = { ...currentParams };
 
+  // Apply the new params to the mini renderer so the snapshot reflects them
+  const slotRenderer = slotData.renderer as MiniRendererLike | null;
+  if (slotRenderer) {
+    (slotRenderer as unknown as { setParams?(p: Record<string, unknown>): void }).setParams?.(currentParams);
+    captureSlotSnapshot(slotIndex);
+  }
+
   // Save grid state
   saveGridState();
 
@@ -1277,6 +1302,13 @@ export async function swapGridSlots(fromIndex: number, toIndex: number): Promise
 
   // Update visual state for toSlot
   updateSlotVisualState(toIndex, toSlot);
+
+  // Refresh snapshot img src for both slots after swap
+  for (const [idx, slotEl] of [[fromIndex, fromSlot], [toIndex, toSlot]] as [number, HTMLElement][]) {
+    const d = state.gridSlots[idx] as GridSlotData | null;
+    const img = slotEl.querySelector('.slot-snapshot') as HTMLImageElement | null;
+    if (img) img.src = d?.thumbnail || '';
+  }
 
   // Clear canvases for empty slots
   if (!state.gridSlots[fromIndex]) {
@@ -1534,6 +1566,9 @@ export async function assignShaderToSlot(
       const slotData = state.gridSlots[slotIndex] as GridSlotData;
       labelEl.textContent = slotData.label || displayName.replace(/\.glsl$/i, '');
     }
+
+    // Capture a static snapshot for use when thumbnail rendering is off
+    captureSlotSnapshot(slotIndex);
 
     if (!skipSave) {
       setStatus(`Shader assigned to slot ${slotIndex + 1}`, 'success');
@@ -2269,6 +2304,33 @@ function drawThumbnailFromDataUrl(
     drawScenePlaceholder(ctx, canvas.width, canvas.height);
   };
   img.src = dataUrl;
+}
+
+/**
+ * Render one frame of the slot's mini renderer, capture the result as a
+ * JPEG data URL and store it in slotData.thumbnail. Also updates the
+ * .slot-snapshot img element in the DOM so the frozen preview is current.
+ */
+export function captureSlotSnapshot(slotIndex: number): void {
+  const slotData = state.gridSlots[slotIndex] as GridSlotData | null;
+  if (!slotData) return;
+  const renderer = slotData.renderer as MiniRendererLike | null;
+  if (!renderer?.render) return;
+
+  const slotEl = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`) as HTMLElement | null;
+  if (!slotEl) return;
+  const canvas = slotEl.querySelector('canvas') as HTMLCanvasElement | null;
+  if (!canvas) return;
+
+  try {
+    renderer.render();
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+    slotData.thumbnail = dataUrl;
+    const img = slotEl.querySelector('.slot-snapshot') as HTMLImageElement | null;
+    if (img) img.src = dataUrl;
+  } catch {
+    // snapshot failed silently
+  }
 }
 
 /**

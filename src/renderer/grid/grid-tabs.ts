@@ -121,7 +121,7 @@ declare const window: Window & {
   };
 };
 
-import { stopGridAnimation, startGridAnimation, cleanupGridVisibilityObserver } from './grid-renderer.js';
+import { stopGridAnimation, startGridAnimation, cleanupGridVisibilityObserver, setGridThumbnailsEnabled, isGridThumbnailsEnabled } from './grid-renderer.js';
 import { rebuildMixPanelDOM } from './mix-presets.js';
 import { rebuildAssetGridDOM } from './asset-grid.js';
 import { rebuildGridDOM, hideContextMenu, assignShaderToSlot, assignSceneToSlot, isSceneCode, updateSaveButtonState } from './shader-grid.js';
@@ -303,6 +303,25 @@ export function buildTabBar(): void {
     }
   });
   tabBar.appendChild(addTabBtn);
+
+  // Rendering toggle switch — pushed to the far right via margin-left: auto
+  const renderToggle = document.createElement('label');
+  renderToggle.className = 'grid-render-toggle';
+  renderToggle.title = 'Toggle shader thumbnail rendering on/off';
+
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.checked = isGridThumbnailsEnabled();
+  checkbox.addEventListener('change', () => {
+    setGridThumbnailsEnabled(checkbox.checked);
+  });
+
+  const slider = document.createElement('span');
+  slider.className = 'grid-render-toggle-slider';
+
+  renderToggle.appendChild(checkbox);
+  renderToggle.appendChild(slider);
+  tabBar.appendChild(renderToggle);
 }
 
 // ---------------------------------------------------------------------------

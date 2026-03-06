@@ -20,6 +20,9 @@ export interface StandardUniforms {
   iChannel3: WebGLUniformLocation | null;
   iChannelResolution: WebGLUniformLocation | null;
   iBPM: WebGLUniformLocation | null;
+  iBassLevel: WebGLUniformLocation | null;
+  iMidLevel: WebGLUniformLocation | null;
+  iHighLevel: WebGLUniformLocation | null;
 }
 
 export type CustomParamUniforms = Record<string, WebGLUniformLocation | null | Array<WebGLUniformLocation | null>>;
@@ -106,6 +109,9 @@ export function buildFragmentWrapper(
     uniform sampler2D iChannel3;
     uniform vec3 iChannelResolution[4];
     uniform float iBPM;
+    uniform float iBassLevel;
+    uniform float iMidLevel;
+    uniform float iHighLevel;
 
     // Tiling info (set by ShaderRenderer, defaults to 1×1 in other renderers)
     uniform float tile_cols;
@@ -198,6 +204,9 @@ export function cacheStandardUniforms(
     iChannel3: gl.getUniformLocation(program, 'iChannel3'),
     iChannelResolution: gl.getUniformLocation(program, 'iChannelResolution'),
     iBPM: gl.getUniformLocation(program, 'iBPM'),
+    iBassLevel: gl.getUniformLocation(program, 'iBassLevel'),
+    iMidLevel: gl.getUniformLocation(program, 'iMidLevel'),
+    iHighLevel: gl.getUniformLocation(program, 'iHighLevel'),
   };
 }
 

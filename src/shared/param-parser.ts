@@ -3,14 +3,15 @@
 
 import type {
   ParamDef, ParamBaseType, GLSLType, ParamValue, ParamArrayValue,
-  ParamValues, TextureDirective, StructDef, StructFieldDef,
+  ParamValues, TextureDirective, StructDef, StructFieldDef, ParamBinding,
 } from './types/params.js';
-import { VALID_TEXTURE_NAMES, VALID_FFT_SIZES } from './types/params.js';
+import { VALID_TEXTURE_NAMES, VALID_FFT_SIZES, VALID_BIND_SOURCES } from './types/params.js';
 
 const PARAM_REGEX = /^\s*\/\/\s*@param\s+(\w+)\s+(int|float|vec[234]|color)\b(\[(\d+)\])?\s*(.*)/;
 const STRUCT_PARAM_REGEX = /^\s*\/\/\s*@param\s+(\w+)\s+(\w+)(\[(\d+)\])?\s*(.*)/;
 const STRUCTURE_REGEX = /^\s*\/\/\s*@structure\s+(\w+)\s+(.*)/s;
 const TEXTURE_REGEX = /^\s*\/\/\s*@texture\s+(iChannel[0-3])\s+(texture:(\w+)|(\w+)(?:\((\d+)\))?)/;
+const SHADER_TEXTURE_REGEX = /^\s*\/\/\s*@texture\s+(iChannel[0-3])\s+shader\(\s*(file:[\w.\/\\-]+|\w+)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(true|false)\s*\)/;
 const CONST_REGEX = /^\s*\/\/\s*@const\s+([A-Z_]\w*)\s+(\d+)/;
 const FILE_TEXTURE_NAME_REGEX = /^[\w-]+$/;
 const BASE_TYPES = new Set<string>(['int', 'float', 'vec2', 'vec3', 'vec4', 'color']);
@@ -572,6 +573,100 @@ function expandStructParam(
   return params;
 }
 
+// ── Binding parsing ──────────────────────────────────────────────────────────
+
+/** Regex to match bind: clause — captures all non-whitespace after bind: */
+const BIND_REGEX = /\bbind:(\S+)/;
+
+/** Split a bind options string on commas at bracket depth 0 */
+function splitBindOptions(str: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < str.length; i++) {
+    if (str[i] === '[') depth++;
+    else if (str[i] === ']') depth--;
+    else if (str[i] === ',' && depth === 0) {
+      parts.push(str.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(str.slice(start));
+  return parts;
+}
+
+/**
+ * Extract and parse a bind: clause from the rest string.
+ * Returns the parsed binding (or null) and the rest string with bind clause removed.
+ */
+function extractBinding(rest: string): { binding: ParamBinding | null; rest: string } {
+  const match = rest.match(BIND_REGEX);
+  if (!match) return { binding: null, rest };
+
+  // Split captured group on commas respecting brackets: source,key=val,...
+  const tokens = splitBindOptions(match[1]);
+  const source = tokens[0];
+  if (!VALID_BIND_SOURCES.has(source)) return { binding: null, rest };
+
+  // Defaults
+  let factor = 1.0;
+  let offset = 0.0;
+  let mode: 'replace' | 'add' = 'replace';
+  let smooth = 0;
+  let toggle: 'always' | 'on' | 'off' = 'always';
+
+  // Parse options (tokens[1..])
+  for (let i = 1; i < tokens.length; i++) {
+    const opt = tokens[i];
+    if (!opt) continue;
+    const eqIdx = opt.indexOf('=');
+    if (eqIdx < 0) {
+      // bare keyword
+      if (opt === 'toggle') toggle = 'off';
+      continue;
+    }
+    const key = opt.slice(0, eqIdx);
+    const val = opt.slice(eqIdx + 1);
+    switch (key) {
+      case 'factor': factor = parseFloat(val) || 1.0; break;
+      case 'offset': offset = parseFloat(val) || 0.0; break;
+      case 'mode':
+        if (val === 'add') mode = 'add';
+        else mode = 'replace';
+        break;
+      case 'smooth': smooth = Math.max(0, Math.min(1, parseFloat(val) || 0)); break;
+      case 'toggle':
+        if (val === 'on') toggle = 'on';
+        else toggle = 'off';
+        break;
+      case 'range': {
+        // range=[low,high] — maps source 0→1 to low→high
+        // Using formula (source + offset) * factor:
+        //   high - low = factor, offset = low / factor
+        const rangeMatch = val.match(/^\[([^,]+),([^\]]+)\]$/);
+        if (rangeMatch) {
+          const low = parseFloat(rangeMatch[1]);
+          const high = parseFloat(rangeMatch[2]);
+          if (!isNaN(low) && !isNaN(high) && high !== low) {
+            factor = high - low;
+            offset = low / factor;
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  const binding: ParamBinding = {
+    source: source as ParamBinding['source'],
+    factor, offset, mode, smooth, toggle,
+  };
+
+  // Remove bind clause from rest string
+  const cleaned = rest.slice(0, match.index!) + rest.slice(match.index! + match[0].length);
+  return { binding, rest: cleaned.trim() };
+}
+
 // ── Public API ───────────────────────────────────────────────────────────────
 
 /** Parse a single @param line. Returns null if not a valid @param comment. */
@@ -582,14 +677,18 @@ export function parseParamLine(line: string): ParamDef | null {
   const name = match[1];
   const baseType = match[2] as ParamBaseType;
   const arraySize = match[4] ? parseInt(match[4], 10) : null;
-  const rest = match[5] || '';
+  let rest = match[5] || '';
+
+  // Extract bind: clause before parsing defaults/range
+  const { binding, rest: cleanedRest } = extractBinding(rest);
+  rest = cleanedRest;
 
   const { defaultValue, min, max, mins, maxs, description } = parseRest(rest, baseType, arraySize);
 
   const isColor = baseType === 'color';
   const glslBaseType: GLSLType = isColor ? 'vec3' : baseType as GLSLType;
 
-  return {
+  const paramDef: ParamDef = {
     name,
     type: baseType,
     glslBaseType,
@@ -607,6 +706,8 @@ export function parseParamLine(line: string): ParamDef | null {
       ? `uniform ${glslBaseType} ${name}[${arraySize}];`
       : `uniform ${glslBaseType} ${name};`,
   };
+  if (binding) paramDef.binding = binding;
+  return paramDef;
 }
 
 /** Parse @const directives from shader source. Returns name→value map. */
@@ -744,6 +845,40 @@ export function parseTextureDirectives(shaderSource: string): TextureDirective[]
   const directiveLines = extractDirectiveLines(shaderSource);
 
   for (const line of directiveLines) {
+    // Try shader texture directive first (more specific)
+    const shaderMatch = line.match(SHADER_TEXTURE_REGEX);
+    if (shaderMatch) {
+      const channel = parseInt(shaderMatch[1].charAt(8), 10);
+      const sourceSpec = shaderMatch[2];
+      const width = parseFloat(shaderMatch[3]);
+      const height = parseFloat(shaderMatch[4]);
+      const dynamic = shaderMatch[5] === 'true';
+
+      if (sourceSpec.startsWith('file:')) {
+        const filePath = sourceSpec.slice(5);
+        directives.push({
+          channel,
+          textureName: `shader:${filePath}`,
+          type: 'shader',
+          shaderFile: filePath,
+          shaderWidth: width,
+          shaderHeight: height,
+          shaderDynamic: dynamic,
+        });
+      } else {
+        directives.push({
+          channel,
+          textureName: `shader:${sourceSpec}`,
+          type: 'shader',
+          shaderFunc: sourceSpec,
+          shaderWidth: width,
+          shaderHeight: height,
+          shaderDynamic: dynamic,
+        });
+      }
+      continue;
+    }
+
     const match = line.match(TEXTURE_REGEX);
     if (match) {
       const channel = parseInt(match[1].charAt(8), 10);

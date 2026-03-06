@@ -2,7 +2,7 @@
 // Typed version of js/params.js.
 
 import { state } from '../core/state.js';
-import type { ParamDef, ParamValue, ParamArrayValue } from '@shared/types/params.js';
+import type { ParamDef, ParamValue, ParamArrayValue, ParamBinding } from '@shared/types/params.js';
 import type { AssetParamDef } from '../renderers/asset-renderer.js';
 import { tileState } from '../tiles/tile-state.js';
 import { ASSET_PARAM_DEFS, VIDEO_PARAM_DEFS } from '../renderers/asset-renderer.js';
@@ -24,6 +24,11 @@ interface RendererSurface {
   setParam(name: string, value: ParamValue): void;
   getCustomParamDefs(): ParamDef[];
   getCustomParamValues(): Record<string, ParamValue | ParamArrayValue>;
+  setBindingEnabled?(paramName: string, enabled: boolean): void;
+  getBindingEnabled?(paramName: string): boolean | null;
+  getBoundValue?(paramName: string): number | null;
+  getBindingStates?(): Record<string, boolean>;
+  setBindingStates?(states: Record<string, boolean>): void;
 }
 
 /** Grid slot data (runtime shape) */
@@ -96,6 +101,53 @@ let rightDragListenersInit = false;
 let rightSwapOccurred = false;
 
 const selectedColorPickers = new Set<ColorPickerInput>();
+
+// Binding animation: track bound slider elements for periodic value updates
+interface BoundSliderEntry {
+  paramName: string;
+  slider: HTMLInputElement;
+  valueDisplay: HTMLSpanElement;
+  toggleBtn: HTMLButtonElement;
+  isInt: boolean;
+}
+const boundSliders: BoundSliderEntry[] = [];
+let bindingAnimationId: number | null = null;
+
+function startBindingAnimation(): void {
+  if (bindingAnimationId !== null) return;
+  const update = () => {
+    const renderer = state.renderer as RendererSurface | null;
+    if (!renderer || boundSliders.length === 0) {
+      bindingAnimationId = null;
+      return;
+    }
+    for (const entry of boundSliders) {
+      const enabled = renderer.getBindingEnabled?.(entry.paramName);
+      const boundVal = renderer.getBoundValue?.(entry.paramName);
+      if (enabled && boundVal !== null && boundVal !== undefined) {
+        entry.slider.value = String(boundVal);
+        entry.valueDisplay.textContent = entry.isInt
+          ? Math.round(boundVal).toString()
+          : boundVal.toFixed(2);
+        if (!entry.slider.classList.contains('bound')) entry.slider.classList.add('bound');
+      } else {
+        if (entry.slider.classList.contains('bound')) entry.slider.classList.remove('bound');
+      }
+      // Update toggle button active state
+      entry.toggleBtn.classList.toggle('active', !!enabled);
+    }
+    bindingAnimationId = requestAnimationFrame(update);
+  };
+  bindingAnimationId = requestAnimationFrame(update);
+}
+
+function stopBindingAnimation(): void {
+  if (bindingAnimationId !== null) {
+    cancelAnimationFrame(bindingAnimationId);
+    bindingAnimationId = null;
+  }
+  boundSliders.length = 0;
+}
 
 const MIXER_CHANNEL_COLORS = [
   '#4a9eff', '#ff6b6b', '#51cf66', '#ffd43b',
@@ -534,6 +586,7 @@ function renderCustomParamUI(
   params: ParamDef[],
   values: Record<string, ParamValue | ParamArrayValue>,
 ): void {
+  stopBindingAnimation();
   selectedColorPickers.clear();
   container.innerHTML = '';
 
@@ -601,6 +654,11 @@ function renderCustomParamUI(
 
   // Clear override after rendering
   abParamValuesOverride = null;
+
+  // Start binding animation if any bound sliders were registered
+  if (boundSliders.length > 0) {
+    startBindingAnimation();
+  }
 }
 
 export function loadCustomParamsToUI(): void {
@@ -731,6 +789,59 @@ function createSliderControl(
 
   row.appendChild(slider);
   row.appendChild(valueDisplay);
+
+  // Add binding toggle button if param has a binding
+  const binding = (param as ParamDef).binding;
+  if (binding && arrayIndex === null) {
+    const toggleBtn = document.createElement('button');
+    toggleBtn.className = 'bind-toggle';
+    toggleBtn.textContent = 'B';
+    toggleBtn.title = `Bind to ${binding.source}` +
+      (binding.mode === 'add' ? ' (add)' : '') +
+      (binding.smooth > 0 ? ` smooth=${binding.smooth}` : '');
+
+    const renderer = state.renderer as RendererSurface | null;
+    const isEnabled = renderer?.getBindingEnabled?.(paramName) ?? (binding.toggle === 'on' || binding.toggle === 'always');
+    if (isEnabled) toggleBtn.classList.add('active');
+    if (binding.toggle === 'always') {
+      toggleBtn.classList.add('always');
+      toggleBtn.disabled = true;
+    }
+
+    toggleBtn.addEventListener('click', () => {
+      if (binding.toggle === 'always') return;
+      const r = state.renderer as RendererSurface | null;
+      if (!r) return;
+      const current = r.getBindingEnabled?.(paramName) ?? false;
+      r.setBindingEnabled?.(paramName, !current);
+      toggleBtn.classList.toggle('active', !current);
+      // When disabling, restore base value to slider
+      if (current) {
+        const base = r.getCustomParamValues()[paramName];
+        if (typeof base === 'number') {
+          slider.value = String(base);
+          valueDisplay.textContent = isInt ? Math.round(base).toString() : base.toFixed(2);
+        }
+        slider.classList.remove('bound');
+      }
+      // Save binding states to slot data
+      if (state.activeGridSlot !== null && slots()[state.activeGridSlot]) {
+        const slot = slots()[state.activeGridSlot]! as Record<string, unknown>;
+        const allStates = r.getBindingStates?.() || {};
+        if (Object.keys(allStates).length > 0) {
+          slot.bindingStates = allStates;
+        } else {
+          delete slot.bindingStates;
+        }
+      }
+      debouncedSaveGridState();
+    });
+
+    row.appendChild(toggleBtn);
+
+    // Register for binding animation updates
+    boundSliders.push({ paramName, slider, valueDisplay, toggleBtn, isInt });
+  }
 }
 
 function createVec2Control(

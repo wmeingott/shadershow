@@ -1,6 +1,7 @@
 // BeatDetector — Energy-based beat detection from audio FFT data.
 // Analyzes low-frequency bands to estimate BPM using a dynamic threshold
 // and exponential moving average smoothing.
+// Also computes per-band audio levels (bass/mid/high) for sound-reactive shaders.
 
 export class BeatDetector {
   // Energy history for dynamic threshold (rolling window ~0.7s at 60fps)
@@ -26,6 +27,27 @@ export class BeatDetector {
   private readonly minBPM = 60;
   private readonly maxBPM = 200;
 
+  // Frequency band levels (max value, normalized 0–1)
+  private bassLevel = 0;
+  private midLevel = 0;
+  private highLevel = 0;
+
+  // Bin boundaries for frequency bands (computed from sampleRate/fftSize)
+  // Defaults assume 44100 Hz, fftSize 1024 (~43 Hz/bin)
+  private bassBinEnd = 6;    // 20–250 Hz
+  private midBinStart = 6;
+  private midBinEnd = 93;    // 250–4000 Hz
+  private highBinStart = 93; // 4000–20000 Hz
+
+  /** Call once after creating AudioContext to set correct bin boundaries */
+  configureBins(sampleRate: number, fftSize: number): void {
+    const binWidth = sampleRate / fftSize;
+    this.bassBinEnd = Math.max(1, Math.floor(250 / binWidth));
+    this.midBinStart = this.bassBinEnd;
+    this.midBinEnd = Math.floor(4000 / binWidth);
+    this.highBinStart = this.midBinEnd;
+  }
+
   update(frequencyData: Uint8Array | Float32Array): void {
     // Compute energy of low-frequency bands (bins 0-10, ~0-430 Hz)
     let energy = 0;
@@ -34,6 +56,22 @@ export class BeatDetector {
       energy += frequencyData[i] * frequencyData[i];
     }
     energy = Math.sqrt(energy / lowBins);
+
+    // Compute per-band max levels (normalized 0–1)
+    const len = frequencyData.length;
+    let bassMax = 0, midMax = 0, highMax = 0;
+    for (let i = 0; i < Math.min(this.bassBinEnd, len); i++) {
+      if (frequencyData[i] > bassMax) bassMax = frequencyData[i];
+    }
+    for (let i = this.midBinStart; i < Math.min(this.midBinEnd, len); i++) {
+      if (frequencyData[i] > midMax) midMax = frequencyData[i];
+    }
+    for (let i = this.highBinStart; i < len; i++) {
+      if (frequencyData[i] > highMax) highMax = frequencyData[i];
+    }
+    this.bassLevel = bassMax / 255;
+    this.midLevel = midMax / 255;
+    this.highLevel = highMax / 255;
 
     this.energyHistory.push(energy);
     if (this.energyHistory.length > this.energyHistorySize) {
@@ -97,10 +135,25 @@ export class BeatDetector {
     return this.currentBPM;
   }
 
+  getBassLevel(): number {
+    return this.bassLevel;
+  }
+
+  getMidLevel(): number {
+    return this.midLevel;
+  }
+
+  getHighLevel(): number {
+    return this.highLevel;
+  }
+
   reset(): void {
     this.energyHistory = [];
     this.beatTimes = [];
     this.currentBPM = 120;
     this.smoothedBPM = 120;
+    this.bassLevel = 0;
+    this.midLevel = 0;
+    this.highLevel = 0;
   }
 }

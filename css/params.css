@@ -568,3 +568,56 @@
 .mixer-channel-section.mixer-channel-selected {
   background: rgba(255, 255, 255, 0.03);
 }
+
+/* Param Binding Toggle Button */
+.bind-toggle {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  font-size: 9px;
+  font-weight: 700;
+  font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+  line-height: 16px;
+  text-align: center;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  border-radius: 3px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+  opacity: 0.6;
+}
+
+.bind-toggle:hover {
+  border-color: var(--text-secondary);
+  opacity: 1;
+}
+
+.bind-toggle.active {
+  background: #1a6b8a;
+  border-color: #22b8cf;
+  color: #22b8cf;
+  opacity: 1;
+  box-shadow: 0 0 4px rgba(34, 184, 207, 0.3);
+}
+
+.bind-toggle.active:hover {
+  background: #1e7ea0;
+  border-color: #4dcfdf;
+}
+
+.bind-toggle.always {
+  cursor: default;
+  opacity: 0.8;
+}
+
+/* Bound slider visual state */
+.param-row input[type="range"].bound {
+  pointer-events: none;
+}
+
+.param-row input[type="range"].bound::-webkit-slider-thumb {
+  background: #22b8cf;
+  box-shadow: 0 0 3px rgba(34, 184, 207, 0.5);
+}

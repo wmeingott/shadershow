@@ -15,7 +15,8 @@ import {
   createBuiltinTexture,
   buildShaderExtras,
 } from './gl-utils.js';
-import { parseShaderParams, parseShaderConsts, generateConstDefines, generateUniformDeclarations, parseTextureDirectives, parseOption25D } from '@shared/param-parser.js';
+import { parseShaderParams, parseShaderConsts, generateConstDefines, generateUniformDeclarations, parseTextureDirectives, parseOption25D, createParamValues } from '@shared/param-parser.js';
+import { ShaderTextureChannel } from './shader-texture-channel.js';
 import { ppValues } from '../ui/post-process.js';
 import { tilingValues } from '../ui/tiling.js';
 
@@ -106,6 +107,10 @@ export class MiniShaderRenderer {
 
   // File texture directives (populated on compile)
   fileTextureDirectives: TextureDirective[] = [];
+
+  // Shader texture channels (FBO-based render-to-texture for inline funcs)
+  private shaderTextureChannels: Map<number, ShaderTextureChannel> = new Map();
+  shaderTextureDirectives: TextureDirective[] = [];
 
   // When true, tiling + post-processing GLSL is compiled in and uniforms are set each frame.
   // Used by A/B preview renderers; grid thumbnails leave this false.
@@ -270,6 +275,7 @@ export class MiniShaderRenderer {
     const allDirectives = parseTextureDirectives(fragmentSource);
     const builtinDirectives = allDirectives.filter(d => d.type === 'builtin');
     this.fileTextureDirectives = allDirectives.filter(d => d.type === 'file');
+    this.shaderTextureDirectives = allDirectives.filter(d => d.type === 'shader');
 
     // Apply builtin noise textures
     for (const { channel, textureName } of builtinDirectives) {
@@ -277,6 +283,22 @@ export class MiniShaderRenderer {
       if (entry) {
         this.channelTextures[channel] = entry.texture;
         this.channelResolutions[channel] = [entry.width, entry.height, 1];
+      }
+    }
+
+    // Create shader texture channels for inline function directives
+    this.disposeShaderTextureChannels();
+    for (const dir of this.shaderTextureDirectives) {
+      if (dir.shaderFunc) {
+        try {
+          const stc = new ShaderTextureChannel(
+            gl, dir.channel, fragmentSource, dir.shaderFunc,
+            dir.shaderWidth!, dir.shaderHeight!, dir.shaderDynamic!,
+          );
+          this.shaderTextureChannels.set(dir.channel, stc);
+        } catch {
+          // Silently skip failed shader textures in thumbnails
+        }
       }
     }
   }
@@ -327,6 +349,39 @@ export class MiniShaderRenderer {
 
   private _renderInternal(gl: WebGL2RenderingContext, width: number, height: number): void {
     const time = (performance.now() - this.startTime) / 1000 * this.speed;
+
+    // Render shader texture channels before main shader
+    if (this.shaderTextureChannels.size > 0) {
+      const paramValues = { ...this.customParamValues };
+      // Fill in defaults for params not explicitly set
+      for (const param of this.customParams) {
+        if (paramValues[param.name] === undefined) {
+          paramValues[param.name] = param.default as any;
+        }
+      }
+
+      for (let ch = 0; ch < 4; ch++) {
+        const stc = this.shaderTextureChannels.get(ch);
+        if (!stc) continue;
+        stc.updateResolution(width, height);
+        if (stc.needsRender()) {
+          stc.render(
+            time, 0, 0, [0, 0, 0, 0],
+            this.channelTextures as (WebGLTexture | null)[],
+            this.channelResolutions as [number, number, number][],
+            paramValues,
+          );
+        }
+        const stcTex = stc.getTexture();
+        if (stcTex) {
+          this.channelTextures[ch] = stcTex;
+          this.channelResolutions[ch] = stc.getResolution();
+        }
+      }
+
+      // Restore viewport for main shader render
+      gl.viewport(0, 0, width, height);
+    }
 
     gl.useProgram(this.program);
 
@@ -421,9 +476,18 @@ export class MiniShaderRenderer {
     }
   }
 
+  private disposeShaderTextureChannels(): void {
+    for (const stc of this.shaderTextureChannels.values()) {
+      stc.dispose();
+    }
+    this.shaderTextureChannels.clear();
+  }
+
   dispose(): void {
     const gl = this.gl;
     if (!gl) return;
+
+    this.disposeShaderTextureChannels();
 
     if (this.program) {
       gl.deleteProgram(this.program);

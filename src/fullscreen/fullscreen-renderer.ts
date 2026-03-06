@@ -207,6 +207,7 @@ declare const window: Window & {
   electronAPI: {
     getDisplayRefreshRate(): Promise<number>;
     loadFileTexture(name: string): Promise<{ success: boolean; dataUrl: string }>;
+    loadShaderFile(path: string): Promise<{ success: boolean; source?: string }>;
     sendFullscreenFps(fps: number): void;
     sendPresetSync(data: { type: string; index: number; params: ParamValues }): void;
     onInitFullscreen(cb: (state: InitFullscreenState) => void): void;
@@ -391,6 +392,27 @@ async function loadFileTexturesForRenderer(
       }
     } catch (err: unknown) {
       log.error(`Failed to load file texture "${textureName}":`, err);
+    }
+  }
+}
+
+/**
+ * Load file-based shader textures for a renderer after compile.
+ * Inline function shader textures are handled automatically during compile.
+ */
+async function loadShaderTexturesForRenderer(
+  targetRenderer: { shaderTextureDirectives?: TextureDirective[]; loadShaderTextureFile?(channel: number, source: string, directive: TextureDirective): unknown },
+): Promise<void> {
+  if (!targetRenderer.shaderTextureDirectives || !targetRenderer.loadShaderTextureFile) return;
+  for (const dir of targetRenderer.shaderTextureDirectives) {
+    if (!dir.shaderFile) continue; // Skip inline — already handled in compile
+    try {
+      const result = await window.electronAPI.loadShaderFile(dir.shaderFile);
+      if (result.success && result.source) {
+        targetRenderer.loadShaderTextureFile(dir.channel, result.source, dir);
+      }
+    } catch (err: unknown) {
+      log.error(`Failed to load shader texture file "${dir.shaderFile}":`, err);
     }
   }
 }
@@ -1456,6 +1478,7 @@ export function registerIPCHandlers(): void {
       try {
         renderer!.compile(state.shaderCode);
         loadFileTexturesForRenderer(renderer!);
+        loadShaderTexturesForRenderer(renderer!);
       } catch (err: unknown) {
         log.error('Compile error:', err);
       }
@@ -1542,6 +1565,7 @@ export function registerIPCHandlers(): void {
       try {
         renderer!.compile(data.shaderCode);
         loadFileTexturesForRenderer(renderer!);
+        loadShaderTexturesForRenderer(renderer!);
       } catch (err: unknown) {
         log.error('Compile error:', err);
       }

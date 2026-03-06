@@ -79,6 +79,7 @@ declare const window: Window & {
     saveContent(content: string): void;
     sendShaderUpdate(data: { shaderCode: string; renderMode: string }): void;
     loadFileTexture(name: string): Promise<{ success: boolean; dataUrl?: string }>;
+    loadShaderFile(path: string): Promise<{ success: boolean; source?: string }>;
     sendParamUpdate(data: unknown): void;
   };
 };
@@ -103,13 +104,25 @@ interface FileTextureDirective {
   textureName: string;
 }
 
+interface ShaderTextureDirective {
+  channel: number;
+  textureName: string;
+  shaderFunc?: string;
+  shaderFile?: string;
+  shaderWidth?: number;
+  shaderHeight?: number;
+  shaderDynamic?: boolean;
+}
+
 interface ShaderRendererSurface {
   compile(source: string): void;
   getCustomParamDefs?(): unknown[];
   textureDirectives?: TextureDirective[];
   audioDirectives?: AudioDirective[];
   fileTextureDirectives?: FileTextureDirective[];
+  shaderTextureDirectives?: ShaderTextureDirective[];
   loadTexture(channel: number, dataUrl: string): Promise<void>;
+  loadShaderTextureFile?(channel: number, fileSource: string, directive: ShaderTextureDirective): unknown[];
   channelResolutions: [number, number, number][];
   setParam?(name: string, value: unknown): void;
   extraWrapperLines?: number;
@@ -313,6 +326,41 @@ export async function compileShader(): Promise<void> {
         } catch (texErr: unknown) {
           log.error('Editor', 'Failed to load file texture', textureName, texErr);
           setStatus(`Failed to load texture "${textureName}"`, 'error');
+        }
+      }
+    }
+
+    // Handle shader texture directives
+    if (renderer.shaderTextureDirectives) {
+      for (const dir of renderer.shaderTextureDirectives) {
+        if (dir.shaderFunc) {
+          // Inline function — already set up during compile
+          const label = `shader:${dir.shaderFunc}`;
+          const wStr = dir.shaderWidth! <= 1 ? `${(dir.shaderWidth! * 100).toFixed(0)}%` : `${dir.shaderWidth}`;
+          const hStr = dir.shaderHeight! <= 1 ? `${(dir.shaderHeight! * 100).toFixed(0)}%` : `${dir.shaderHeight}`;
+          updateChannelSlot(dir.channel, 'builtin', label, 0, 0);
+          log.debug('Editor', `Shader texture ch${dir.channel}: ${dir.shaderFunc} ${wStr}x${hStr} dynamic=${dir.shaderDynamic}`);
+        } else if (dir.shaderFile && renderer.loadShaderTextureFile) {
+          // File-based — load async
+          try {
+            const result = await window.electronAPI.loadShaderFile(dir.shaderFile);
+            if (result.success && result.source) {
+              const newParams = renderer.loadShaderTextureFile(dir.channel, result.source, dir);
+              if (newParams && (newParams as unknown[]).length > 0) {
+                // Re-generate param UI to include new params from file shader
+                generateCustomParamUI();
+              }
+              const label = `shader:${dir.shaderFile.split('/').pop()}`;
+              updateChannelSlot(dir.channel, 'builtin', label, 0, 0);
+              log.debug('Editor', `Shader texture file ch${dir.channel}: ${dir.shaderFile}`);
+            } else {
+              log.warn('Editor', `Shader file not found: ${dir.shaderFile}`);
+              setStatus(`Shader file "${dir.shaderFile}" not found`, 'error');
+            }
+          } catch (texErr: unknown) {
+            log.error('Editor', 'Failed to load shader texture file', dir.shaderFile, texErr);
+            setStatus(`Failed to load shader file "${dir.shaderFile}"`, 'error');
+          }
         }
       }
     }

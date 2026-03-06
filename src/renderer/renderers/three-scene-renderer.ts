@@ -477,6 +477,9 @@ export class ThreeSceneRenderer implements IRenderer {
       }
     }
     this.customParamValues.bpm = bpmValue;
+    this.customParamValues.bassLevel = this.beatDetector.getBassLevel();
+    this.customParamValues.midLevel = this.beatDetector.getMidLevel();
+    this.customParamValues.highLevel = this.beatDetector.getHighLevel();
 
     // Call scene's animate function
     if (this.sceneModule?.animate) {
@@ -753,6 +756,7 @@ export class ThreeSceneRenderer implements IRenderer {
       };
       this.channelResolutions[channel] = [512, 2, 1];
       this.channelTypes[channel] = 'audio';
+      this.beatDetector.configureBins(audioContext.sampleRate, 1024);
 
       return { width: 512, height: 2, type: 'audio' };
     } catch (err: any) {

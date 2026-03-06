@@ -9,6 +9,7 @@ import type {
   ParamArrayValue,
   ParamValues,
   TextureDirective,
+  ParamBinding,
 } from '@shared/types/params.js';
 
 import type {
@@ -47,6 +48,7 @@ import type {
 } from './gl-utils.js';
 
 import { BeatDetector } from './beat-detector.js';
+import { ShaderTextureChannel } from './shader-texture-channel.js';
 import { Logger } from '@shared/logger.js';
 import { ppValues } from '../ui/post-process.js';
 import { tilingValues } from '../ui/tiling.js';
@@ -215,6 +217,17 @@ export class ShaderRenderer {
   textureDirectives: TextureDirective[];
   fileTextureDirectives: TextureDirective[];
   audioDirectives: TextureDirective[];
+  shaderTextureDirectives: TextureDirective[];
+
+  // Shader texture channels (FBO-based render-to-texture)
+  shaderTextureChannels: Map<number, ShaderTextureChannel> = new Map();
+
+  // Param bindings (bind: directive) — maps param name → binding definition
+  paramBindings: Map<string, ParamBinding> = new Map();
+  // Runtime state per binding: enabled flag + smoothed value
+  private _bindingRuntime: Map<string, { enabled: boolean; smoothedValue: number }> = new Map();
+  // Computed bound values for the current frame (param name → bound value)
+  private _boundParamValues: Map<string, number> = new Map();
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -319,6 +332,7 @@ export class ShaderRenderer {
     this.textureDirectives = [];
     this.fileTextureDirectives = [];
     this.audioDirectives = [];
+    this.shaderTextureDirectives = [];
 
     // Setup
     this.setupGeometry();
@@ -614,6 +628,7 @@ export class ShaderRenderer {
       };
       this.channelResolutions[channel] = [bins, 2, 1];
       this.channelTypes[channel] = 'audio';
+      this.beatDetector.configureBins(audioContext.sampleRate, fftSize);
 
       // Ensure shared audio buffer is large enough
       if (this._audioBuffer.length < bins * 2) {
@@ -664,8 +679,15 @@ export class ShaderRenderer {
       this.channelNDIData[channel] = null;
     }
 
-    // Reset to default black texture
-    if (this.channelTextures[channel]) {
+    // Cleanup shader texture channel
+    const stc = this.shaderTextureChannels.get(channel);
+    if (stc) {
+      stc.dispose();
+      this.shaderTextureChannels.delete(channel);
+    }
+
+    // Reset to default black texture (skip deleteTexture for STC-managed textures — already disposed above)
+    if (this.channelTextures[channel] && !stc) {
       gl.deleteTexture(this.channelTextures[channel]);
     }
 
@@ -824,6 +846,10 @@ export class ShaderRenderer {
       this.params[name] = value as number;
       this._paramsDirty = true;
     }
+    // Mark static shader texture channels as dirty on any param change
+    for (const stc of this.shaderTextureChannels.values()) {
+      if (!stc.dynamic) stc.markDirty();
+    }
   }
 
   getParams(): ParamValues {
@@ -864,14 +890,119 @@ export class ShaderRenderer {
     }
   }
 
-  /** Set all custom uniform values to the GPU */
+  /** Set all custom uniform values to the GPU (uses bound values when active) */
   setCustomUniforms(): void {
-    setCustomUniforms(
-      this.gl,
-      this.customParams,
-      this.customParamValues as Record<string, number | number[]>,
-      this.customParamUniforms,
-    );
+    // If we have active bindings, temporarily override the values
+    if (this._boundParamValues.size > 0) {
+      const values = { ...this.customParamValues } as Record<string, number | number[]>;
+      for (const [name, boundVal] of this._boundParamValues) {
+        values[name] = boundVal;
+      }
+      setCustomUniforms(this.gl, this.customParams, values, this.customParamUniforms);
+    } else {
+      setCustomUniforms(
+        this.gl,
+        this.customParams,
+        this.customParamValues as Record<string, number | number[]>,
+        this.customParamUniforms,
+      );
+    }
+  }
+
+  /**
+   * Apply param bindings for the current frame.
+   * Computes bound values from built-in uniform sources and stores them
+   * in _boundParamValues for use by setCustomUniforms().
+   */
+  applyBindings(
+    bassLevel: number,
+    midLevel: number,
+    highLevel: number,
+    bpmValue: number,
+    currentTime: number,
+  ): void {
+    this._boundParamValues.clear();
+    if (this.paramBindings.size === 0) return;
+
+    for (const [paramName, binding] of this.paramBindings) {
+      const runtime = this._bindingRuntime.get(paramName);
+      if (!runtime || !runtime.enabled) continue;
+
+      // Resolve source value
+      let sourceValue: number;
+      switch (binding.source) {
+        case 'iBassLevel': sourceValue = bassLevel; break;
+        case 'iMidLevel': sourceValue = midLevel; break;
+        case 'iHighLevel': sourceValue = highLevel; break;
+        case 'iBPM': sourceValue = bpmValue; break;
+        case 'iTime': sourceValue = currentTime; break;
+        default: continue;
+      }
+
+      // Compute: (source + offset) * factor
+      let raw = (sourceValue + binding.offset) * binding.factor;
+
+      // Apply smoothing (EMA)
+      if (binding.smooth > 0) {
+        raw = runtime.smoothedValue * binding.smooth + raw * (1 - binding.smooth);
+      }
+      runtime.smoothedValue = raw;
+
+      // Apply mode
+      let value: number;
+      if (binding.mode === 'add') {
+        const base = this.customParamValues[paramName];
+        value = (typeof base === 'number' ? base : 0) + raw;
+      } else {
+        value = raw;
+      }
+
+      // Clamp to param range
+      const paramDef = this.customParams.find(p => p.name === paramName);
+      if (paramDef) {
+        if (paramDef.min !== null) value = Math.max(paramDef.min, value);
+        if (paramDef.max !== null) value = Math.min(paramDef.max, value);
+      }
+
+      this._boundParamValues.set(paramName, value);
+    }
+  }
+
+  /** Enable or disable a param binding toggle */
+  setBindingEnabled(paramName: string, enabled: boolean): void {
+    const runtime = this._bindingRuntime.get(paramName);
+    if (runtime) runtime.enabled = enabled;
+  }
+
+  /** Get whether a param binding is currently enabled. Returns null if no binding exists. */
+  getBindingEnabled(paramName: string): boolean | null {
+    const runtime = this._bindingRuntime.get(paramName);
+    return runtime ? runtime.enabled : null;
+  }
+
+  /** Get the current computed bound value for a param. Returns null if not actively bound. */
+  getBoundValue(paramName: string): number | null {
+    return this._boundParamValues.get(paramName) ?? null;
+  }
+
+  /** Get all binding toggle states (for persistence) */
+  getBindingStates(): Record<string, boolean> {
+    const states: Record<string, boolean> = {};
+    for (const [name, runtime] of this._bindingRuntime) {
+      const binding = this.paramBindings.get(name);
+      if (binding && binding.toggle !== 'always') {
+        states[name] = runtime.enabled;
+      }
+    }
+    return states;
+  }
+
+  /** Restore binding toggle states (from persistence) */
+  setBindingStates(states: Record<string, boolean>): void {
+    for (const [name, enabled] of Object.entries(states)) {
+      const runtime = this._bindingRuntime.get(name);
+      if (runtime) runtime.enabled = enabled;
+    }
   }
 
   applyTextureDirectives(directives: TextureDirective[]): void {
@@ -977,11 +1108,12 @@ export class ShaderRenderer {
       rows:  gl.getUniformLocation(program, 'tile_rows'),
     };
 
-    // Parse @texture directives and separate builtin vs file vs audio
+    // Parse @texture directives and separate builtin vs file vs audio vs shader
     const allDirectives = parseTextureDirectives(fragmentSource);
     this.textureDirectives = allDirectives.filter(d => d.type === 'builtin');
     this.fileTextureDirectives = allDirectives.filter(d => d.type === 'file');
     this.audioDirectives = allDirectives.filter(d => d.type === 'audio');
+    this.shaderTextureDirectives = allDirectives.filter(d => d.type === 'shader');
     this.applyTextureDirectives(this.textureDirectives);
 
     // Apply audio directives (async, non-blocking)
@@ -989,8 +1121,100 @@ export class ShaderRenderer {
       this.loadAudio(channel, fftSize).catch(err => log.warn('AudioFFT directive failed:', err.message));
     }
 
-    log.debug('Compiled', fragmentSource.length, 'chars,', this.customParams.length, 'params');
+    // Create shader texture channels for inline function directives
+    this.disposeShaderTextureChannels();
+    for (const dir of this.shaderTextureDirectives) {
+      if (dir.shaderFunc) {
+        try {
+          const stc = new ShaderTextureChannel(
+            gl, dir.channel, fragmentSource, dir.shaderFunc,
+            dir.shaderWidth!, dir.shaderHeight!, dir.shaderDynamic!,
+          );
+          this.shaderTextureChannels.set(dir.channel, stc);
+          this.channelTypes[dir.channel] = 'builtin'; // Treat as managed texture
+        } catch (err: any) {
+          log.warn('Shader texture ch' + dir.channel + ' failed:', err.message);
+        }
+      }
+      // File-based shader textures are loaded asynchronously by the editor
+    }
+
+    // Extract param bindings from parsed params
+    this.paramBindings.clear();
+    this._boundParamValues.clear();
+    for (const param of this.customParams) {
+      if (param.binding) {
+        this.paramBindings.set(param.name, param.binding);
+        // Preserve existing runtime state if param name matches, otherwise init from directive
+        if (!this._bindingRuntime.has(param.name)) {
+          this._bindingRuntime.set(param.name, {
+            enabled: param.binding.toggle === 'always' || param.binding.toggle === 'on',
+            smoothedValue: 0,
+          });
+        }
+      }
+    }
+    // Clean up runtime entries for params that no longer have bindings
+    for (const name of this._bindingRuntime.keys()) {
+      if (!this.paramBindings.has(name)) {
+        this._bindingRuntime.delete(name);
+      }
+    }
+
+    log.debug('Compiled', fragmentSource.length, 'chars,', this.customParams.length, 'params,', this.shaderTextureChannels.size, 'STCs,', this.paramBindings.size, 'bindings');
     return { success: true };
+  }
+
+  /** Load a file-based shader texture source into a channel */
+  loadShaderTextureFile(channel: number, fileSource: string, directive: TextureDirective): ParamDef[] {
+    const gl = this.gl;
+
+    // Dispose existing STC for this channel
+    const existing = this.shaderTextureChannels.get(channel);
+    if (existing) existing.dispose();
+
+    const stc = new ShaderTextureChannel(
+      gl, channel, fileSource, 'mainImage',
+      directive.shaderWidth!, directive.shaderHeight!, directive.shaderDynamic!,
+    );
+    this.shaderTextureChannels.set(channel, stc);
+    this.channelTypes[channel] = 'builtin';
+
+    // Merge file shader's params: find unique params not already in main shader
+    const newParams: ParamDef[] = [];
+    const existingNames = new Set(this.customParams.map(p => p.name));
+    for (const param of stc.customParams) {
+      if (!existingNames.has(param.name)) {
+        newParams.push(param);
+        this.customParams.push(param);
+        this.customParamValues[param.name] = param.isArray
+          ? (param.default as any[]).map((v: any) => Array.isArray(v) ? [...v] : v)
+          : (Array.isArray(param.default) ? [...(param.default as number[])] : param.default);
+        // Cache uniform location for the new param in the main program
+        if (this.program) {
+          if (param.isArray) {
+            const arr: (WebGLUniformLocation | null)[] = [];
+            for (let i = 0; i < (param.arraySize ?? 0); i++) {
+              arr.push(gl.getUniformLocation(this.program, `${param.name}[${i}]`));
+            }
+            this.customParamUniforms[param.name] = arr;
+          } else {
+            this.customParamUniforms[param.name] = gl.getUniformLocation(this.program, param.name);
+          }
+        }
+      }
+    }
+    this._paramsDirty = true;
+
+    return newParams;
+  }
+
+  /** Dispose all shader texture channels */
+  private disposeShaderTextureChannels(): void {
+    for (const stc of this.shaderTextureChannels.values()) {
+      stc.dispose();
+    }
+    this.shaderTextureChannels.clear();
   }
 
   parseShaderError(error: string): { line: number | null; message: string } {
@@ -999,7 +1223,7 @@ export class ShaderRenderer {
     if (match) {
       // Subtract wrapper lines (header before user code)
       // Count: #version + precision*2 + standard uniforms (13) + custom uniforms comment + out + empty lines
-      const baseWrapperLines = 24; // Lines before ${customUniformDecls} (includes iBPM + tiling globals)
+      const baseWrapperLines = 27; // Lines before ${customUniformDecls} (includes iBPM + audio levels + tiling globals)
       const customUniformLines = this.customParams ? this.customParams.length : 0;
       const wrapperLines = baseWrapperLines + customUniformLines + this._extraEffectLines + 3; // +3 for out, empty line, fragment source marker
       const line = Math.max(1, parseInt(match[1]) - wrapperLines);
@@ -1019,10 +1243,14 @@ export class ShaderRenderer {
 
     // Update beat detector from first active audio channel
     let bpmValue = 1.0;
+    let bassLevel = 0, midLevel = 0, highLevel = 0;
     for (let i = 0; i < 4; i++) {
       if (this.channelAudioSources[i]) {
         this.beatDetector.update(this.channelAudioSources[i]!.frequencyData);
         bpmValue = this.beatDetector.getBPM() / 100;
+        bassLevel = this.beatDetector.getBassLevel();
+        midLevel = this.beatDetector.getMidLevel();
+        highLevel = this.beatDetector.getHighLevel();
         break;
       }
     }
@@ -1056,6 +1284,40 @@ export class ShaderRenderer {
       date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds() + date.getMilliseconds() / 1000,
     ];
 
+    // Render shader texture channels before main shader
+    if (this.shaderTextureChannels.size > 0) {
+      const mouseZ = this.mouse.isDown ? this.mouse.clickX : -this.mouse.clickX;
+      const mouseW = this.mouse.isDown ? this.mouse.clickY : -this.mouse.clickY;
+      const mouseArr: [number, number, number, number] = [this.mouse.x, this.mouse.y, mouseZ, mouseW];
+      const allParams = this.getParams();
+
+      // Render STCs in channel order so lower channels are available to higher ones
+      for (let ch = 0; ch < 4; ch++) {
+        const stc = this.shaderTextureChannels.get(ch);
+        if (!stc) continue;
+
+        // Update resolution (relative specs depend on canvas size)
+        stc.updateResolution(this.canvas.width, this.canvas.height);
+
+        if (stc.needsRender()) {
+          stc.render(
+            currentTime, timeDelta, this.frameCount, mouseArr,
+            this.channelTextures, this.channelResolutions, allParams,
+          );
+        }
+
+        // Assign STC texture to the channel
+        const stcTex = stc.getTexture();
+        if (stcTex) {
+          this.channelTextures[ch] = stcTex;
+          this.channelResolutions[ch] = stc.getResolution();
+        }
+      }
+
+      // Restore viewport for main shader render
+      gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    }
+
     // Set uniforms
     gl.useProgram(this.program);
 
@@ -1070,8 +1332,14 @@ export class ShaderRenderer {
     const mouseW = this.mouse.isDown ? this.mouse.clickY : -this.mouse.clickY;
     gl.uniform4f(this.uniforms.iMouse, this.mouse.x, this.mouse.y, mouseZ, mouseW);
     gl.uniform1f(this.uniforms.iBPM, bpmValue);
+    gl.uniform1f(this.uniforms.iBassLevel, bassLevel);
+    gl.uniform1f(this.uniforms.iMidLevel, midLevel);
+    gl.uniform1f(this.uniforms.iHighLevel, highLevel);
 
-    // Set custom parameter uniforms
+    // Apply param bindings (computes bound values from audio/time sources)
+    this.applyBindings(bassLevel, midLevel, highLevel, bpmValue, currentTime);
+
+    // Set custom parameter uniforms (uses bound values when active)
     this.setCustomUniforms();
 
     // Set post-processing uniforms

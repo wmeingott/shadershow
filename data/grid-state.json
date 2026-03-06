@@ -1387,7 +1387,7 @@
           },
           "customParams": {
             "tint": [
-              0.5,
+              0.4,
               0.5,
               0.5
             ],
@@ -2513,7 +2513,258 @@
           "customParams": {
             "spectrum": 0.88,
             "gain": 0.51,
-            "gainw": 2.09
+            "gainw": 2.09,
+            "background": [
+              0.05,
+              0.02,
+              0.35
+            ]
+          },
+          "presets": [],
+          "type": "shader"
+        },
+        {
+          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n *\n * Supported types: int, float, vec2, vec3, vec4, color\n *\n * Examples:\n *   // @param speed float 1.0 [0.0, 2.0] \"Animation speed\"\n *   // @param center vec2 0.5, 0.5 \"Center position\"\n *   // @param tint color [1.0, 0.5, 0.0] \"Tint color\"\n */\n //  @texture iChannel0 AudioFFT(1024)\n //  @param background color [0.05, 0.02, 0.1] \"Tint color\"\n //  @param rays float 8 [1,32] \"Anzahl Lichter\"\n //  @param angles vec2 1.5,0.4 [0.0,5.0]\n //  @param origin vec2 0.0,0.8\n //  @param offset vec2 0.5,2.5 [0.0,5.0]\n //  @param rayColor color [0.0,0.2,0.4]\n //  @param rayTime float 1.0 [0.0,1.0]\n //  @param rayChange vec3 0.5,0.5,1.2 [0.0,3.0]\n //  @param raySmooth vec2 0.15,0.6 [0.0,2.0]\n //  @param rayAttn float 0.5 [-1.0,1.0]\n //  @param starSpeed float 1.0 [0.0,10.0]\n //  @param starDepth float 40 [0.0,500]\n //  @param starWeight float 0.1 [0.0,1.0]\n //  @param starSize float 0.5 [0.0,2.0]\n //  @param starColor color [1.0,0.9,0.7]\n //  @param starFade float 3.0 [0.0,10.0]\n\n// Disco Stage Shader \n// Reproduktion: Lichtkegel, Partikel und Tanzfläche\n\nfloat hash12(vec2 p) {\n\tvec3 p3  = fract(vec3(p.xyx) * .1031);\n    p3 += dot(p3, p3.yzx + 33.33 + iTime * 0.00001 * starSpeed);\n    return fract((p3.x + p3.y) * p3.z);\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 uv = fragCoord/iResolution.xy;\n    vec2 p = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;\n    \n    // Zeit-Variablen für Animation\n    float t = iTime * 0.5;\n\n    // 1. HINTERGRUND & FARBVERLAUF\n    vec3 col = background; // Dunkles Violett/Blau\n    \n    // 2. LICHTKEGEL (Spotlights)\n    float numRays = rays;\n    for(float i = 0.0; i < numRays; i++) {\n        // Schwenkbewegung\n        float angle = sin(t + i * angles.x) * angles.y;\n        float xOffset = (i / numRays - offset.x) * offset.y;\n        \n        // Strahlengeometrie\n        vec2 rayOrigin = vec2(xOffset, origin.y);\n        vec2 rayDir = vec2(sin(angle), -cos(angle));\n        \n        // Distanz zum Strahl berechnen\n        vec2 v = p - rayOrigin;\n        float dist = length(v - rayDir * max(0.0, dot(v, rayDir)));\n        \n        // Regenbogenfarben basierend auf dem Index\n        vec3 rayCol = rayChange.x + rayChange.y * cos(rayColor * 10.0 + i * rayChange.z + t * rayTime);\n        \n        // Intensität des Strahls (nach unten hin auffächernd)\n        float beam = smoothstep(raySmooth.x, 0.0, dist);\n        beam *= pow(1.0 - uv.y, rayAttn); // Abschwächung nach unten\n        \n        col += rayCol * beam * raySmooth.y;\n    }\n\n    // 3. GLITZERPARTIKEL (Stars)\n    vec2 gv = uv * starDepth;\n    vec2 id = floor(gv);\n    float n = hash12(id);\n    if(n > 0.92) {\n        float size = sin(t * starFade + n * 10.0) * 0.5 + starSize;\n        float star = smoothstep(starWeight * size, 0.0, length(fract(gv) - 0.5));\n        col += star * starColor * n;\n    }\n\n    // 4. TANZFLÄCHE (Boden)\n    /*\n    if(uv.y < 0.25) {\n        // Perspektivische Verzerrung für den Boden\n        float floorUV = (uv.y / 0.25); \n        float perspective = (p.x / floorUV);\n        \n        // Boden-Gitter (Dielen-Optik)\n        float stripes = smoothstep(0.02, 0.03, abs(sin(perspective * 15.0)));\n        vec3 floorCol = col * 0.8 + 0.1; // Reflexion des Lichts\n        \n        // Lichtflecken auf dem Boden\n        float spots = smoothstep(0.4, 0.0, length(vec2(p.x, uv.y - 0.1)));\n        floorCol += spots * vec3(1.0, 0.8, 0.5) * 0.3;\n        \n        col = mix(floorCol * stripes, col, pow(floorUV, 0.5));\n    }\n    */\n    // Post-Processing: Kontrast und Vignette\n    col *= 1.2;\n    col -= length(uv - 0.5) * 0.2; // Vignette\n\n    fragColor = vec4(col, 1.0);\n}",
+          "filePath": null,
+          "params": {
+            "speed": 1
+          },
+          "customParams": {
+            "background": [
+              0.05,
+              0.02,
+              0.1
+            ],
+            "rays": 8,
+            "angles": [
+              1.5,
+              0.4
+            ],
+            "origin": [
+              0,
+              0.8
+            ],
+            "offset": [
+              0.5,
+              2.5
+            ],
+            "rayColor": [
+              0,
+              0.2,
+              0.4
+            ],
+            "rayTime": 1,
+            "rayChange": [
+              0.5,
+              0.5,
+              1.2
+            ],
+            "raySmooth": [
+              0.15,
+              0.6
+            ],
+            "rayAttn": 0.5,
+            "starSpeed": 1,
+            "starDepth": 40,
+            "starWeight": 0.1,
+            "starSize": 0.5,
+            "starColor": [
+              1,
+              0.9,
+              0.7
+            ],
+            "starFade": 3
+          },
+          "presets": [],
+          "type": "shader"
+        },
+        {
+          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n *\n * Supported types: int, float, vec2, vec3, vec4, color\n *\n * Examples:\n *   // @param speed float 1.0 [0.0, 2.0] \"Animation speed\"\n *   // @param center vec2 0.5, 0.5 \"Center position\"\n *   // @param tint color [1.0, 0.5, 0.0] \"Tint color\"\n */\n // @texture iChannel0 AudioFFT\n \n void mainImage(out vec4 fragColor, in vec2 fragCoord) {\n      vec2 uv = fragCoord / iResolution.xy;\n\n      // Three vertical bars showing bass (red), mid (green), high (blue)\n      float band = floor(uv.x * 3.0);\n      float level = band < 1.0 ? iBassLevel : band < 2.0 ? iMidLevel : iHighLevel;\n      float bar = step(1.0 - level, uv.y);\n      vec3 col = vec3(band < 1.0 ? 1.0 : 0.0, band < 2.0 && band >= 1.0 ? 1.0 : 0.0, band >= 2.0 ? 1.0 : 0.0);\n\n      fragColor = vec4(col * bar, 1.0);\n  }\n",
+          "filePath": null,
+          "params": {
+            "speed": 1
+          },
+          "customParams": {},
+          "presets": [],
+          "type": "shader"
+        },
+        {
+          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n *\n * Supported types: int, float, vec2, vec3, vec4, color\n *\n * Examples:\n *   // @param speed float 1.0 [0.0, 2.0] \"Animation speed\"\n *   // @param center vec2 0.5, 0.5 \"Center position\"\n *   // @param tint color [1.0, 0.5, 0.0] \"Tint color\"\n */\n //  @texture iChannel0 AudioFFT(1024)\n //  @param background color [0.05, 0.02, 0.1] \"Tint color\"\n //  @param rays float 8 [1,32] \"Anzahl Lichter\"\n //  @param angles vec2 1.5,0.4 [0.0,5.0]\n //  @param origin vec2 0.0,0.8\n //  @param offset vec2 0.5,2.5 [0.0,5.0]\n //  @param rayColor color [0.0,0.2,0.4]\n //  @param rayTime float 1.0 [0.0,1.0]\n //  @param rayChange vec3 0.5,0.5,1.2 [0.0,3.0]\n //  @param raySmooth vec2 0.15,0.6 [0.0,2.0]\n //  @param rayAttn float 0.5 [-1.0,1.0]\n //  @param starSpeed float 1.0 [0.0,10.0]\n //  @param starDepth float 40 [0.0,500]\n //  @param starWeight float 0.1 [0.0,1.0]\n //  @param starSize float 0.5 [0.0,2.0]\n //  @param starColor color [1.0,0.9,0.7]\n //  @param starFade float 3.0 [0.0,10.0]\n\n// Disco Stage Shader \n// Reproduktion: Lichtkegel, Partikel und Tanzfläche\n\nfloat hash12(vec2 p) {\n\tvec3 p3  = fract(vec3(p.xyx) * .1031);\n    p3 += dot(p3, p3.yzx + 33.33 + iTime * 0.00001 * starSpeed);\n    return fract((p3.x + p3.y) * p3.z);\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 uv = fragCoord/iResolution.xy;\n    vec2 p = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;\n    \n    // Zeit-Variablen für Animation\n    float t = iTime * 0.5;\n\n    // 1. HINTERGRUND & FARBVERLAUF\n    vec3 col = background; // Dunkles Violett/Blau\n    \n    // 2. LICHTKEGEL (Spotlights)\n    float numRays = rays;\n    for(float i = 0.0; i < numRays; i++) {\n        // Schwenkbewegung\n        float angle = sin(t + i * angles.x) * angles.y;\n        float xOffset = (i / numRays - offset.x) * offset.y;\n        \n        // Strahlengeometrie\n        vec2 rayOrigin = vec2(xOffset, origin.y);\n        vec2 rayDir = vec2(sin(angle), -cos(angle));\n        \n        // Distanz zum Strahl berechnen\n        vec2 v = p - rayOrigin;\n        float dist = length(v - rayDir * max(0.0, dot(v, rayDir)));\n        \n        // Regenbogenfarben basierend auf dem Index\n        vec3 rayCol = rayChange.x + rayChange.y * cos(rayColor * 10.0 + i * rayChange.z + t * rayTime);\n        \n        // Intensität des Strahls (nach unten hin auffächernd)\n        float beam = smoothstep(raySmooth.x, 0.0, dist);\n        beam *= pow(1.0 - uv.y, rayAttn); // Abschwächung nach unten\n        \n        col += rayCol * beam * raySmooth.y;\n    }\n\n    // 3. GLITZERPARTIKEL (Stars)\n    vec2 gv = uv * starDepth;\n    vec2 id = floor(gv);\n    float n = hash12(id);\n    if(n > 0.92) {\n        float size = sin(t * starFade + n * 10.0) * 0.5 + starSize;\n        float star = smoothstep(starWeight * size, 0.0, length(fract(gv) - 0.5));\n        col += star * starColor * n;\n    }\n\n    // 4. TANZFLÄCHE (Boden)\n    /*\n    if(uv.y < 0.25) {\n        // Perspektivische Verzerrung für den Boden\n        float floorUV = (uv.y / 0.25); \n        float perspective = (p.x / floorUV);\n        \n        // Boden-Gitter (Dielen-Optik)\n        float stripes = smoothstep(0.02, 0.03, abs(sin(perspective * 15.0)));\n        vec3 floorCol = col * 0.8 + 0.1; // Reflexion des Lichts\n        \n        // Lichtflecken auf dem Boden\n        float spots = smoothstep(0.4, 0.0, length(vec2(p.x, uv.y - 0.1)));\n        floorCol += spots * vec3(1.0, 0.8, 0.5) * 0.3;\n        \n        col = mix(floorCol * stripes, col, pow(floorUV, 0.5));\n    }\n    */\n    // Post-Processing: Kontrast und Vignette\n    col *= 1.2;\n    col -= length(uv - 0.5) * 0.2; // Vignette\n\n    fragColor = vec4(col, 1.0);\n}",
+          "filePath": null,
+          "params": {
+            "speed": 1,
+            "cols": 1,
+            "rows": 1,
+            "spaceX": 0,
+            "spaceY": 0,
+            "tilingBg": "#000000"
+          },
+          "customParams": {
+            "background": [
+              0.05,
+              0.02,
+              0.1
+            ],
+            "rays": 16.29,
+            "angles": [
+              1.5,
+              0.4
+            ],
+            "origin": [
+              0,
+              0.8
+            ],
+            "offset": [
+              0.5,
+              2.5
+            ],
+            "rayColor": [
+              0,
+              0.2,
+              0.4
+            ],
+            "rayTime": 1,
+            "rayChange": [
+              0.42,
+              0.5,
+              1.2
+            ],
+            "raySmooth": [
+              0.06,
+              1.27
+            ],
+            "rayAttn": 0.5,
+            "starSpeed": 1,
+            "starDepth": 68.95,
+            "starWeight": 0.12,
+            "starSize": 0.5,
+            "starColor": [
+              1,
+              0.9,
+              0.7
+            ],
+            "starFade": 3,
+            "audio": [
+              1.21,
+              1.04,
+              0
+            ]
+          },
+          "presets": [
+            {
+              "params": {
+                "speed": 1,
+                "background": [
+                  0.05,
+                  0.02,
+                  0.1
+                ],
+                "rays": 16.29,
+                "angles": [
+                  1.5,
+                  0.4
+                ],
+                "origin": [
+                  0,
+                  0.8
+                ],
+                "offset": [
+                  0.5,
+                  2.5
+                ],
+                "rayColor": [
+                  0,
+                  0.2,
+                  0.4
+                ],
+                "rayTime": 1,
+                "rayChange": [
+                  0.42,
+                  0.5,
+                  1.2
+                ],
+                "raySmooth": [
+                  0.06,
+                  1.27
+                ],
+                "rayAttn": 0.5,
+                "starSpeed": 1,
+                "starDepth": 68.95,
+                "starWeight": 0.12,
+                "starSize": 0.5,
+                "starColor": [
+                  1,
+                  0.9,
+                  0.7
+                ],
+                "starFade": 3,
+                "cols": 1,
+                "rows": 1,
+                "spaceX": 0,
+                "spaceY": 0,
+                "tilingBg": "#000000"
+              },
+              "name": null
+            }
+          ],
+          "type": "shader"
+        },
+        {
+          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n *\n * Supported types: int, float, vec2, vec3, vec4, color\n *\n * Examples:\n *   // @param speed float 1.0 [0.0, 2.0] \"Animation speed\"\n *   // @param center vec2 0.5, 0.5 \"Center position\"\n *   // @param tint color [1.0, 0.5, 0.0] \"Tint color\"\n */\n //  @texture iChannel0 AudioFFT(1024)\n //  @param background color [0.05, 0.02, 0.1] \"Tint color\"\n //  @param rays float 8 [1,32] \"Anzahl Lichter\"\n //  @param angles vec2 1.5,0.4 [0.0,5.0]\n //  @param origin vec2 0.0,0.8\n //  @param offset vec2 0.5,2.5 [0.0,5.0]\n //  @param rayColor color [0.0,0.2,0.4]\n //  @param rayTime float 1.0 [0.0,1.0]\n //  @param rayChange vec3 0.5,0.5,1.2 [0.0,3.0]\n //  @param raySmooth vec2 0.15,0.6 [0.0,2.0]\n //  @param rayAttn float 0.5 [-1.0,1.0]\n //  @param starSpeed float 1.0 [0.0,10.0]\n //  @param starDepth float 40 [0.0,500]\n //  @param starWeight float 0.1 [0.0,1.0]\n //  @param starSize float 0.5 [0.0,2.0]\n //  @param starColor color [1.0,0.9,0.7]\n //  @param starFade float 3.0 [0.0,10.0]\n //  @param audio vec3 [0.0,0.0,0.0] [-2.0,2.0]\n\n// Disco Stage Shader \n// Reproduktion: Lichtkegel, Partikel und Tanzfläche\n\nfloat hash12(vec2 p) {\n\tvec3 p3  = fract(vec3(p.xyx) * .1031);\n    p3 += dot(p3, p3.yzx + 33.33 + iTime * 0.00001 * starSpeed);\n    return fract((p3.x + p3.y) * p3.z);\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 uv = fragCoord/iResolution.xy;\n    vec2 p = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;\n    \n    // Zeit-Variablen für Animation\n    float t = iTime * 0.5;\n\n    // 1. HINTERGRUND & FARBVERLAUF\n    vec3 col = background; // Dunkles Violett/Blau\n    \n    // 2. LICHTKEGEL (Spotlights)\n    float numRays = rays;\n    for(float i = 0.0; i < numRays; i++) {\n        // Schwenkbewegung\n        float angle = sin(t + i * angles.x) * angles.y;\n        float xOffset = (i / numRays - offset.x) * offset.y;\n        \n        // Strahlengeometrie\n        vec2 rayOrigin = vec2(xOffset, origin.y);\n        vec2 rayDir = vec2(sin(angle), -cos(angle));\n        \n        // Distanz zum Strahl berechnen\n        vec2 v = p - rayOrigin;\n        float dist = length(v - rayDir * max(0.0, dot(v, rayDir)));\n        \n        // Regenbogenfarben basierend auf dem Index\n        vec3 rayCol = rayChange.x + rayChange.y * cos(rayColor * 10.0 + i * rayChange.z + t * rayTime);\n          rayCol *= 1.0 + audio.x * (iBassLevel - 0.5) ;\n          rayCol *= 1.0 + (iMidLevel - 0.5) * audio.y;\n          rayCol *= 1.0 + (iHighLevel - 0.5) * audio.z ;\n        \n        // Intensität des Strahls (nach unten hin auffächernd)\n        float beam = smoothstep(raySmooth.x, 0.0, dist);\n        beam *= pow(1.0 - uv.y, rayAttn); // Abschwächung nach unten\n\n\n        col += rayCol * beam * raySmooth.y;\n    }\n\n    // 3. GLITZERPARTIKEL (Stars)\n    vec2 gv = uv * starDepth;\n    vec2 id = floor(gv);\n    float n = hash12(id);\n    if(n > 0.92) {\n        float size = sin(t * starFade + n * 10.0) * 0.5 + starSize;\n        float star = smoothstep(starWeight * size, 0.0, length(fract(gv) - 0.5));\n        col += star * starColor * n;\n    }\n\n    // 4. TANZFLÄCHE (Boden)\n    /*\n    if(uv.y < 0.25) {\n        // Perspektivische Verzerrung für den Boden\n        float floorUV = (uv.y / 0.25); \n        float perspective = (p.x / floorUV);\n        \n        // Boden-Gitter (Dielen-Optik)\n        float stripes = smoothstep(0.02, 0.03, abs(sin(perspective * 15.0)));\n        vec3 floorCol = col * 0.8 + 0.1; // Reflexion des Lichts\n        \n        // Lichtflecken auf dem Boden\n        float spots = smoothstep(0.4, 0.0, length(vec2(p.x, uv.y - 0.1)));\n        floorCol += spots * vec3(1.0, 0.8, 0.5) * 0.3;\n        \n        col = mix(floorCol * stripes, col, pow(floorUV, 0.5));\n    }\n    */\n    // Post-Processing: Kontrast und Vignette\n    col *= 1.2;\n    col -= length(uv - 0.5) * 0.2; // Vignette\n\n    fragColor = vec4(col, 1.0);\n}",
+          "filePath": null,
+          "params": {
+            "speed": 1
+          },
+          "customParams": {
+            "background": [
+              0.05,
+              0.02,
+              0.1
+            ],
+            "rays": 8,
+            "angles": [
+              1.5,
+              0.4
+            ],
+            "origin": [
+              0,
+              0.8
+            ],
+            "offset": [
+              0.5,
+              2.5
+            ],
+            "rayColor": [
+              0,
+              0.2,
+              0.4
+            ],
+            "rayTime": 1,
+            "rayChange": [
+              0.5,
+              0.5,
+              1.2
+            ],
+            "raySmooth": [
+              0.15,
+              0.6
+            ],
+            "rayAttn": 0.5,
+            "starSpeed": 1,
+            "starDepth": 40,
+            "starWeight": 0.1,
+            "starSize": 0.5,
+            "starColor": [
+              1,
+              0.9,
+              0.7
+            ],
+            "starFade": 3,
+            "audio": [
+              0,
+              0,
+              0
+            ]
           },
           "presets": [],
           "type": "shader"
@@ -3036,6 +3287,16 @@
             }
           ],
           "type": "shader"
+        },
+        {
+          "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n *\n * Supported types: int, float, vec2, vec3, vec4, color\n *\n * Examples:\n *   // @param speed float 1.0 [0.0, 2.0] \"Animation speed\"\n *   // @param center vec2 0.5, 0.5 \"Center position\"\n *   // @param tint color [1.0, 0.5, 0.0] \"Tint color\"\n */\n\n// Disco Stage Shader \n// Reproduktion: Lichtkegel, Partikel und Tanzfläche\n\nfloat hash12(vec2 p) {\n\tvec3 p3  = fract(vec3(p.xyx) * .1031);\n    p3 += dot(p3, p3.yzx + 33.33);\n    return fract((p3.x + p3.y) * p3.z);\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 uv = fragCoord/iResolution.xy;\n    vec2 p = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;\n    \n    // Zeit-Variablen für Animation\n    float t = iTime * 0.5;\n\n    // 1. HINTERGRUND & FARBVERLAUF\n    vec3 col = vec4(0.05, 0.02, 0.1, 1.0).rgb; // Dunkles Violett/Blau\n    \n    // 2. LICHTKEGEL (Spotlights)\n    float numRays = 8.0;\n    for(float i = 0.0; i < numRays; i++) {\n        // Schwenkbewegung\n        float angle = sin(t + i * 1.5) * 0.4;\n        float xOffset = (i / numRays - 0.5) * 2.5;\n        \n        // Strahlengeometrie\n        vec2 rayOrigin = vec2(xOffset, 0.8);\n        vec2 rayDir = vec2(sin(angle), -cos(angle));\n        \n        // Distanz zum Strahl berechnen\n        vec2 v = p - rayOrigin;\n        float dist = length(v - rayDir * max(0.0, dot(v, rayDir)));\n        \n        // Regenbogenfarben basierend auf dem Index\n        vec3 rayCol = 0.5 + 0.5 * cos(vec3(0,2,4) + i * 1.2 + t);\n        \n        // Intensität des Strahls (nach unten hin auffächernd)\n        float beam = smoothstep(0.15, 0.0, dist);\n        beam *= pow(1.0 - uv.y, 0.5); // Abschwächung nach unten\n        \n        col += rayCol * beam * 0.6;\n    }\n\n    // 3. GLITZERPARTIKEL (Stars)\n    vec2 gv = uv * 40.0;\n    vec2 id = floor(gv);\n    float n = hash12(id);\n    if(n > 0.92) {\n        float size = sin(t * 3.0 + n * 10.0) * 0.5 + 0.5;\n        float star = smoothstep(0.1 * size, 0.0, length(fract(gv) - 0.5));\n        col += star * vec3(1.0, 0.9, 0.7) * n;\n    }\n\n    // 4. TANZFLÄCHE (Boden)\n    /*\n    if(uv.y < 0.25) {\n        // Perspektivische Verzerrung für den Boden\n        float floorUV = (uv.y / 0.25); \n        float perspective = (p.x / floorUV);\n        \n        // Boden-Gitter (Dielen-Optik)\n        float stripes = smoothstep(0.02, 0.03, abs(sin(perspective * 15.0)));\n        vec3 floorCol = col * 0.8 + 0.1; // Reflexion des Lichts\n        \n        // Lichtflecken auf dem Boden\n        float spots = smoothstep(0.4, 0.0, length(vec2(p.x, uv.y - 0.1)));\n        floorCol += spots * vec3(1.0, 0.8, 0.5) * 0.3;\n        \n        col = mix(floorCol * stripes, col, pow(floorUV, 0.5));\n    }\n    */\n    // Post-Processing: Kontrast und Vignette\n    col *= 1.2;\n    col -= length(uv - 0.5) * 0.2; // Vignette\n\n    fragColor = vec4(col, 1.0);\n}",
+          "filePath": null,
+          "params": {
+            "speed": 1
+          },
+          "customParams": {},
+          "presets": [],
+          "type": "shader"
         }
       ]
     }
@@ -3527,11 +3788,16 @@
         },
         {
           "name": "Preset 6",
-          "thumbnail": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAoHBwgHBgoICAgLCgoLDhgQDg0NDh0VFhEYIx8lJCIfIiEmKzcvJik0KSEiMEExNDk7Pj4+JS5ESUM8SDc9Pjv/2wBDAQoLCw4NDhwQEBw7KCIoOzs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozv/wAARCACHAPADASIAAhEBAxEB/8QAGgAAAwEBAQEAAAAAAAAAAAAAAQIDAAQFB//EACQQAAIBAwQDAQEBAQAAAAAAAAABAgMiMhEhIzEzQUJDEhME/8QAGgEAAwEBAQEAAAAAAAAAAAAAAgMEAQUABv/EAB4RAAICAwEBAQEAAAAAAAAAAAABAhEDITFBElEE/9oADAMBAAIRAxEAPwD5a+kNLAD6QXgfWV0cZYAStG+DRxYLVhEox7J/xudMF2J/O7I8mFNI8kcrjcBrcs43sSUbjmZMNHhNNxn6DKOjC1sidxaDQrVo9OOqQGtjoowsFy0h+OH1Kjp/546Q6Oin0JRjpApTWzIpdPo8MflIEe2T+yscmT+wQ3xCyVxy/wDTDVnW1eSrR3QcXTJM8PqLPOnHR6Aa2L14aMlJbFKdnEnD5bQulo0VsFJ/yUhDWJ5s9GDbJwjqh6dPdlaUNnsVpw3YDkVY8F1ZKFO4rGGkwxjeNpeKbsshiSQJK5An2hp5IE/Rg2S6LPFGe0AzxFngahctWSfSGeAnyh5Yn3C4fNoywNHEywNHE0JBh7Alq2GmCOTFtaQSJtXiyjcV0vA1eSzhZpKUbkGUdkUkt0GUdlsSTxdGJE/41R10YaUxVTtR004aUyDLjo6X82Pdj042DQWzDCNgaa2ZG4HZguCRVzJ6XlYq5iacgtxMfgjV4tVXIo1eCpG5GfIuStM5K8DnlBpHfVhqRqU7UMi6Ofmw22yEYWF6cLDRhYWhHSAMmbixbFpR2Y8Fuxqa0TNHti2yyMKoRZsH2FZsH2eMNPJC1PQ08kLP0agZegniTqOwepiiNR2BRRPldWIukUeBFPYr8n2mOVo+dQVgGOIFgaPQwJBp+zRyYaaYYxuYF6QyKbEWYdLxlG8Ol6ENjFAEo3Io4apGauRf+dkBJdKceOzfxYi0I8YXHjRSK4yLJC2dfFCgQjYwU1sykFxggtmRyxli8JxVzJ6chZK5ktORk7gC/BWuQM1cg6cgZK5AfJlaZOrHZE6sLDpqR2QlSNpvyDOF2QUbB4RsH/njDBcZjx2LiqYkOmLHtlIJaMWK3Yt4mHfCX2wfY2nIxXmLcWhVmnkLU9BnkLUfRgMn0Wo7SFR2lar2IVHYMiiLPLoi6RdJ/wAoyopRR0f5pQR9Piyqjlx/nl6SjDjHhC0sor/MEVYyj7HLCkJSjswwjcxqfs0cmDekMUEqJpcgWuRGXkD+iFNmpDNXI6WtkQ+lqdOlqMb6V4o9HkuNDpcYH40MvGKktnSijQwBTWzGh42CmtmIcRq8Eit2TS5C0Vuyf6MmlE8/BdOQMskb9AyzQlxPIM1shaisHn0gVMT1BSXSemtM0cAtcZorjYyKENbFhixYrdjQ6Yse2F8oXfCWl7BpyDfoD9AHjTEti1FeidVMtUyQlX0A8CYE5aZz1cTnqO06qytOecdYmL+drhBnl06W9kVfjRxRrppanR/qnTOjitArLFl0+MEcGJGadMMZL+C1MP6Qafs0cmCm+zRdzN/DE+C68jD+iF15GOs0LbMiV0uR0tbI5/pHS+kC306GJdKS8Yy8YsvGMvGC+l6NHBmp9MMcGan0wPwYvBY5Ml+jKx7ZP9BEkY/APyBlmgPyBnmhDRiDPpAqYIafSBUwRjQb9EfjNFWBfjMsAkhTJw6Yse2NHFiR7Ya8J34TXkZv0BryMGvICIbDUyQlV9BqO5E6st1obaFZH0Sq7USliNVnaiE6lunYayRRzsr2ST2RVSajsR9IpraOxMgReNR/wPCpayEXaGLtLYjFNo6acwxlcyFNsMZXBVpDY5WVi7yizIRd5ZO9CJFOOVnR9I6Xijl+kdLdqAfp1cT6VlgMvGLLBBT4wX0tQ0MGan0wQwNT6Zn4MXho9sn+jHjkyf6CpAvwD8gZ5ID8gZu5CmZ4NP0CpgjT9ewVHYgWE/QPxgj4zN2AT4zPoBix6ZJO5jxezJJ7sB5KJ5eCa3sVy5Aa3sRu8RLIyZhqSuJVZajVHcSqPoD6bEZH0So9iL6KVOib6NRz8j2AdYkx/R04MjKRwGj0IsR4dFkZBJDQ6GhkLT9lIK4YpaQyKNFXlVmJFcg6V4mTLMcS/wBI6G9kczyR0PpAX06WL0tJ8aCnxiSdiGXjBb2Wp7Hg7Gam9mLDxhpvZg3wanw0XcyevIx49snryMVJmN8M3yIM3chW+Q03chbYN6Hm9kCo7ECb6BUdgEmE30DfGBPjM8DLxi2DexI9Mku2Vj0ya7YtoTLwi82I3eM82TeYFEcmCo7uyVRj1MidT0akS5JdJ1OhPQ0+hPQSRDN7B6H+dhPQ/pFcWISHjiPHESOv8jQxZVGQaRSl7KU8idL2Uh2NUtIfCPBorkH6qISK5B/0FuRXBFXki7eyOd5ItJ7IC+lsPSsnYhk+MlJ2IeL4zG9lSex4PjDT6YsHxhpvZgWOT4aL3ZPXkY0cmT15GLbBb0gt8hpu9Ct8hpu5Cwb0PN7IFR2C1HsgVHYeZ5y6N+Zo+MXWwMXxmUYmCPTJrtjwezJrtg0Lb4ReZOWZR5slJ3g0QzYlTIlUY9R3Eps2iLJLos+hfkM+hfk2iVvZn0N3ExgkwUPF2jw6ZjFEWMRWlruUhkYw1MpguBWY2t6MYBsfEo3cisnsjGM/SuPo0nYFPjMYxj10em+Nsam9mYwI+PgI5MnryMxhbMlxCvM03cjGMFt6YKj6NN2oxjwLfTa8Y0fGYx41dFhiIu2YxgEuIg8yUszGMIchKp2SmzGNIcnokugeujGPEzP/2Q==",
+          "thumbnail": "data:image/jpeg;base64,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",
           "renderMode": "shader",
           "shaderCode": "/*\n * ShaderShow - Available Uniforms\n * ================================\n * vec3  iResolution      - Viewport resolution (width, height, 1.0)\n * float iTime            - Playback time in seconds\n * float iTimeDelta       - Time since last frame in seconds\n * int   iFrame           - Current frame number\n * vec4  iMouse           - Mouse pixel coords (xy: current, zw: click)\n * vec4  iDate            - (year, month, day, time in seconds)\n *\n * sampler2D iChannel0-3  - Input textures (image, video, camera, audio, NDI)\n * vec3  iChannelResolution[4] - Resolution of each channel\n *\n * Custom Parameters (@param)\n * --------------------------\n * Define custom uniforms with UI controls using @param comments:\n *   // @param name type [default] [min, max] \"description\"\n *\n * Supported types: int, float, vec2, vec3, vec4, color\n *\n * Examples:\n *   // @param speed float 1.0 [0.0, 2.0] \"Animation speed\"\n *   // @param center vec2 0.5, 0.5 \"Center position\"\n *   // @param tint color [1.0, 0.5, 0.0] \"Tint color\"\n */\n \n// @param velvet color [0.04, 0.02, 0.06] \n// @param lights color[6] [[1.0, 0.85, 0.5],[0.3, 0.5, 1.0],[1.0, 0.2, 0.6],[0.1, 0.8, 0.7],[1.0, 0.6, 0.2],[0.4, 0.3, 1.0]] \n// @param fabric_params float[3] [0.3,0.3,0.5] [[0.0,2.0],[0.0,2.0],[0.0,2.0]}\n// @param fabric_size vec2 [0.5, 0.5]\n\n// --- Noise helpers ---\nfloat hash(vec2 p) {\n  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);\n}\n\nfloat noise(vec2 p) {\n  vec2 i = floor(p);\n  vec2 f = fract(p);\n  f = f * f * (3.0 - 2.0 * f);\n  float a = hash(i);\n  float b = hash(i + vec2(1.0, 0.0));\n  float c = hash(i + vec2(0.0, 1.0));\n  float d = hash(i + vec2(1.0, 1.0));\n  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);\n}\n\nfloat fbm(vec2 p) {\n  float v = 0.0, a = 0.5;\n  mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);\n  for (int i = 0; i < 5; i++) {\n    v += a * noise(p);\n    p = rot * p * 2.0;\n    a *= 0.5;\n  }\n  return v;\n}\n\n// --- Fabric texture ---\nfloat fabric(vec2 uv) {\n  // Vertical threads (warp)\n  float warp = sin(uv.x * 600.0 * fabric_size.x) * 0.5 + 0.5;\n  warp = pow(warp, fabric_params[0]);\n  // Horizontal threads (weft)\n  float weft = sin(uv.y * 500.0 * fabric_size.y) * 0.5 + 0.5;\n  weft = pow(weft, fabric_params[1]);\n  // Combine as weave\n  float weave = mix(warp, weft, fabric_params[2]);\n  // Add fine grain\n  weave *= 0.85 + 0.15 * noise(uv * 800.0);\n  return weave;\n}\n\n// --- Fabric folds (draping) ---\nfloat folds(vec2 uv) {\n  float f = 0.0;\n  // Large vertical drapes\n  f += sin(uv.x * 6.2831 * 3.0 + 0.3 * sin(uv.y * 4.0)) * 0.35;\n  f += sin(uv.x * 6.2831 * 7.0 - 0.15 * sin(uv.y * 6.0)) * 0.15;\n  f += sin(uv.x * 6.2831 * 13.0) * 0.06;\n  // Slight horizontal sag\n  f += sin(uv.y * 6.2831 * 1.5 + 0.5) * 0.08;\n  // Organic variation\n  f += fbm(uv * 5.0) * 0.2 - 0.1;\n  return f;\n}\n\n// --- Spotlight cone ---\nvec3 spotlight(vec2 uv, vec2 origin, vec2 target, vec3 color, float width, float softness, float intensity) {\n  // Direction from origin to target\n  vec2 dir = normalize(target - origin);\n  vec2 toP = uv - origin;\n  \n  // Project point onto beam axis\n  float along = dot(toP, dir);\n  if (along < 0.0) return vec3(0.0);\n  \n  // Perpendicular distance\n  vec2 perp = toP - along * dir;\n  float perpDist = length(perp);\n  \n  // Cone widens with distance\n  float coneRadius = width * along;\n  float edge = smoothstep(coneRadius, coneRadius * (1.0 - softness), perpDist);\n  \n  // Distance attenuation\n  float dist = length(toP);\n  float atten = 1.0 / (1.0 + 0.8 * dist * dist);\n  \n  // Atmospheric scattering in beam\n  float scatter = exp(-perpDist * perpDist / (coneRadius * coneRadius * 0.5)) * 0.15;\n  \n  return color * (edge * atten * intensity + scatter * atten * intensity * 0.5);\n}\n\n// --- Dust particles ---\nfloat particles(vec2 uv, float t) {\n  float p = 0.0;\n  for (int i = 0; i < 30; i++) {\n    float fi = float(i);\n    vec2 pos = vec2(\n      hash(vec2(fi, 0.0)),\n      fract(hash(vec2(fi, 1.0)) - t * (0.02 + 0.01 * hash(vec2(fi, 2.0))))\n    );\n    pos.x += sin(t * 0.5 + fi) * 0.03;\n    float d = length(uv - pos);\n    float size = 0.0008 + 0.0005 * hash(vec2(fi, 3.0));\n    p += smoothstep(size, 0.0, d) * (0.3 + 0.7 * hash(vec2(fi, 4.0)));\n  }\n  return p;\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord ){\n  vec2 uv = fragCoord.xy / iResolution.xy;\n  float aspect = iResolution.x / iResolution.y;\n  vec2 uvA = vec2(uv.x * aspect, uv.y);\n  \n  float t = iTime;\n  \n  // --- Backdrop base color (deep velvet) ---\n  vec3 velvet = velvet; // Very dark purple-black\n  \n  // --- Fabric surface ---\n  float foldVal = folds(uv);\n  float fabricTex = fabric(uv);\n  \n  // Fabric shading from folds — creates 3D drape look\n  float foldShade = 0.7 + 0.3 * foldVal;\n  foldShade *= fabricTex;\n  \n  // Normal from folds for lighting\n  float dx = folds(uv + vec2(0.002, 0.0)) - folds(uv - vec2(0.002, 0.0));\n  float dy = folds(uv + vec2(0.0, 0.002)) - folds(uv - vec2(0.0, 0.002));\n  vec3 normal = normalize(vec3(-dx * 3.0, -dy * 3.0, 1.0));\n  \n  vec3 col = velvet * foldShade;\n  \n  // --- Stage lights ---\n  // Light origins are above the stage (top of frame)\n  // Targets hit the backdrop\n  \n  // Warm amber center spot\n  float sway1 = sin(t * 0.3) * 0.03;\n  vec3 light1 = spotlight(\n    uvA, \n    vec2(aspect * 0.5 + sway1, 1.35),\n    vec2(aspect * 0.5, 0.3),\n    lights[0],\n    0.55, 0.6, 2.2\n  );\n  \n  // Cool blue from left\n  float sway2 = sin(t * 0.25 + 1.0) * 0.04;\n  vec3 light2 = spotlight(\n    uvA,\n    vec2(-0.15 + sway2, 1.3),\n    vec2(aspect * 0.35, 0.2),\n    lights[1],\n    0.5, 0.65, 1.8\n  );\n  \n  // Magenta from right\n  float sway3 = sin(t * 0.2 + 2.5) * 0.04;\n  vec3 light3 = spotlight(\n    uvA,\n    vec2(aspect + 0.15 + sway3, 1.3),\n    vec2(aspect * 0.65, 0.2),\n    lights[2],\n    0.5, 0.65, 1.8\n  );\n  \n  // Teal back-wash from below\n  vec3 light4 = spotlight(\n    uvA,\n    vec2(aspect * 0.5, -0.3),\n    vec2(aspect * 0.5, 0.5),\n    lights[4],\n    0.8, 0.7, 0.6\n  );\n  \n  // Side warm fill left\n  vec3 light5 = spotlight(\n    uvA,\n    vec2(-0.2, 0.5),\n    vec2(aspect * 0.3, 0.5),\n    lights[4],\n    0.4, 0.7, 0.7\n  );\n  \n  // Side cool fill right\n  vec3 light6 = spotlight(\n    uvA,\n    vec2(aspect + 0.2, 0.5),\n    vec2(aspect * 0.7, 0.5),\n    lights[5],\n    0.4, 0.7, 0.7\n  );\n  \n  // Combine lights\n  vec3 totalLight = light1 + light2 + light3 + light4 + light5 + light6;\n  \n  // Apply fabric normal to lighting (gives texture depth)\n  float nDot = dot(normal, normalize(vec3(0.0, 0.3, 1.0)));\n  float fabricLight = 0.7 + 0.3 * nDot;\n  \n  // Velvet sheen — highlights at grazing angles\n  float sheen = pow(1.0 - abs(nDot), 3.0) * 0.15;\n  \n  col += totalLight * foldShade * fabricLight;\n  col += totalLight * sheen;\n  \n  // --- Atmospheric haze in light beams ---\n  float haze = 0.0;\n  haze += length(light1) * 0.08;\n  haze += length(light2) * 0.06;\n  haze += length(light3) * 0.06;\n  vec3 hazeColor = (light1 + light2 + light3) * 0.04;\n  col += hazeColor;\n  \n  // --- Dust particles catching light ---\n  float dust = particles(uv, t);\n  vec3 dustLit = dust * (light1 + light2 + light3) * 1.5;\n  col += dustLit;\n  \n  // --- Vignette ---\n  float vig = 1.0 - 0.4 * pow(length(uv - 0.5) * 1.3, 2.0);\n  col *= vig;\n  \n  // --- Subtle film grain ---\n  float grain = (hash(uv * iResolution.xy + fract(t * 100.0)) - 0.5) * 0.03;\n  col += grain;\n  \n  // Tone mapping\n  col = col / (1.0 + col); // Reinhard\n  col = pow(col, vec3(0.92)); // Slight gamma lift\n  \n  fragColor = vec4(col, 1.0);\n}",
           "params": {
-            "speed": 1
+            "speed": 1,
+            "cols": 1,
+            "rows": 1,
+            "spaceX": 0,
+            "spaceY": 0,
+            "tilingBg": "#000000"
           },
           "customParams": {
             "velvet": [
@@ -3572,13 +3838,13 @@
               ]
             ],
             "fabric_params": [
-              0.3,
-              0.3,
-              0.5
+              1,
+              0.33,
+              0
             ],
             "fabric_size": [
-              0.5,
-              0.5
+              0.32,
+              0.43
             ]
           },
           "mixerEnabled": false
@@ -3763,174 +4029,6 @@
             "tilingBg": "#000000"
           },
           "customParams": {},
-          "mixerEnabled": false
-        },
-        {
-          "name": "Preset 10",
-          "thumbnail": "data:image/jpeg;base64,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",
-          "renderMode": "shader",
-          "shaderCode": "\n// @const LIGHTS 13\n// @param nr int 13 [1,LIGHTS]\n// @param intensity float 1.25 [0.1, 3.0] \"Global Intensity\"\n// @param spread float 0.22 [0.05, 0.8] \"Beam Spread\"\n// @param dust float 0.02 [0.0, 0.1] \"Air Dust Amount\"\n// @param haze float 0.05 [0.0,1.0]\n// @param environment color [0.0, 0.0, 0.0]\n// @param halo vec2 [0.02,0.15] \n// @param position vec2 [0.0,0.45]\n// @param space float 0.13 [0.0,1.0]\n// @param fog color [0.05, 0.08, 0.2]\n// @param base_sum vec2 [0.0,0.0] [-0.5,0.5]\n/* @param base vec2[LIGHTS] [ >>\n  [-0.5, -0.45],\n  [-0.10, -0.48],\n  [-0.5, -0.45],\n  [-0.5, -0.45],\n  [-0.10, -0.48],\n  [-0.5, -0.45],\n  [-0.5, -0.45],\n  [-0.10, -0.48],\n  [-0.5, -0.45]\n  ] [-0.5,0.5] <<\n*/\n// @param speed float 0.8 [0.0, 3.0] \"Sweep Speed\"\n// @param phase float 1.35 [0.0,5.0]\n\n/* @param colors color[LIGHTS] [>>\n    [0.0, 1.0, 0.8],\n    [0.1, 0.3, 1.0],\n    [1.0, 0.0, 0.8],  \n    [0.0, 1.0, 0.8],\n    [0.1, 0.3, 1.0],\n    [1.0, 0.0, 0.8], \n    [0.0, 1.0, 0.8],\n    [0.1, 0.3, 1.0],\n    [1.0, 0.0, 0.8]  \n  ]\"Farben\" <<\n*/\n\n// #define LIGHTS 9\n\n// 2D rotation matrix\nmat2 rot(float a) {\n    float s = sin(a), c = cos(a);\n    return mat2(c, -s, s, c);\n}\n\n// Pseudo-random noise for atmospheric scattering\nfloat hash(vec2 p) {\n    p = fract(p * vec2(123.34, 456.21));\n    p += dot(p, p + 45.32);\n    return fract(p.x * p.y);\n}\n\n// Draw a single volumetric spotlight\nvec3 drawSpotlight(vec2 uv, vec2 origin, vec2 baseTarget, vec3 color, float animOffset) {\n    // Animate target to simulate moving lights\n    vec2 target = baseTarget;\n    float t = iTime * speed;\n    \n    // Complex sweeping motion using combined sine waves\n    target.x += sin(t * 0.8 + animOffset) * 0.25 + cos(t * 0.43 + animOffset * 0.5) * 0.1;\n    target.y += sin(t * 1.1 + animOffset) * 0.05;\n\n    vec2 dir = target - origin;\n    float len = length(dir);\n    vec2 n = dir / len;\n    \n    // Vector from ray origin to current pixel\n    vec2 p = uv - origin;\n    \n    // Projection of pixel along the beam direction\n    float h = dot(p, n);\n\n    vec3 accum = vec3(0.0);\n\n    // 1. Source Lens Flare (always visible, even behind)\n    float flareDist = length(p);\n    float flare = haze * 0.005 / (flareDist + 0.002);\n    // Add specular starburst effect slightly\n    flare += 0.002 / (abs(p.x * p.y) + 0.005 * halo[1]) * smoothstep(halo[0], 0.0, flareDist);\n    accum += color * flare;\n\n    // 2. Volumetric Beam (only forward projection)\n    if (h > 0.0) {\n        // Orthogonal distance from beam center\n        float d = length(p - n * clamp(h, 0.0, len));\n\n        // Spread width over distance\n        float coneWidth = 0.01 + h * spread; \n        float cone = smoothstep(coneWidth, 0.0, d);\n        cone = pow(cone, 1.8); // Soften the edge\n\n        float coreWidth = 0.005 + h * (spread * 0.3);\n        float core = smoothstep(coreWidth, 0.0, d);\n        core = pow(core, 2.5); // Intense bright center\n\n        // Fade out over distance to target\n        float fade = smoothstep(len + 0.15, len * 0.2, h); \n\n        accum += color * (cone * 0.4 + core * 0.8) * fade;\n    }\n\n    // 3. Stage / Floor illumination (Intersection approximation)\n    vec2 floorHit = uv - target;\n    floorHit.y *= 3.5; // Simulate extreme perspective plane squash\n    float hitDist = length(floorHit);\n    \n    // Base glow where beam hits\n    float stageGlow = smoothstep(0.5, 0.0, hitDist);\n    // Add a hot core to the floor spot\n    stageGlow += smoothstep(0.15, 0.0, hitDist) * 1.5;\n    \n    // Only illuminate floor if the beam reached it\n    float beamReach = smoothstep(len + 0.3, len - 0.2, h);\n    accum += color * stageGlow * 0.35 * beamReach;\n\n    return accum * intensity;\n}\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    // Normalize coordinates (-0.5 to 0.5 for height, wider for width)\n    vec2 uv = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;\n\n    // Base dark environment color\n    vec3 col = environment;\n\n    // Draw 6 Spotlights\n    // params: uv, origin_pos, base_target_pos, color, animation_phase_offset\n    \n    for(int i = 0; i < nr; i++){\n      col += drawSpotlight(uv, vec2(space * float(nr / 2 - i)  , 0.00) + position, base[i] + base_sum, colors[i], phase * float(nr / 2 - i));\n    }\n    \n    // Broad stage ambient floor glow\n    vec2 floorBase = uv - vec2(0.0, -0.55);\n    floorBase.x *= 0.8;\n    floorBase.y *= 3.5;\n    float baseGlow = smoothstep(1.2, 0.0, length(floorBase));\n    col += fog * baseGlow * intensity * 0.4;\n\n    // Atmospheric noise / dust scattering\n    float noiseVal = hash(uv + fract(iTime * 0.1));\n    col += noiseVal * dust;\n\n    // Vignette mask to darken edges\n    float vi = length(uv * vec2(1.0, 1.3));\n    col *= 1.0 - smoothstep(0.1, 1.1, vi);\n\n    // ACES-like Tonemapping for cinematic bright cores\n    col = 1.0 - exp(-col * 1.2);\n    \n    // Gamma correction\n    col = pow(col, vec3(1.0 / 2.2));\n\n    fragColor = vec4(col, 1.0);\n}",
-          "params": {
-            "speed": 1,
-            "cols": 1,
-            "rows": 1,
-            "spaceX": 0,
-            "spaceY": 0,
-            "tilingBg": "#000000"
-          },
-          "customParams": {
-            "nr": 13,
-            "intensity": 1.25,
-            "spread": 0.22,
-            "dust": 0.02,
-            "haze": 0.05,
-            "environment": [
-              0,
-              0,
-              0
-            ],
-            "halo": [
-              0.02,
-              0.15
-            ],
-            "position": [
-              0,
-              0.45
-            ],
-            "space": 0.13,
-            "fog": [
-              0.05,
-              0.08,
-              0.2
-            ],
-            "base_sum": [
-              0,
-              0
-            ],
-            "base": [
-              [
-                -0.5,
-                -0.45
-              ],
-              [
-                -0.1,
-                -0.48
-              ],
-              [
-                -0.5,
-                -0.45
-              ],
-              [
-                -0.5,
-                -0.45
-              ],
-              [
-                -0.1,
-                -0.48
-              ],
-              [
-                -0.5,
-                -0.45
-              ],
-              [
-                -0.5,
-                -0.45
-              ],
-              [
-                -0.1,
-                -0.48
-              ],
-              [
-                -0.5,
-                -0.45
-              ],
-              [
-                -0.5,
-                -0.45
-              ],
-              [
-                -0.1,
-                -0.48
-              ],
-              [
-                -0.5,
-                -0.45
-              ],
-              [
-                -0.5,
-                -0.45
-              ]
-            ],
-            "speed": 0.8,
-            "phase": 1.35,
-            "colors": [
-              [
-                1,
-                0,
-                0
-              ],
-              [
-                0,
-                0.21176470588235294,
-                0.9803921568627451
-              ],
-              [
-                1,
-                0,
-                0
-              ],
-              [
-                0,
-                0.21176470588235294,
-                0.9803921568627451
-              ],
-              [
-                1,
-                0,
-                0
-              ],
-              [
-                0,
-                0.21176470588235294,
-                0.9803921568627451
-              ],
-              [
-                1,
-                0,
-                0
-              ],
-              [
-                0,
-                0.21176470588235294,
-                0.9803921568627451
-              ],
-              [
-                1,
-                0,
-                0
-              ],
-              [
-                0,
-                0.21176470588235294,
-                0.9803921568627451
-              ],
-              [
-                1,
-                0,
-                0
-              ],
-              [
-                0,
-                0.21176470588235294,
-                0.9803921568627451
-              ],
-              [
-                1,
-                0,
-                0
-              ]
-            ]
-          },
           "mixerEnabled": false
         },
         {

@@ -12,5 +12,6 @@
   },
   "gridSlotWidth": 160,
   "remoteEnabled": true,
-  "remotePort": 9876
+  "remotePort": 9876,
+  "remoteToken": "b2753b27882acdff5606b33c9ab9264f"
 }

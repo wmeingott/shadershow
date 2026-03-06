@@ -73,6 +73,7 @@ interface SavedSlotData {
   type?: string;
   params?: Record<string, unknown>;
   customParams?: Record<string, unknown>;
+  bindingStates?: Record<string, boolean>;
   presets?: unknown[];
   label?: string;
   thumbnail?: string;
@@ -208,6 +209,9 @@ export function saveGridState(): void {
         };
         if (slot.label) saved.label = slot.label;
         if (slot.thumbnail) saved.thumbnail = slot.thumbnail;
+        if (slot.bindingStates && Object.keys(slot.bindingStates as object).length > 0) {
+          saved.bindingStates = slot.bindingStates;
+        }
         return saved;
       }),
     };
@@ -463,6 +467,10 @@ async function loadTabbedGridState(savedState: SavedGridState): Promise<void> {
         // Restore custom label if saved
         if (slotData.label && state.gridSlots[i]) {
           (state.gridSlots[i] as Record<string, unknown>).label = slotData.label;
+        }
+        // Restore binding toggle states
+        if (slotData.bindingStates && state.gridSlots[i]) {
+          (state.gridSlots[i] as Record<string, unknown>).bindingStates = slotData.bindingStates;
         }
         totalLoaded++;
       } catch (err: unknown) {

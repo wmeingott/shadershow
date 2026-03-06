@@ -210,6 +210,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadFileTexture: (name: string) => ipcRenderer.invoke('load-file-texture', name),
   listFileTextures: () => ipcRenderer.invoke('list-file-textures'),
 
+  // Shader texture files
+  loadShaderFile: (path: string) => ipcRenderer.invoke('load-shader-file', path),
+
   // Asset display
   sendAssetUpdate: (data: any) => ipcRenderer.send('asset-update', data),
   onAssetUpdate: (callback: (data: any) => void) => onIPC('asset-update', (_event: any, data: any) => callback(data)),

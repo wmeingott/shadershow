@@ -1930,6 +1930,10 @@ export async function loadGridShaderToEditor(slotIndex: number): Promise<void> {
     if (slotData.customParams && !isScene) {
       const renderer = state.renderer as MiniRendererLike;
       renderer.setCustomParamValues?.(slotData.customParams);
+      // Restore binding toggle states
+      if ((slotData as Record<string, unknown>).bindingStates && (renderer as any).setBindingStates) {
+        (renderer as any).setBindingStates((slotData as Record<string, unknown>).bindingStates);
+      }
       generateCustomParamUI(); // Regenerate UI to reflect loaded values
     }
   }, 100);
@@ -2085,6 +2089,10 @@ export async function selectGridSlot(slotIndex: number): Promise<void> {
     if (renderer?.setCustomParamValues) {
       renderer.setCustomParamValues(slotData.customParams);
     }
+    // Restore binding toggle states
+    if ((slotData as Record<string, unknown>).bindingStates && (renderer as any)?.setBindingStates) {
+      (renderer as any).setBindingStates((slotData as Record<string, unknown>).bindingStates);
+    }
     // Also load to MiniShaderRenderer for tiled preview
     const slotRenderer = slotData.renderer as MiniRendererLike | null;
     if (slotRenderer?.setParams) {
@@ -2196,6 +2204,10 @@ export function playGridShader(slotIndex: number): void {
     if (slotData.customParams && !isScene) {
       const renderer = state.renderer as MiniRendererLike;
       renderer.setCustomParamValues?.(slotData.customParams);
+      // Restore binding toggle states
+      if ((slotData as Record<string, unknown>).bindingStates && (renderer as any).setBindingStates) {
+        (renderer as any).setBindingStates((slotData as Record<string, unknown>).bindingStates);
+      }
       generateCustomParamUI(); // Regenerate to reflect loaded values
     }
   }, 100);

@@ -324,6 +324,35 @@ let standaloneOverlayCtx: CanvasRenderingContext2D | null = null;
 const reusedDate: Date = new Date();
 // Pre-allocated resolutions array for shared state (avoid per-frame allocation)
 const _sharedResolutions: Float32Array = new Float32Array(12);
+// Pre-allocated date values array (avoid per-frame allocation)
+const _sharedDateValues: Float32Array = new Float32Array(4);
+
+// Cached canvas and GL context (avoid per-frame DOM lookups)
+let _cachedCanvas: HTMLCanvasElement | null = null;
+let _cachedGL: WebGL2RenderingContext | null = null;
+
+// Cached temp canvas for A/B composition (avoid per-frame allocation)
+let _abCompTempCanvas: HTMLCanvasElement | null = null;
+let _abCompTempCtx: CanvasRenderingContext2D | null = null;
+
+// Cached tile bounds to avoid per-frame recalculation
+let _cachedTileBounds: TileBounds[] | null = null;
+let _cachedTileCanvasW: number = 0;
+let _cachedTileCanvasH: number = 0;
+
+function getCachedCanvas(): HTMLCanvasElement {
+  if (!_cachedCanvas) {
+    _cachedCanvas = document.getElementById('shader-canvas') as HTMLCanvasElement;
+  }
+  return _cachedCanvas;
+}
+
+function getCachedGL(): WebGL2RenderingContext {
+  if (!_cachedGL) {
+    _cachedGL = shaderRenderer!.gl;
+  }
+  return _cachedGL;
+}
 
 // =============================================================================
 // Internal helpers
@@ -340,12 +369,10 @@ function prepareSharedState(): TileSharedState {
   sr.lastFrameTime = now;
 
   reusedDate.setTime(Date.now());
-  const dateValues: Float32Array = new Float32Array([
-    reusedDate.getFullYear(),
-    reusedDate.getMonth(),
-    reusedDate.getDate(),
-    reusedDate.getHours() * 3600 + reusedDate.getMinutes() * 60 + reusedDate.getSeconds() + reusedDate.getMilliseconds() / 1000,
-  ]);
+  _sharedDateValues[0] = reusedDate.getFullYear();
+  _sharedDateValues[1] = reusedDate.getMonth();
+  _sharedDateValues[2] = reusedDate.getDate();
+  _sharedDateValues[3] = reusedDate.getHours() * 3600 + reusedDate.getMinutes() * 60 + reusedDate.getSeconds() + reusedDate.getMilliseconds() / 1000;
 
   sr.updateVideoTextures();
 
@@ -360,7 +387,7 @@ function prepareSharedState(): TileSharedState {
     timeDelta,
     frame: sr.frameCount,
     mouse: sr.mouse,
-    date: dateValues,
+    date: _sharedDateValues,
     channelTextures: sr.channelTextures,
     channelResolutions: _sharedResolutions,
     ppLuminance: ppValues.luminance,
@@ -422,7 +449,7 @@ async function loadShaderTexturesForRenderer(
  */
 async function ensureSceneRenderer(): Promise<ThreeSceneRenderer> {
   if (sceneRenderer) return sceneRenderer;
-  const canvas = document.getElementById('shader-canvas') as HTMLCanvasElement;
+  const canvas = getCachedCanvas();
   await window.loadThreeJS();
   sceneRenderer = new ThreeSceneRenderer(canvas);
   sceneRenderer.setResolution(window.innerWidth, window.innerHeight);
@@ -596,7 +623,7 @@ function drawAssetWithCrop(
 // =============================================================================
 
 function renderStandaloneAsset(): void {
-  const canvas = document.getElementById('shader-canvas') as HTMLCanvasElement;
+  const canvas = getCachedCanvas();
 
   if (!standaloneOverlayCanvas) {
     standaloneOverlayCanvas = document.createElement('canvas');
@@ -657,7 +684,7 @@ function clearStandaloneAsset(): void {
 // =============================================================================
 
 function initTiledMode(config: TileConfig): void {
-  const canvas = document.getElementById('shader-canvas') as HTMLCanvasElement;
+  const canvas = getCachedCanvas();
 
   tiledMode = true;
   tileConfig = config;
@@ -769,8 +796,13 @@ function calculateTileBounds(
 function updateTileLayout(layout: TileLayout): void {
   if (!tiledMode || !tileConfig) return;
 
-  const canvas = document.getElementById('shader-canvas') as HTMLCanvasElement;
+  const canvas = getCachedCanvas();
   tileConfig.layout = layout;
+
+  // Invalidate cached tile bounds so renderTiledFrame recalculates
+  _cachedTileCanvasW = 0;
+  _cachedTileCanvasH = 0;
+  _cachedTileBounds = null;
 
   const bounds: TileBounds[] = calculateTileBounds(
     canvas.width,
@@ -851,7 +883,7 @@ function updateTileParam(tileIndex: number, name: string, value: ParamValue | Pa
 }
 
 function renderTiledFrame(): void {
-  const canvas = document.getElementById('shader-canvas') as HTMLCanvasElement;
+  const canvas = getCachedCanvas();
 
   if (!tiledMode || !sharedGL || tileRenderers.length === 0) {
     return;
@@ -859,39 +891,37 @@ function renderTiledFrame(): void {
 
   const gl: WebGL2RenderingContext = sharedGL;
 
-  // Recalculate bounds based on current canvas size (fixes resize issues)
-  const layout: TileLayoutConfig = tileConfig?.layout || { rows: 2, cols: 2, gaps: 4 };
+  // Only recalculate bounds when canvas size changes (not every frame)
+  if (canvas.width !== _cachedTileCanvasW || canvas.height !== _cachedTileCanvasH) {
+    _cachedTileCanvasW = canvas.width;
+    _cachedTileCanvasH = canvas.height;
 
-  // Get render area (with aspect ratio correction if configured)
-  let renderWidth: number = canvas.width;
-  let renderHeight: number = canvas.height;
-  let offsetX: number = 0;
-  let offsetY: number = 0;
+    const layout: TileLayoutConfig = tileConfig?.layout || { rows: 2, cols: 2, gaps: 4 };
 
-  if (tileConfig?.renderOffset && tileConfig?.renderSize) {
-    offsetX = tileConfig.renderOffset.x;
-    offsetY = tileConfig.renderOffset.y;
-    renderWidth = tileConfig.renderSize.width;
-    renderHeight = tileConfig.renderSize.height;
-  }
+    let renderWidth: number = canvas.width;
+    let renderHeight: number = canvas.height;
+    let offsetX: number = 0;
+    let offsetY: number = 0;
 
-  const freshBounds: TileBounds[] = calculateTileBounds(
-    renderWidth,
-    renderHeight,
-    layout.rows,
-    layout.cols,
-    layout.gaps,
-  );
+    if (tileConfig?.renderOffset && tileConfig?.renderSize) {
+      offsetX = tileConfig.renderOffset.x;
+      offsetY = tileConfig.renderOffset.y;
+      renderWidth = tileConfig.renderSize.width;
+      renderHeight = tileConfig.renderSize.height;
+    }
 
-  // Apply offset to bounds
-  freshBounds.forEach((b: TileBounds) => {
-    b.x += offsetX;
-    b.y += offsetY;
-  });
+    _cachedTileBounds = calculateTileBounds(
+      renderWidth, renderHeight, layout.rows, layout.cols, layout.gaps,
+    );
 
-  // Update tile renderer bounds
-  for (let i = 0; i < tileRenderers.length && i < freshBounds.length; i++) {
-    tileRenderers[i].setBounds(freshBounds[i]);
+    _cachedTileBounds.forEach((b: TileBounds) => {
+      b.x += offsetX;
+      b.y += offsetY;
+    });
+
+    for (let i = 0; i < tileRenderers.length && i < _cachedTileBounds.length; i++) {
+      tileRenderers[i].setBounds(_cachedTileBounds[i]);
+    }
   }
 
   // Clear entire canvas (gaps will show as black)
@@ -932,6 +962,9 @@ function exitTiledMode(): void {
   tiledMode = false;
   disposeTileRenderers();
   tileConfig = null;
+  _cachedTileBounds = null;
+  _cachedTileCanvasW = 0;
+  _cachedTileCanvasH = 0;
 }
 
 // =============================================================================
@@ -939,7 +972,7 @@ function exitTiledMode(): void {
 // =============================================================================
 
 function initMixerMode(config: MixerConfig): void {
-  const canvas = document.getElementById('shader-canvas') as HTMLCanvasElement;
+  const canvas = getCachedCanvas();
 
   mixerMode = true;
   mixerBlendMode = (config.blendMode || 'lighter') as GlobalCompositeOperation;
@@ -984,7 +1017,7 @@ function initMixerMode(config: MixerConfig): void {
 }
 
 function renderMixerFrame(): void {
-  const canvas = document.getElementById('shader-canvas') as HTMLCanvasElement;
+  const canvas = getCachedCanvas();
 
   const hasChannels: boolean = mixerRenderers.some(Boolean) || mixerAssets.some(Boolean);
   if (!mixerOverlayCanvas || !mixerOverlayCtx || !hasChannels) return;
@@ -1137,7 +1170,7 @@ function initABModeIfNeeded(canvas: HTMLCanvasElement): void {
 let _abFrameLogOnce = false;
 let _abFrameLogCounter = 0;
 function renderABFrame(): void {
-  const canvas = document.getElementById('shader-canvas') as HTMLCanvasElement;
+  const canvas = getCachedCanvas();
 
   if (!_abFrameLogOnce || ++_abFrameLogCounter % 300 === 0) {
     _abFrameLogOnce = true;
@@ -1238,15 +1271,23 @@ function renderABSide(
     const blend = side === 'a' ? abCompBlendA : abCompBlendB;
 
     if (renderers.length > 0) {
-      // Create a temporary compositing canvas
       const savedAlpha = ctx.globalAlpha;
       const savedOp = ctx.globalCompositeOperation;
 
-      // We need a temp canvas for per-side composition
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = canvas.width;
-      tempCanvas.height = canvas.height;
-      const tempCtx = tempCanvas.getContext('2d')!;
+      // Reuse cached temp canvas for per-side composition (avoid per-frame allocation)
+      if (!_abCompTempCanvas) {
+        _abCompTempCanvas = document.createElement('canvas');
+      }
+      if (_abCompTempCanvas.width !== canvas.width || _abCompTempCanvas.height !== canvas.height) {
+        _abCompTempCanvas.width = canvas.width;
+        _abCompTempCanvas.height = canvas.height;
+        _abCompTempCtx = null;
+      }
+      if (!_abCompTempCtx) {
+        _abCompTempCtx = _abCompTempCanvas.getContext('2d');
+      }
+      const tempCanvas = _abCompTempCanvas;
+      const tempCtx = _abCompTempCtx!;
       tempCtx.fillStyle = '#000';
       tempCtx.fillRect(0, 0, canvas.width, canvas.height);
       tempCtx.globalCompositeOperation = blend as GlobalCompositeOperation;
@@ -1345,7 +1386,7 @@ function toFileUrl(filePath: string): string {
  */
 export function initFullscreen(): void {
   document.addEventListener('DOMContentLoaded', async () => {
-    const canvas = document.getElementById('shader-canvas') as HTMLCanvasElement;
+    const canvas = getCachedCanvas();
 
     // Set canvas to full window size
     canvas.width = window.innerWidth;
@@ -1425,13 +1466,9 @@ export function renderLoop(currentTime?: number): void {
 
   if (blackoutEnabled) {
     // Clear to black when blackout is enabled
-    const canvas = document.getElementById('shader-canvas') as HTMLCanvasElement;
-    const gl: WebGL2RenderingContext | WebGLRenderingContext | null =
-      canvas.getContext('webgl2') || canvas.getContext('webgl');
-    if (gl) {
-      gl.clearColor(0, 0, 0, 1);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-    }
+    const gl = getCachedGL();
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
     if (mixerOverlayCanvas) mixerOverlayCanvas.style.display = 'none';
     if (abOverlayCanvas) abOverlayCanvas.style.display = 'none';
   } else if (abMode) {
@@ -1714,7 +1751,7 @@ export function registerIPCHandlers(): void {
     const { channelIndex, shaderCode, params, clear, assetType, dataUrl, filePath } = data;
     if (channelIndex < 0) return;
 
-    const canvas = document.getElementById('shader-canvas') as HTMLCanvasElement;
+    const canvas = getCachedCanvas();
 
     if (clear) {
       // Clear this channel
@@ -1893,7 +1930,7 @@ export function registerIPCHandlers(): void {
 
   window.electronAPI.onABShaderUpdate?.((data) => {
     log.info(`[AB] Received shader update for side ${data.side}, mode=${data.renderMode}, tiling=`, data.tiling);
-    const canvas = document.getElementById('shader-canvas') as HTMLCanvasElement;
+    const canvas = getCachedCanvas();
 
     // Initialize shared GL and overlay if needed
     if (!sharedGL) {
@@ -1984,7 +2021,7 @@ export function registerIPCHandlers(): void {
 
   // Handle A/B composition updates
   window.electronAPI.onABCompositionUpdate?.((data) => {
-    const canvas = document.getElementById('shader-canvas') as HTMLCanvasElement;
+    const canvas = getCachedCanvas();
 
     if (!sharedGL) {
       sharedGL = shaderRenderer!.gl;

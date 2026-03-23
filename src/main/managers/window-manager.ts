@@ -3,9 +3,127 @@
 
 import { BrowserWindow, screen } from 'electron';
 import path from 'path';
+import fs from 'fs';
+import os from 'os';
+import { execSync } from 'child_process';
 import { Logger } from '@shared/logger.js';
 
 const log = new Logger('Window');
+
+// Wayland does not allow clients to position windows on specific monitors.
+// On KDE Plasma we use KWin scripting via D-Bus to move windows to the
+// correct output before fullscreening.
+const isWayland = process.platform === 'linux' &&
+  !!(process.env.WAYLAND_DISPLAY || process.env.XDG_SESSION_TYPE === 'wayland');
+const isKDE = process.env.XDG_CURRENT_DESKTOP?.toLowerCase().includes('kde') ||
+  !!process.env.KDE_SESSION_VERSION;
+
+// Find a working qdbus binary (qdbus6 for KDE6, qdbus for KDE5)
+let _qdbusBin: string | null | undefined;
+function getQdbus(): string | null {
+  if (_qdbusBin !== undefined) return _qdbusBin;
+  for (const bin of ['qdbus6', 'qdbus-qt6', 'qdbus']) {
+    try {
+      execSync(`which ${bin}`, { timeout: 2000, stdio: 'pipe' });
+      _qdbusBin = bin;
+      return bin;
+    } catch { /* try next */ }
+  }
+  _qdbusBin = null;
+  return null;
+}
+
+/**
+ * Use a KWin script via D-Bus to move a window (identified by title) to
+ * the Wayland output matching `targetBounds`, then fullscreen it.
+ * The script auto-cleans up after 10 seconds.
+ */
+function setupKWinOutputMove(
+  windowTitle: string,
+  targetBounds: { x: number; y: number; width: number; height: number },
+): void {
+  const qdbus = getQdbus();
+  if (!qdbus) {
+    log.warn('No qdbus binary found — cannot use KWin scripting for display placement');
+    return;
+  }
+
+  const scriptName = 'ShaderShowFS';
+  const scriptPath = path.join(os.tmpdir(), `shadershow-kwin-${Date.now()}.js`);
+
+  // KWin 6 scripting API: workspace.screens → Output[], window.output = ...
+  const script = `(function() {
+  var screens = workspace.screens;
+  var target = null;
+  for (var i = 0; i < screens.length; i++) {
+    var g = screens[i].geometry;
+    if (g.x === ${targetBounds.x} && g.y === ${targetBounds.y} &&
+        g.width === ${targetBounds.width} && g.height === ${targetBounds.height}) {
+      target = screens[i];
+      break;
+    }
+  }
+  if (!target) return;
+
+  function moveAndFS(w) {
+    if (w.caption.indexOf("${windowTitle}") !== -1) {
+      w.output = target;
+      w.fullScreen = true;
+      workspace.windowAdded.disconnect(moveAndFS);
+    }
+  }
+
+  // Check windows that already exist
+  var wins = workspace.windowList();
+  for (var i = 0; i < wins.length; i++) {
+    if (wins[i].caption.indexOf("${windowTitle}") !== -1) {
+      wins[i].output = target;
+      wins[i].fullScreen = true;
+      return;
+    }
+  }
+
+  // Otherwise wait for the window to appear
+  workspace.windowAdded.connect(moveAndFS);
+})();
+`;
+
+  try {
+    fs.writeFileSync(scriptPath, script);
+
+    // Unload previous instance if any
+    try {
+      execSync(`${qdbus} org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript "${scriptName}"`,
+        { timeout: 2000, stdio: 'pipe' });
+    } catch { /* ignore */ }
+
+    // Load the script
+    const idStr = execSync(
+      `${qdbus} org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "${scriptPath}" "${scriptName}"`,
+      { timeout: 2000, encoding: 'utf8', stdio: 'pipe' },
+    ).trim();
+
+    // Run the script
+    execSync(
+      `${qdbus} org.kde.KWin /Scripting/Script${idStr} org.kde.kwin.Script.run`,
+      { timeout: 2000, stdio: 'pipe' },
+    );
+
+    log.info(`KWin script loaded (id=${idStr}) to move "${windowTitle}" to output at (${targetBounds.x},${targetBounds.y})`);
+
+    // Clean up after a delay
+    setTimeout(() => {
+      try {
+        execSync(`${qdbus} org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript "${scriptName}"`,
+          { timeout: 2000, stdio: 'pipe' });
+      } catch { /* ignore */ }
+      try { fs.unlinkSync(scriptPath); } catch { /* ignore */ }
+    }, 10_000);
+  } catch (err) {
+    log.warn(`KWin scripting failed: ${(err as Error).message}`);
+    try { fs.unlinkSync(scriptPath); } catch { /* ignore */ }
+  }
+}
 
 /** Display descriptor matching Electron's Display shape */
 export interface DisplayInfo {
@@ -158,7 +276,16 @@ export class WindowManager {
    */
   createFullscreenWindow(display: DisplayInfo, shaderState: unknown): BrowserWindow {
     const { x, y, width, height } = display.bounds;
-    log.info(`Creating fullscreen window on display ${display.id} (${width}x${height})`);
+    const useKWin = isWayland && isKDE;
+    log.info(`Creating fullscreen window on display ${display.id} (${width}x${height}) at (${x},${y}) [wayland=${isWayland}, kde=${isKDE}]`);
+
+    // On KDE Wayland, pre-register a KWin script to move the window to
+    // the correct output. The window is always created with fullscreen: true
+    // so it works even if the script fails (just on the wrong monitor).
+    const fsTitle = useKWin ? `ShaderShow FS ${Date.now()}` : 'ShaderShow';
+    if (useKWin) {
+      setupKWinOutputMove(fsTitle, display.bounds);
+    }
 
     this.fullscreenWindow = new BrowserWindow({
       x,
@@ -168,6 +295,7 @@ export class WindowManager {
       fullscreen: true,
       frame: false,
       alwaysOnTop: true,
+      title: fsTitle,
       webPreferences: {
         preload: path.join(this.appDir, 'dist/preload/preload.js'),
         contextIsolation: true,
@@ -175,6 +303,11 @@ export class WindowManager {
       },
       backgroundColor: '#000000',
     });
+
+    // Prevent page from overriding the title (KWin script matches by title)
+    if (useKWin) {
+      this.fullscreenWindow.on('page-title-updated', (e) => e.preventDefault());
+    }
 
     this.fullscreenWindow.loadFile(path.join(this.appDir, 'fullscreen.html'));
 
@@ -229,16 +362,20 @@ export class WindowManager {
     const display =
       displays.find((d) => d.bounds.x === 0 && d.bounds.y === 0) || displays[0];
     const { x, y, width, height } = display.bounds;
-    log.info(`Creating tiled fullscreen window (${width}x${height})`);
+    const useKWin = isWayland && isKDE;
+    log.info(`Creating tiled fullscreen window (${width}x${height}) [wayland=${isWayland}, kde=${isKDE}]`);
+
+    const fsTitle = useKWin ? `ShaderShow TFS ${Date.now()}` : 'ShaderShow';
+    if (useKWin) {
+      setupKWinOutputMove(fsTitle, display.bounds);
+    }
 
     this.fullscreenWindow = new BrowserWindow({
-      x,
-      y,
-      width,
-      height,
+      x, y, width, height,
       fullscreen: true,
       frame: false,
       alwaysOnTop: true,
+      title: fsTitle,
       webPreferences: {
         preload: path.join(this.appDir, 'dist/preload/preload.js'),
         contextIsolation: true,
@@ -246,6 +383,10 @@ export class WindowManager {
       },
       backgroundColor: '#000000',
     });
+
+    if (useKWin) {
+      this.fullscreenWindow.on('page-title-updated', (e) => e.preventDefault());
+    }
 
     this.fullscreenWindow.loadFile(path.join(this.appDir, 'fullscreen.html'));
 

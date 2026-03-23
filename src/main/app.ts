@@ -30,6 +30,7 @@ if (process.platform === 'linux') {
   app.commandLine.appendSwitch('ignore-gpu-blocklist');
   app.commandLine.appendSwitch('enable-zero-copy');
   app.commandLine.appendSwitch('disable-gpu-process-crash-limit');
+
 }
 
 // ---------------------------------------------------------------------------

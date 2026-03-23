@@ -190,6 +190,8 @@ export class ShaderRenderer {
   private _dateObject: Date;
   private _cachedParams: ParamValues | null;
   private _paramsDirty: boolean;
+  private _mouseArr: [number, number, number, number];
+  private readonly _channelUniformKeys: readonly ['iChannel0', 'iChannel1', 'iChannel2', 'iChannel3'];
 
   // Track texture dimensions for texSubImage2D optimization
   private _channelTexSizes: Array<[number, number]>;
@@ -315,6 +317,8 @@ export class ShaderRenderer {
     this._dateObject = new Date();
     this._cachedParams = null;
     this._paramsDirty = true;
+    this._mouseArr = [0, 0, 0, 0];
+    this._channelUniformKeys = ['iChannel0', 'iChannel1', 'iChannel2', 'iChannel3'] as const;
 
     // Track texture dimensions for texSubImage2D optimization
     this._channelTexSizes = [[0, 0], [0, 0], [0, 0], [0, 0]];
@@ -1286,9 +1290,11 @@ export class ShaderRenderer {
 
     // Render shader texture channels before main shader
     if (this.shaderTextureChannels.size > 0) {
-      const mouseZ = this.mouse.isDown ? this.mouse.clickX : -this.mouse.clickX;
-      const mouseW = this.mouse.isDown ? this.mouse.clickY : -this.mouse.clickY;
-      const mouseArr: [number, number, number, number] = [this.mouse.x, this.mouse.y, mouseZ, mouseW];
+      this._mouseArr[0] = this.mouse.x;
+      this._mouseArr[1] = this.mouse.y;
+      this._mouseArr[2] = this.mouse.isDown ? this.mouse.clickX : -this.mouse.clickX;
+      this._mouseArr[3] = this.mouse.isDown ? this.mouse.clickY : -this.mouse.clickY;
+      const mouseArr = this._mouseArr;
       const allParams = this.getParams();
 
       // Render STCs in channel order so lower channels are available to higher ones
@@ -1354,14 +1360,11 @@ export class ShaderRenderer {
     gl.uniform1f(this._tilingUniforms.cols, tilingValues.cols);
     gl.uniform1f(this._tilingUniforms.rows, tilingValues.rows);
 
-    // Bind textures
+    // Bind textures (use pre-cached key array to avoid string template + any cast)
     for (let i = 0; i < 4; i++) {
       gl.activeTexture(gl.TEXTURE0 + i);
       gl.bindTexture(gl.TEXTURE_2D, this.channelTextures[i]);
-      gl.uniform1i(
-        (this.uniforms as any)[`iChannel${i}`] as WebGLUniformLocation | null,
-        i,
-      );
+      gl.uniform1i(this.uniforms[this._channelUniformKeys[i]], i);
     }
 
     // Set channel resolutions (use pre-allocated array)

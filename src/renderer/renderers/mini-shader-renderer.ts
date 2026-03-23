@@ -112,6 +112,11 @@ export class MiniShaderRenderer {
   private shaderTextureChannels: Map<number, ShaderTextureChannel> = new Map();
   shaderTextureDirectives: TextureDirective[] = [];
 
+  // Pre-cached channel uniform keys (avoids string template in hot loop)
+  private static readonly _channelUniformKeys: readonly ['iChannel0', 'iChannel1', 'iChannel2', 'iChannel3'] = ['iChannel0', 'iChannel1', 'iChannel2', 'iChannel3'] as const;
+  // Reusable object for STC param values (avoids object spread per render)
+  private _stcParamValues: Record<string, ParamValue> = {};
+
   // When true, tiling + post-processing GLSL is compiled in and uniforms are set each frame.
   // Used by A/B preview renderers; grid thumbnails leave this false.
   private _enableEffects: boolean;
@@ -352,7 +357,15 @@ export class MiniShaderRenderer {
 
     // Render shader texture channels before main shader
     if (this.shaderTextureChannels.size > 0) {
-      const paramValues = { ...this.customParamValues };
+      // Reuse param object to avoid per-render object spread
+      const paramValues = this._stcParamValues;
+      // Copy current values (overwrite existing keys, clear stale ones)
+      for (const key in paramValues) {
+        if (!(key in this.customParamValues)) delete paramValues[key];
+      }
+      for (const key in this.customParamValues) {
+        paramValues[key] = this.customParamValues[key];
+      }
       // Fill in defaults for params not explicitly set
       for (const param of this.customParams) {
         if (paramValues[param.name] === undefined) {
@@ -440,7 +453,7 @@ export class MiniShaderRenderer {
         hasTextures = true;
         gl.activeTexture(gl.TEXTURE0 + i);
         gl.bindTexture(gl.TEXTURE_2D, this.channelTextures[i]);
-        gl.uniform1i((this.uniforms as unknown as Record<string, WebGLUniformLocation | null>)[`iChannel${i}`], i);
+        gl.uniform1i(this.uniforms[MiniShaderRenderer._channelUniformKeys[i]], i);
       }
     }
     if (hasTextures && this.uniforms.iChannelResolution) {

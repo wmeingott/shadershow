@@ -116,15 +116,24 @@ let cachedFpsDisplay: HTMLElement | null = null;
 let cachedTimeDisplay: HTMLElement | null = null;
 let cachedFrameDisplay: HTMLElement | null = null;
 let cachedChannelSlots: (HTMLElement | null)[] = [null, null, null, null];
+let cachedShaderCanvas: HTMLCanvasElement | null = null;
+
+// Tile bounds cache — avoids recalculating every frame
+let _cachedPreviewTileBounds: TileBounds[] | null = null;
+let _cachedPreviewTileW = 0;
+let _cachedPreviewTileH = 0;
+let _cachedPreviewTileCount = 0;
 
 export function cacheRenderLoopElements(): void {
   cachedFpsDisplay = document.getElementById('fps-display');
   cachedTimeDisplay = document.getElementById('time-display');
   cachedFrameDisplay = document.getElementById('frame-display');
+  cachedShaderCanvas = document.getElementById('shader-canvas') as HTMLCanvasElement | null;
   for (let i = 0; i < 4; i++) {
     cachedChannelSlots[i] = document.getElementById(`channel-${i}`);
   }
 }
+
 
 // ---------------------------------------------------------------------------
 // Main render loop (requestAnimationFrame callback)
@@ -238,9 +247,7 @@ let assetOverlayCanvas: HTMLCanvasElement | null = null;
 let assetOverlayCtx: CanvasRenderingContext2D | null = null;
 
 function renderAssetPreview(): RenderStats {
-  const mainCanvas = document.getElementById(
-    'shader-canvas',
-  ) as HTMLCanvasElement;
+  const mainCanvas = cachedShaderCanvas || (cachedShaderCanvas = document.getElementById('shader-canvas') as HTMLCanvasElement);
   const canvasWidth = mainCanvas.width;
   const canvasHeight = mainCanvas.height;
 
@@ -314,9 +321,7 @@ let tiledCtxInitialized = false;
  * OPTIMIZED: Avoids per-frame canvas resizing and reduces GPU->CPU syncs.
  */
 function renderTiledPreview(): RenderStats {
-  const mainCanvas = document.getElementById(
-    'shader-canvas',
-  ) as HTMLCanvasElement;
+  const mainCanvas = cachedShaderCanvas || (cachedShaderCanvas = document.getElementById('shader-canvas') as HTMLCanvasElement);
   const canvasWidth = mainCanvas.width;
   const canvasHeight = mainCanvas.height;
 
@@ -365,8 +370,15 @@ function renderTiledPreview(): RenderStats {
     tiledCtxInitialized = true;
   }
 
-  // Calculate tile bounds and cache for click detection
-  const bounds = calculateTileBounds(canvasWidth, canvasHeight);
+  // Calculate tile bounds (cached, recalculated only on size/layout change)
+  const tileCount = tileState.tiles.length;
+  if (!_cachedPreviewTileBounds || _cachedPreviewTileW !== canvasWidth || _cachedPreviewTileH !== canvasHeight || _cachedPreviewTileCount !== tileCount) {
+    _cachedPreviewTileBounds = calculateTileBounds(canvasWidth, canvasHeight);
+    _cachedPreviewTileW = canvasWidth;
+    _cachedPreviewTileH = canvasHeight;
+    _cachedPreviewTileCount = tileCount;
+  }
+  const bounds = _cachedPreviewTileBounds;
   cachedTileBounds = bounds;
 
   // OPTIMIZATION: Find max tile dimensions and ensure shared canvas is sized once
@@ -491,7 +503,8 @@ function renderTiledPreview(): RenderStats {
       selectedBound.height - 3,
     );
 
-    // Draw tile number indicator
+    // Draw tile number indicator (use save/restore to avoid per-frame font state thrashing)
+    ctx.save();
     ctx.fillStyle = '#ffaa00';
     ctx.font = 'bold 12px monospace';
     ctx.textAlign = 'left';
@@ -501,11 +514,7 @@ function renderTiledPreview(): RenderStats {
       selX + 6,
       selY + 4,
     );
-
-    // Restore default font for next frame's empty tiles
-    ctx.font = '14px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+    ctx.restore();
   }
 
   // Show overlay canvas

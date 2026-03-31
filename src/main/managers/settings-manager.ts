@@ -12,6 +12,7 @@ import {
   NDI_RESOLUTIONS,
   RECORDING_RESOLUTIONS,
 } from '@shared/types/settings.js';
+import { type ArtNetMapping, ARTNET_DEFAULTS } from '@shared/types/artnet.js';
 
 const log = new Logger('Settings');
 
@@ -24,6 +25,9 @@ const DEFAULTS: AppSettings = {
   remoteEnabled: false,
   remotePort: 9876,
   remoteToken: '',
+  artnetEnabled: ARTNET_DEFAULTS.enabled,
+  artnetUniverse: ARTNET_DEFAULTS.universe,
+  artnetMappings: ARTNET_DEFAULTS.mappings,
 };
 
 /**
@@ -44,6 +48,9 @@ export class SettingsManager {
   remoteEnabled: boolean;
   remotePort: number;
   remoteToken: string;
+  artnetEnabled: boolean;
+  artnetUniverse: number;
+  artnetMappings: ArtNetMapping[];
 
   constructor(settingsFile: string) {
     this.settingsFile = settingsFile;
@@ -56,6 +63,9 @@ export class SettingsManager {
     this.remoteEnabled = DEFAULTS.remoteEnabled;
     this.remotePort = DEFAULTS.remotePort;
     this.remoteToken = DEFAULTS.remoteToken;
+    this.artnetEnabled = DEFAULTS.artnetEnabled;
+    this.artnetUniverse = DEFAULTS.artnetUniverse;
+    this.artnetMappings = [...DEFAULTS.artnetMappings];
   }
 
   /**
@@ -90,6 +100,15 @@ export class SettingsManager {
         if (typeof data.remoteToken === 'string' && data.remoteToken) {
           this.remoteToken = data.remoteToken;
         }
+        if (typeof data.artnetEnabled === 'boolean') {
+          this.artnetEnabled = data.artnetEnabled;
+        }
+        if (typeof data.artnetUniverse === 'number' && data.artnetUniverse >= 0) {
+          this.artnetUniverse = data.artnetUniverse;
+        }
+        if (Array.isArray(data.artnetMappings)) {
+          this.artnetMappings = data.artnetMappings;
+        }
       }
     } catch (err) {
       log.error('Failed to load settings:', err);
@@ -120,6 +139,9 @@ export class SettingsManager {
         remoteEnabled: this.remoteEnabled,
         remotePort: this.remotePort,
         remoteToken: this.remoteToken,
+        artnetEnabled: this.artnetEnabled,
+        artnetUniverse: this.artnetUniverse,
+        artnetMappings: this.artnetMappings,
         ...additionalData,
       };
 
@@ -164,6 +186,9 @@ export class SettingsManager {
       remotePort: this.remotePort,
       remoteToken: this.remoteToken,
       remoteIPs: this.getRemoteIPs(),
+      artnetEnabled: this.artnetEnabled,
+      artnetUniverse: this.artnetUniverse,
+      artnetMappings: this.artnetMappings,
     };
   }
 

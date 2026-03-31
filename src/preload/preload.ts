@@ -231,6 +231,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   exportTexturesToFolder: (folder: string, textureNames: string[]) => ipcRenderer.invoke('export-textures-to-folder', folder, textureNames),
   importTexturesFromFolder: (sourceFolder: string) => ipcRenderer.invoke('import-textures-from-folder', sourceFolder),
 
+  // Art-Net DMX
+  toggleArtNet: () => ipcRenderer.send('toggle-artnet'),
+  setArtNetUniverse: (universe: number) => ipcRenderer.send('set-artnet-universe', universe),
+  setArtNetMappings: (mappings: any[]) => ipcRenderer.send('set-artnet-mappings', mappings),
+  getArtNetStatus: () => ipcRenderer.invoke('get-artnet-status'),
+  getArtNetDmxValues: () => ipcRenderer.invoke('get-artnet-dmx-values'),
+  onArtNetStatus: (callback: (data: any) => void) => onIPC('artnet-status', (_event: any, data: any) => callback(data)),
+  onArtNetDmxUpdate: (callback: (data: any) => void) => onIPC('artnet-dmx-update', (_event: any, data: any) => callback(data)),
+
   // AI Assistant
   sendClaudePrompt: (data: any) => ipcRenderer.send('stream-claude-prompt', data),
   onClaudeStreamChunk: (callback: (data: any) => void) => onIPC('claude-stream-chunk', (_event: any, data: any) => callback(data)),

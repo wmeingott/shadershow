@@ -16,6 +16,7 @@ declare const window: Window & {
   electronAPI: {
     sendParamUpdate(data: { name: string; value: unknown }): void;
     updateTileParam?(tileIndex: number, paramName: string, value: ParamValue): void;
+    setArtNetMappings?(mappings: Array<{ dmxChannel: number; target: unknown }>): void;
   };
 };
 
@@ -659,6 +660,9 @@ function renderCustomParamUI(
   if (boundSliders.length > 0) {
     startBindingAnimation();
   }
+
+  // Auto-sync dmx: directive mappings to Art-Net manager
+  syncDmxMappingsFromParams(params);
 }
 
 export function loadCustomParamsToUI(): void {
@@ -668,6 +672,56 @@ export function loadCustomParamsToUI(): void {
 
 export function isUsingCustomParams(): boolean {
   return usingCustomParams;
+}
+
+// ---------------------------------------------------------------------------
+// DMX directive auto-sync
+// ---------------------------------------------------------------------------
+
+/** Component count for GLSL types */
+const GLSL_COMPONENTS: Record<string, number> = {
+  float: 1, int: 1, vec2: 2, vec3: 3, vec4: 4, color: 3,
+};
+
+/**
+ * Sync dmx: directive mappings to the Art-Net manager.
+ * Creates ArtNetMapping entries for each param with a dmxChannel field,
+ * merges with existing non-param mappings, and pushes to main process.
+ */
+function syncDmxMappingsFromParams(params: ParamDef[]): void {
+  const dmxParams = params.filter(p => p.dmxChannel !== undefined);
+  if (dmxParams.length === 0) return;
+  if (!window.electronAPI?.setArtNetMappings) return;
+
+  const mappings: Array<{ dmxChannel: number; target: { type: string; name?: string } }> = [];
+
+  for (const param of dmxParams) {
+    const components = GLSL_COMPONENTS[param.type] || 1;
+    const baseChannel = param.dmxChannel!;
+
+    if (components === 1) {
+      // Scalar: single mapping (speed param gets special target type)
+      mappings.push({
+        dmxChannel: baseChannel,
+        target: param.name === 'speed'
+          ? { type: 'speed' }
+          : { type: 'param', name: param.name },
+      });
+    } else {
+      // Vector: one mapping per component using consecutive channels
+      const suffixes = ['x', 'y', 'z', 'w'].slice(0, components);
+      for (let i = 0; i < components; i++) {
+        const ch = baseChannel + i;
+        if (ch > 512) break;
+        mappings.push({
+          dmxChannel: ch,
+          target: { type: 'param', name: `${param.name}.${suffixes[i]}` },
+        });
+      }
+    }
+  }
+
+  window.electronAPI.setArtNetMappings(mappings);
 }
 
 // ---------------------------------------------------------------------------

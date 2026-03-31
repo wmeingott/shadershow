@@ -110,11 +110,7 @@ import { toggleRecording } from '../ipc/frame-sender.js';
 import { showAIAssistantDialog, initAIShortcut } from './claude-ai.js';
 import { enableAB, disableAB, setActiveSide, setABCrossfade, initABPreview } from './ab-preview.js';
 import { setStatus } from './utils.js';
-
-/** Benchmark not yet ported to TS — no-op stub */
-function runBenchmark(): void {
-  setStatus('Benchmark not available in TS build', 'error');
-}
+import { runBenchmark } from './benchmark.js';
 
 const log = {
   debug(..._a: unknown[]): void { /* noop */ },

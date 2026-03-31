@@ -188,6 +188,7 @@ export class ShaderRenderer {
   private _resolutionsArray: Float32Array;
   private _audioBuffer: Uint8Array;
   private _dateObject: Date;
+  private _dateValues: [number, number, number, number];
   private _cachedParams: ParamValues | null;
   private _paramsDirty: boolean;
   private _mouseArr: [number, number, number, number];
@@ -315,6 +316,7 @@ export class ShaderRenderer {
     this._resolutionsArray = new Float32Array(12);
     this._audioBuffer = new Uint8Array(512 * 2);
     this._dateObject = new Date();
+    this._dateValues = [0, 0, 0, 0];
     this._cachedParams = null;
     this._paramsDirty = true;
     this._mouseArr = [0, 0, 0, 0];
@@ -1278,15 +1280,14 @@ export class ShaderRenderer {
       this.fpsLastTime = now;
     }
 
-    // Date uniform (reuse Date object to avoid allocation per frame)
+    // Date uniform (reuse Date object and array to avoid allocation per frame)
     const date = this._dateObject;
     date.setTime(Date.now());
-    const dateValues = [
-      date.getFullYear(),
-      date.getMonth(),
-      date.getDate(),
-      date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds() + date.getMilliseconds() / 1000,
-    ];
+    this._dateValues[0] = date.getFullYear();
+    this._dateValues[1] = date.getMonth();
+    this._dateValues[2] = date.getDate();
+    this._dateValues[3] = date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds() + date.getMilliseconds() / 1000;
+    const dateValues = this._dateValues;
 
     // Render shader texture channels before main shader
     if (this.shaderTextureChannels.size > 0) {

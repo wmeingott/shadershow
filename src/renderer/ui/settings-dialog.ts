@@ -9,6 +9,8 @@ import type {
   Resolution,
   AIProvider,
 } from '@shared/types/settings.js';
+import type { ArtNetMapping, ArtNetStatus } from '@shared/types/artnet.js';
+import { showArtNetMappingDialog } from './artnet-dialog.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -22,6 +24,8 @@ interface SettingsData {
   remoteEnabled: boolean;
   remotePort: number;
   recordingResolution?: Resolution;
+  artnetEnabled: boolean;
+  artnetUniverse: number;
 }
 
 /** Minimal electronAPI surface used by this module */
@@ -36,6 +40,10 @@ declare const window: Window & {
     getClaudeModels(): Promise<ClaudeModel[]>;
     saveSettings(data: SettingsData): void;
     setAIProvider(provider: string): Promise<void>;
+    setArtNetMappings(mappings: ArtNetMapping[]): void;
+    getArtNetStatus(): Promise<ArtNetStatus>;
+    getArtNetDmxValues(): Promise<number[]>;
+    toggleArtNet(): void;
   };
 };
 
@@ -163,6 +171,26 @@ export async function showSettingsDialog(): Promise<void> {
           </div>
         </div>
 
+        <div class="settings-section">
+          <h3>Art-Net DMX</h3>
+          <div class="setting-row">
+            <label>Enable:</label>
+            <input type="checkbox" id="settings-artnet-enabled" ${settings.artnetEnabled ? 'checked' : ''}>
+          </div>
+          <div class="setting-row">
+            <label>Universe:</label>
+            <input type="number" id="settings-artnet-universe" value="${settings.artnetUniverse ?? 0}" min="0" max="32767" style="width:80px">
+          </div>
+          <div class="setting-row">
+            <label>Mappings:</label>
+            <button class="btn-secondary" id="settings-artnet-mappings-btn">Configure (${settings.artnetMappings?.length ?? 0})</button>
+          </div>
+          <div class="setting-row">
+            <label>Status:</label>
+            <span id="settings-artnet-status" style="color: var(--text-secondary)">${settings.artnetEnabled ? 'Active' : 'Inactive'}</span>
+          </div>
+        </div>
+
         <div class="settings-section claude-settings-section">
           <h3>AI Assistant</h3>
           <div class="setting-row">
@@ -247,6 +275,15 @@ export async function showSettingsDialog(): Promise<void> {
   }
   remoteEnabledCb.addEventListener('change', updateRemoteUrlDisplay);
   remotePortInput.addEventListener('input', updateRemoteUrlDisplay);
+
+  // Art-Net mapping button
+  const artnetMappingsBtn = document.getElementById('settings-artnet-mappings-btn');
+  artnetMappingsBtn?.addEventListener('click', () => {
+    showArtNetMappingDialog(settings.artnetMappings ?? [], (mappings) => {
+      window.electronAPI.setArtNetMappings(mappings);
+      artnetMappingsBtn.textContent = `Configure (${mappings.length})`;
+    });
+  });
 
   // AI provider toggle — show/hide key rows
   const providerSelect = document.getElementById('settings-ai-provider') as HTMLSelectElement;
@@ -418,8 +455,12 @@ async function applySettings(): Promise<void> {
   const remoteEnabled = (document.getElementById('settings-remote-enabled') as HTMLInputElement).checked;
   const remotePort = parseInt((document.getElementById('settings-remote-port') as HTMLInputElement).value) || 9876;
 
+  // Parse Art-Net settings
+  const artnetEnabled = (document.getElementById('settings-artnet-enabled') as HTMLInputElement).checked;
+  const artnetUniverse = parseInt((document.getElementById('settings-artnet-universe') as HTMLInputElement).value) || 0;
+
   // Save to file
-  const settingsData: SettingsData = { ndiResolution, ndiFrameSkip, gridSlotWidth, remoteEnabled, remotePort };
+  const settingsData: SettingsData = { ndiResolution, ndiFrameSkip, gridSlotWidth, remoteEnabled, remotePort, artnetEnabled, artnetUniverse };
   if (recordingResolution) {
     settingsData.recordingResolution = recordingResolution;
   }

@@ -452,14 +452,12 @@ function renderTiledPreview(): RenderStats {
         1;
       miniRenderer.setSpeed(speed as number);
 
-      // Merge slot's custom params with tile's custom params (tile takes precedence)
-      const customParams: Record<string, ParamValue> = {
-        ...(slotData.customParams || {}),
-        ...((tile.customParams as Record<string, ParamValue> | null) || {}),
-      };
-      if (Object.keys(customParams).length > 0) {
-        miniRenderer.setParams(customParams);
-      }
+      // Apply slot's custom params, then tile's overrides (tile takes precedence)
+      // Avoids object spread allocation per tile per frame
+      const slotCustom = slotData.customParams as Record<string, ParamValue> | null;
+      const tileCustom = tile.customParams as Record<string, ParamValue> | null;
+      if (slotCustom) miniRenderer.setParams(slotCustom);
+      if (tileCustom) miniRenderer.setParams(tileCustom);
 
       // Debug: log tile info once
       if (!window._previewTileDbg) {

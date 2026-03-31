@@ -18,6 +18,7 @@ import type { WindowManager, DisplayInfo } from './managers/window-manager.js';
 import type { ExportManager } from './managers/export-manager.js';
 import type { MenuBuilder } from './managers/menu-builder.js';
 import type { RemoteManager } from './managers/remote-manager.js';
+import type { ArtNetManager } from './managers/artnet-manager.js';
 
 const fsPromises = fs.promises;
 const log = new Logger('IPC');
@@ -37,6 +38,7 @@ export interface IPCRegistryDeps {
   exportManager: ExportManager;
   menuBuilder: MenuBuilder;
   remoteManager: RemoteManager;
+  artnetManager: ArtNetManager;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,6 +75,7 @@ export class IPCRegistry {
       windowManager,
       menuBuilder,
       remoteManager,
+      artnetManager,
     } = this.deps;
 
     // 1. remote-state-changed
@@ -193,6 +196,36 @@ export class IPCRegistry {
         const url = ips.length > 0 ? `http://${ips[0]}:${port}` : `http://localhost:${port}`;
         windowManager.sendToMain('remote-status', { enabled: true, url, port });
       }
+      settingsManager.save();
+    });
+
+    // 11c. toggle-artnet — start/stop Art-Net DMX listener
+    ipcMain.on('toggle-artnet', () => {
+      if (artnetManager.isEnabled()) {
+        artnetManager.stop();
+        settingsManager.artnetEnabled = false;
+      } else {
+        artnetManager.setUniverse(settingsManager.artnetUniverse);
+        artnetManager.setMappings(settingsManager.artnetMappings);
+        artnetManager.start();
+        settingsManager.artnetEnabled = true;
+      }
+      settingsManager.save();
+    });
+
+    // 11d. set-artnet-universe
+    ipcMain.on('set-artnet-universe', (_event, universe: number) => {
+      if (typeof universe !== 'number' || universe < 0 || universe > 32767) return;
+      settingsManager.artnetUniverse = universe;
+      artnetManager.setUniverse(universe);
+      settingsManager.save();
+    });
+
+    // 11e. set-artnet-mappings
+    ipcMain.on('set-artnet-mappings', (_event, mappings: unknown) => {
+      if (!Array.isArray(mappings)) return;
+      settingsManager.artnetMappings = mappings;
+      artnetManager.setMappings(mappings);
       settingsManager.save();
     });
 
@@ -413,6 +446,16 @@ export class IPCRegistry {
         return { enabled: true, url, port };
       }
       return { enabled: false };
+    });
+
+    // 9c. get-artnet-status
+    ipcMain.handle('get-artnet-status', () => {
+      return artnetManager.getStatus();
+    });
+
+    // 9d. get-artnet-dmx-values
+    ipcMain.handle('get-artnet-dmx-values', () => {
+      return Array.from(artnetManager.getDmxValues());
     });
 
     // 10. read-file-content
@@ -771,6 +814,23 @@ export class IPCRegistry {
       const port = settings.remotePort as number;
       if (port >= 1024 && port <= 65535) {
         settingsManager.remotePort = port;
+      }
+    }
+
+    // 4b. Art-Net DMX settings
+    const { artnetManager } = this.deps;
+    if (typeof settings.artnetEnabled === 'boolean') {
+      const enabled = settings.artnetEnabled as boolean;
+      if (typeof settings.artnetUniverse === 'number') {
+        settingsManager.artnetUniverse = settings.artnetUniverse as number;
+        artnetManager.setUniverse(settings.artnetUniverse as number);
+      }
+      settingsManager.artnetEnabled = enabled;
+      if (enabled) {
+        artnetManager.setMappings(settingsManager.artnetMappings);
+        if (!artnetManager.isEnabled()) artnetManager.start();
+      } else {
+        artnetManager.stop();
       }
     }
 

@@ -35,6 +35,9 @@ export interface AppSettings {
   remoteEnabled: boolean;
   remotePort: number;
   remoteToken: string;
+  artnetEnabled: boolean;
+  artnetUniverse: number;
+  artnetMappings: import('./artnet.js').ArtNetMapping[];
 }
 
 /** Settings returned to renderer for the settings dialog */
@@ -50,6 +53,9 @@ export interface SettingsDialogData {
   remotePort: number;
   remoteToken: string;
   remoteIPs: string[];
+  artnetEnabled: boolean;
+  artnetUniverse: number;
+  artnetMappings: import('./artnet.js').ArtNetMapping[];
 }
 
 /** AI provider identifier */

@@ -17,6 +17,7 @@ import { ClaudeManager } from './managers/claude-manager.js';
 import { WindowManager } from './managers/window-manager.js';
 import { ExportManager } from './managers/export-manager.js';
 import { RemoteManager } from './managers/remote-manager.js';
+import { ArtNetManager } from './managers/artnet-manager.js';
 import { FullscreenRelay } from './managers/fullscreen-relay.js';
 import { MenuBuilder } from './managers/menu-builder.js';
 import { IPCRegistry } from './ipc-registry.js';
@@ -99,6 +100,11 @@ const ndiManager = new NDIManager({
   onMenuRebuild: () => menuBuilder.buildMenu(),
   onShowCustomDialog: () => windowManager.showCustomResolutionDialog(),
   onRequestPreviewResolution: () => windowManager.sendToMain('request-preview-resolution'),
+});
+
+const artnetManager = new ArtNetManager({
+  onDmxUpdate: (changes) => windowManager.sendToMain('artnet-dmx-update', changes),
+  onStatusUpdate: (status) => windowManager.sendToMain('artnet-status', status),
 });
 
 const syphonManager = new SyphonManager({
@@ -193,6 +199,7 @@ const ipcRegistry = new IPCRegistry({
   exportManager,
   menuBuilder,
   remoteManager,
+  artnetManager,
 });
 
 // ---------------------------------------------------------------------------
@@ -404,6 +411,13 @@ app.whenReady().then(async () => {
     remoteManager.start(port, token);
   }
 
+  // Start Art-Net DMX listener if enabled
+  if (settingsManager.artnetEnabled) {
+    artnetManager.setUniverse(settingsManager.artnetUniverse);
+    artnetManager.setMappings(settingsManager.artnetMappings);
+    artnetManager.start();
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       windowManager.createWindow();
@@ -424,4 +438,5 @@ app.on('before-quit', () => {
   syphonManager.stop();
   recordingManager.stop();
   remoteManager.stop();
+  artnetManager.stop();
 });

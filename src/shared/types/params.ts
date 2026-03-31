@@ -76,6 +76,8 @@ export interface ParamDef {
   structArraySize?: number | null;
   /** Binding to a built-in uniform variable */
   binding?: ParamBinding;
+  /** Art-Net DMX channel (1-512) mapped to this param via dmx: directive */
+  dmxChannel?: number;
 }
 
 /** Valid sources for param bindings */

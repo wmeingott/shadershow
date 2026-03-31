@@ -100,8 +100,7 @@ import { tileState } from '../tiles/tile-state.js';
 import { ppValues } from '../ui/post-process.js';
 import { tilingValues } from '../ui/tiling.js';
 
-/** Benchmark not yet ported to TS — no-op stub */
-function runBenchmark(): void { /* no-op */ }
+import { runBenchmark } from '../ui/benchmark.js';
 
 // ---------------------------------------------------------------------------
 // ElectronAPI type — shape of window.electronAPI used in this file
@@ -1179,6 +1178,123 @@ function initRemoteHandlers(): void {
     } catch (err: unknown) {
       log.error('IPC', 'Preview frame capture error:', err);
       window.electronAPI.sendRemoteGetPreviewFrameResponse({ _queryId });
+    }
+  });
+
+  // ========================================================================
+  // Art-Net DMX updates
+  // ========================================================================
+
+  window.electronAPI.onArtNetDmxUpdate((changes: Array<{ target: { type: string; [k: string]: unknown }; dmxValue: number }>) => {
+    const renderer = state.renderer as ShaderRendererLike | null;
+    if (!renderer) return;
+
+    for (const { target, dmxValue } of changes) {
+      switch (target.type) {
+        case 'speed': {
+          // 0-255 → 0.0-2.0
+          const value = (dmxValue / 255) * 2;
+          renderer.setParam('speed', value);
+          window.electronAPI.sendParamUpdate({ name: 'speed', value });
+          // Update speed slider
+          const slider = document.getElementById('speed-slider') as HTMLInputElement | null;
+          if (slider) slider.value = String(value);
+          const display = document.getElementById('speed-display');
+          if (display) display.textContent = value.toFixed(2);
+          break;
+        }
+        case 'param': {
+          const fullName = target.name as string;
+          const defs = renderer.getCustomParamDefs?.() ?? [];
+
+          // Check for vector component syntax: "paramName.x", "paramName.y", etc.
+          const dotIdx = fullName.indexOf('.');
+          if (dotIdx >= 0) {
+            const baseName = fullName.slice(0, dotIdx);
+            const comp = fullName.slice(dotIdx + 1);
+            const compIndex = { x: 0, y: 1, z: 2, w: 3 }[comp];
+            const def = defs.find(d => d.name === baseName);
+            if (def && compIndex !== undefined) {
+              const min = def.min ?? 0;
+              const max = def.max ?? 1;
+              const compValue = min + (dmxValue / 255) * (max - min);
+              // Get current vector value and update component
+              const current = renderer.getCustomParamValues?.()[baseName];
+              const vec = Array.isArray(current) ? [...current] : [0, 0, 0, 0];
+              vec[compIndex] = compValue;
+              renderer.setParam(baseName, vec);
+              window.electronAPI.sendParamUpdate({ name: baseName, value: vec });
+              // Store to active grid slot
+              const gridSlots = state.gridSlots as GridSlot[];
+              if (state.activeGridSlot !== null && gridSlots[state.activeGridSlot as number]) {
+                const slot = gridSlots[state.activeGridSlot as number]!;
+                if (!slot.customParams) slot.customParams = {};
+                slot.customParams[baseName] = vec;
+              }
+            }
+          } else {
+            // Scalar param
+            const def = defs.find(d => d.name === fullName);
+            const min = def?.min ?? 0;
+            const max = def?.max ?? 1;
+            const value = min + (dmxValue / 255) * (max - min);
+            renderer.setParam(fullName, value);
+            window.electronAPI.sendParamUpdate({ name: fullName, value });
+            // Update slider if visible
+            const slider = document.querySelector(`[data-param="${fullName}"]`) as HTMLInputElement | null;
+            if (slider) slider.value = String(value);
+            // Store to active grid slot
+            const gridSlots = state.gridSlots as GridSlot[];
+            if (state.activeGridSlot !== null && gridSlots[state.activeGridSlot as number]) {
+              const slot = gridSlots[state.activeGridSlot as number]!;
+              if (!slot.customParams) slot.customParams = {};
+              slot.customParams[fullName] = value;
+            }
+          }
+          break;
+        }
+        case 'mixer-alpha': {
+          const channelIndex = target.channelIndex as number;
+          const ch: MixerChannel | undefined = state.mixerChannels[channelIndex];
+          if (ch) {
+            ch.alpha = dmxValue / 255;
+            const slider = document.querySelectorAll('#mixer-channels .mixer-slider')[channelIndex] as HTMLInputElement | undefined;
+            if (slider) slider.value = String(ch.alpha);
+            window.electronAPI.sendMixerAlphaUpdate({ channelIndex, alpha: ch.alpha });
+          }
+          break;
+        }
+        case 'mixer-select': {
+          const channelIndex = target.channelIndex as number;
+          const btns: NodeListOf<Element> = document.querySelectorAll('#mixer-channels .mixer-btn');
+          btns.forEach((b: Element) => b.classList.remove('selected'));
+          btns[channelIndex]?.classList.add('selected');
+          state.mixerSelectedChannel = channelIndex;
+          break;
+        }
+        case 'vp-recall': {
+          const vpTabIndex = target.vpTabIndex as number;
+          const presetIndex = target.presetIndex as number;
+          const vpTabs = state.vpTabs as Array<{ name: string; presets: unknown[] }>;
+          if (vpTabIndex >= 0 && vpTabIndex < vpTabs.length) {
+            state.activeVpTab = vpTabIndex;
+          }
+          recallVisualPreset(presetIndex);
+          break;
+        }
+        case 'preset-recall': {
+          const presetIndex = target.presetIndex as number;
+          recallLocalPreset(presetIndex);
+          break;
+        }
+        case 'blackout': {
+          state.blackoutEnabled = !state.blackoutEnabled;
+          window.electronAPI.sendBlackout(state.blackoutEnabled as boolean);
+          const canvas = document.getElementById('shader-canvas') as HTMLCanvasElement | null;
+          if (canvas) canvas.style.opacity = (state.blackoutEnabled as boolean) ? '0' : '1';
+          break;
+        }
+      }
     }
   });
 }

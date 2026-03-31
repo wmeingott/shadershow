@@ -573,6 +573,26 @@ function expandStructParam(
   return params;
 }
 
+// ── DMX channel parsing ─────────────────────────────────────────────────────
+
+/** Regex to match dmx:N clause — captures the channel number */
+const DMX_REGEX = /\bdmx:(\d+)\b/;
+
+/**
+ * Extract a dmx:N clause from the rest string.
+ * Returns the channel number (1-512) or undefined, and the cleaned rest string.
+ */
+function extractDmxChannel(rest: string): { dmxChannel: number | undefined; rest: string } {
+  const match = rest.match(DMX_REGEX);
+  if (!match) return { dmxChannel: undefined, rest };
+
+  const channel = parseInt(match[1], 10);
+  if (channel < 1 || channel > 512) return { dmxChannel: undefined, rest };
+
+  const cleaned = rest.slice(0, match.index!) + rest.slice(match.index! + match[0].length);
+  return { dmxChannel: channel, rest: cleaned.trim() };
+}
+
 // ── Binding parsing ──────────────────────────────────────────────────────────
 
 /** Regex to match bind: clause — captures all non-whitespace after bind: */
@@ -679,9 +699,11 @@ export function parseParamLine(line: string): ParamDef | null {
   const arraySize = match[4] ? parseInt(match[4], 10) : null;
   let rest = match[5] || '';
 
-  // Extract bind: clause before parsing defaults/range
+  // Extract bind: and dmx: clauses before parsing defaults/range
   const { binding, rest: cleanedRest } = extractBinding(rest);
   rest = cleanedRest;
+  const { dmxChannel, rest: cleanedRest2 } = extractDmxChannel(rest);
+  rest = cleanedRest2;
 
   const { defaultValue, min, max, mins, maxs, description } = parseRest(rest, baseType, arraySize);
 
@@ -707,6 +729,7 @@ export function parseParamLine(line: string): ParamDef | null {
       : `uniform ${glslBaseType} ${name};`,
   };
   if (binding) paramDef.binding = binding;
+  if (dmxChannel !== undefined) paramDef.dmxChannel = dmxChannel;
   return paramDef;
 }
 

@@ -533,7 +533,7 @@ function expandStructParam(
   structDef: StructDef,
   arraySize: number | null,
   defaults: Record<string, ParamValue>,
-  description: string,
+  _description: string,
 ): ParamDef[] {
   const params: ParamDef[] = [];
   const count = arraySize ?? 1;
@@ -940,33 +940,3 @@ export function parseOption25D(source: string): number | null {
   return match ? parseFloat(match[1]) / 100 : null;
 }
 
-/** Validate and clamp a value to param's range */
-export function clampParamValue(param: ParamDef, value: ParamValue | ParamArrayValue): ParamValue | ParamArrayValue {
-  const hasPerElement = param.mins !== null && param.maxs !== null;
-  if (param.min === null && param.max === null && !hasPerElement) {
-    return value;
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((v, i) => {
-      if (typeof v === 'number') {
-        let clamped = v;
-        const lo = hasPerElement && param.mins![i] !== undefined ? param.mins![i] : param.min;
-        const hi = hasPerElement && param.maxs![i] !== undefined ? param.maxs![i] : param.max;
-        if (lo !== null) clamped = Math.max(lo, clamped);
-        if (hi !== null) clamped = Math.min(hi, clamped);
-        return clamped;
-      }
-      return v;
-    });
-  }
-
-  if (typeof value === 'number') {
-    let clamped = value;
-    if (param.min !== null) clamped = Math.max(param.min, clamped);
-    if (param.max !== null) clamped = Math.min(param.max, clamped);
-    return clamped;
-  }
-
-  return value;
-}

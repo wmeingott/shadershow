@@ -6,8 +6,8 @@
 // - IPCOnChannels: main→renderer push (mainWindow.webContents.send → ipcRenderer.on)
 
 import type { ParamValues } from './params.js';
-import type { Resolution, SettingsDialogData, ClaudeSettings, ClaudeModel } from './settings.js';
-import type { GridSlotData, ShaderTabData, TileData, TileLayout, MixerChannelData, BlendMode } from './state.js';
+import type { SettingsDialogData, ClaudeSettings, ClaudeModel } from './settings.js';
+import type { TileData, TileLayout, BlendMode } from './state.js';
 
 // ── Invoke channels (renderer calls main, expects response) ─────────────────
 

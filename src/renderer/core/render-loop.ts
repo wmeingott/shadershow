@@ -23,7 +23,6 @@ import { renderABFrame, hideABOverlay } from '../ui/ab-preview.js';
 import { loadParamsToSliders, generateCustomParamUI } from '../ui/params.js';
 import { updateLocalPresetsUI } from '../ui/presets.js';
 import { setStatus } from '../ui/utils.js';
-import { compileShader } from '../ui/editor.js';
 
 // ---------------------------------------------------------------------------
 // Logger
@@ -636,22 +635,6 @@ export function selectTile(tileIndex: number): void {
     }
   } else {
     setStatus(`Tile ${tileIndex + 1} (empty)`, 'success');
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Tiled preview overlay visibility
-// ---------------------------------------------------------------------------
-
-export function hideTiledPreviewOverlay(): void {
-  if (tiledPreviewCanvas) {
-    tiledPreviewCanvas.style.display = 'none';
-  }
-}
-
-export function showTiledPreviewOverlay(): void {
-  if (tiledPreviewCanvas) {
-    tiledPreviewCanvas.style.display = 'block';
   }
 }
 

@@ -1,7 +1,6 @@
 // ShaderShow — Renderer process entry point
 // DOMContentLoaded wiring, instantiation of all UI controllers
 
-import { state } from './core/state.js';
 import { initEditor, compileShader } from './ui/editor.js';
 import { initControls, initResizer } from './ui/controls.js';
 import { initParams, initMouseAssignment } from './ui/params.js';

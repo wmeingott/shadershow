@@ -1,11 +1,9 @@
 // IPC Handlers — typed version of js/ipc.js
 // Registers all main→renderer IPC listeners and manages remote control state.
 
-import { state, notifyRemoteStateChanged } from '../core/state.js';
-import type { ChannelState, MixerChannel, ShaderTab, RenderMode, BlendMode } from '../core/state.js';
+import { state } from '../core/state.js';
+import type { ChannelState, MixerChannel, RenderMode, BlendMode } from '../core/state.js';
 import type {
-  IPCOnChannels,
-  OnPayload,
   ParamValue,
   ParamValues,
   ParamDef,
@@ -64,17 +62,6 @@ interface ShaderTabRuntime {
   mixPresets?: Array<{ name: string; thumbnail?: string | null }>;
 }
 
-// Tile state object (from js/tile-state.js)
-interface TileStateObj {
-  layout: TileLayout;
-  tiles: Array<{
-    gridSlotIndex: number | null;
-    params?: ParamValues;
-    customParams?: ParamValues;
-    visible?: boolean;
-  } | null>;
-}
-
 // Tab returned by getActiveTab()
 interface EditorTabInfo {
   id: string;
@@ -84,15 +71,15 @@ interface EditorTabInfo {
 }
 
 import { setStatus, updateChannelSlot } from '../ui/utils.js';
-import { compileShader, setEditorMode } from '../ui/editor.js';
+import { compileShader } from '../ui/editor.js';
 import { togglePlayback, resetTime, resetFullscreenSelect } from '../ui/controls.js';
 import { loadGridPresetsFromData, saveGridState } from '../grid/grid-persistence.js';
 import { selectGridSlot } from '../grid/shader-grid.js';
 import { switchShaderTab } from '../grid/grid-tabs.js';
-import { recallLocalPreset, updateLocalPresetsUI } from '../ui/presets.js';
-import { loadParamsToSliders, generateCustomParamUI } from '../ui/params.js';
+import { recallLocalPreset } from '../ui/presets.js';
+import { loadParamsToSliders } from '../ui/params.js';
 import { updatePreviewFrameLimit } from '../core/render-loop.js';
-import { setRenderMode, detectRenderMode, restartRender } from '../core/renderer-manager.js';
+import { detectRenderMode, restartRender } from '../core/renderer-manager.js';
 import { createTab, openInTab, activeTabHasChanges, markTabSaved, getActiveTab } from '../ui/tabs.js';
 import { isMixerActive, assignShaderToMixer, clearMixerChannel, resetMixer, recallMixState } from '../ui/mixer.js';
 import { recallVisualPreset, rebuildVisualPresetsDOM } from '../grid/visual-presets.js';
@@ -816,7 +803,6 @@ function buildRemoteStateSnapshot(): RemoteStateSnapshot {
     fp ? fp.split('/').pop()!.split('\\').pop()! : null;
 
   const shaderTabs = state.shaderTabs as ShaderTabRuntime[];
-  const gridSlots = state.gridSlots as GridSlot[];
   const mixerChannels = state.mixerChannels as Array<MixerChannel & { tabIndex?: number | null }>;
 
   return {

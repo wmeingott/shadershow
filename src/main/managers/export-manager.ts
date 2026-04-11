@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import zlib from 'zlib';
 import { promisify } from 'util';
-import { dialog, app } from 'electron';
+import { dialog } from 'electron';
 import { Logger } from '@shared/logger.js';
 
 const fsPromises = fs.promises;

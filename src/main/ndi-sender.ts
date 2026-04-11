@@ -1,7 +1,7 @@
 // NDI output sender — wraps grandiose/grandiose-mac
 // Handles platform detection and graceful degradation
 
-import { Logger, LOG_LEVEL } from '@shared/logger.js';
+import { Logger } from '@shared/logger.js';
 
 const log = new Logger('NDI-Send');
 

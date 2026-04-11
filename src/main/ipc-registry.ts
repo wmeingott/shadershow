@@ -360,7 +360,6 @@ export class IPCRegistry {
       fileManager,
       settingsManager,
       ndiManager,
-      recordingManager,
       claudeManager,
       windowManager,
     } = this.deps;
@@ -761,7 +760,7 @@ export class IPCRegistry {
    * 6. Send settings-changed to main window
    */
   private async handleSaveSettings(settings: Record<string, unknown>): Promise<void> {
-    const { settingsManager, ndiManager, remoteManager, windowManager, menuBuilder } = this.deps;
+    const { settingsManager, ndiManager, remoteManager, windowManager } = this.deps;
 
     // 1. NDI resolution
     if (settings.ndiResolution && typeof settings.ndiResolution === 'object') {

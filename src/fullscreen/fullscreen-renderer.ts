@@ -6,7 +6,6 @@
 
 import { Logger, LOG_LEVEL } from '@shared/logger.js';
 import type { TextureDirective, ParamValue, ParamArrayValue, ParamValues } from '@shared/types/params.js';
-import type { CompileResult } from '@shared/types/renderer.js';
 import { computeCropDraw, updateVideoLoop } from '@renderer/renderers/gl-utils.js';
 import { ShaderRenderer } from '@renderer/renderers/shader-renderer.js';
 import { ThreeSceneRenderer } from '@renderer/renderers/three-scene-renderer.js';
@@ -250,7 +249,6 @@ let renderer: ActiveRenderer | null = null;
 let shaderRenderer: ShaderRenderer | null = null;
 let sceneRenderer: ThreeSceneRenderer | null = null;
 let renderMode: RenderMode = 'shader';
-let animationId: number = 0;
 let localPresets: PresetEntry[] = [];
 let activeLocalPresetIndex: number | null = null;
 let presetBarTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -1442,7 +1440,7 @@ export function initFullscreen(): void {
  * Main render loop — called via requestAnimationFrame.
  */
 export function renderLoop(currentTime?: number): void {
-  animationId = requestAnimationFrame(renderLoop);
+  requestAnimationFrame(renderLoop);
 
   // Frame rate limiting - skip frame if too soon
   if (currentTime !== undefined && minFrameInterval > 0 && currentTime - lastFrameTime < minFrameInterval) {

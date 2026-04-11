@@ -156,16 +156,14 @@ export class SettingsManager {
    * Includes resolution presets, current values, and remote IPs.
    */
   async getSettings(): Promise<SettingsDialogData> {
-    // Load param ranges and grid slot width from file (they may have been
-    // written by other parts of the app without going through this manager)
-    let paramRanges: unknown = null;
+    // Load grid slot width from file (it may have been written by other parts
+    // of the app without going through this manager)
     let gridSlotWidth: number | null = this.gridSlotWidth || null;
 
     try {
       const raw = await this.readFileOrNull(this.settingsFile);
       if (raw) {
         const data = JSON.parse(raw) as Record<string, unknown>;
-        paramRanges = data.paramRanges ?? null;
         if (typeof data.gridSlotWidth === 'number' && data.gridSlotWidth > 0) {
           gridSlotWidth = data.gridSlotWidth;
         }

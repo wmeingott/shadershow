@@ -7,7 +7,7 @@
 // Uses GLUtils (gl-utils.ts) for shared WebGL utilities
 // =============================================================================
 
-import type { ParamDef, ParamValues, TextureDirective, ParamValue } from '@shared/types/params.js';
+import type { ParamDef, ParamValues, TextureDirective } from '@shared/types/params.js';
 import type { CompileResult } from '@shared/types/renderer.js';
 import { parseShaderParams, parseShaderConsts, generateConstDefines, generateUniformDeclarations, createParamValues, parseTextureDirectives, parseOption25D } from '@shared/param-parser.js';
 import {
@@ -109,9 +109,6 @@ export class TileRenderer {
     contrast: WebGLUniformLocation | null;
   } = { luminance: null, hue: null, saturation: null, contrast: null };
 
-  // Shader source
-  private shaderSource: string | null = null;
-
   // File texture directives (populated on compile)
   fileTextureDirectives: TextureDirective[] = [];
 
@@ -149,8 +146,6 @@ export class TileRenderer {
   // Compile a shader for this tile
   compile(fragmentSource: string): CompileResult {
     const gl = this.gl;
-
-    this.shaderSource = fragmentSource;
 
     // Parse @const directives
     const consts = parseShaderConsts(fragmentSource);

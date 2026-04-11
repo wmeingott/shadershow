@@ -36,7 +36,6 @@ import {
   setCustomUniforms,
   loadTextureFromDataUrl,
   createBuiltinTexture,
-  BUILTIN_TEXTURES,
   VERTEX_SHADER_SOURCE,
   buildShaderExtras,
 } from './gl-utils.js';

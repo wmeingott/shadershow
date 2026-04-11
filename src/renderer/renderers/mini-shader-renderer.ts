@@ -15,7 +15,7 @@ import {
   createBuiltinTexture,
   buildShaderExtras,
 } from './gl-utils.js';
-import { parseShaderParams, parseShaderConsts, generateConstDefines, generateUniformDeclarations, parseTextureDirectives, parseOption25D, createParamValues } from '@shared/param-parser.js';
+import { parseShaderParams, parseShaderConsts, generateConstDefines, generateUniformDeclarations, parseTextureDirectives, parseOption25D } from '@shared/param-parser.js';
 import { ShaderTextureChannel } from './shader-texture-channel.js';
 import { ppValues } from '../ui/post-process.js';
 import { tilingValues } from '../ui/tiling.js';

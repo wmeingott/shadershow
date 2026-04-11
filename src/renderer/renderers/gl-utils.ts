@@ -1,7 +1,7 @@
 // GLUtils — Shared WebGL2 utility functions used by ShaderRenderer, TileRenderer,
 // and MiniShaderRenderer. Converted from the global GLUtils/AssetUtils objects.
 
-import type { ParamDef, GLSLType, ParamBaseType } from '@shared/types/params.js';
+import type { ParamDef, ParamBaseType } from '@shared/types/params.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -570,7 +570,7 @@ export function computeCropDraw(
   destW: number,
   destH: number,
 ): CropDrawResult | null {
-  const { x = 0, y = 0, width = 0, height = 0, scale = 1, keepAR = 1, cropL = 0, cropT = 0, cropR = 1, cropB = 1 } = params;
+  const { width = 0, height = 0, scale = 1, keepAR = 1, cropL = 0, cropT = 0, cropR = 1, cropB = 1 } = params;
   const sx = cropL * srcW;
   const sy = cropT * srcH;
   const sw = (cropR - cropL) * srcW;

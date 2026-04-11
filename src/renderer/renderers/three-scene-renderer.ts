@@ -16,8 +16,6 @@ import type {
 import { parseShaderParams, createParamValues } from '@shared/param-parser.js';
 import { BeatDetector } from './beat-detector.js';
 
-// Three.js is loaded dynamically via script tag -- use `any` for all THREE types
-type THREE = any;
 // Babel is loaded dynamically via script tag
 type Babel = any;
 
@@ -120,7 +118,6 @@ export class ThreeSceneRenderer implements IRenderer {
   private threeRenderer: any | null = null;
   private sceneModule: SceneModule | null = null;
   private sceneObjects: any | null = null;
-  private sceneSource: string | null = null;
   private animateSignature: AnimateSignature = 'time-first';
 
   // Playback state
@@ -137,7 +134,6 @@ export class ThreeSceneRenderer implements IRenderer {
   private mouse: MouseState = { x: 0, y: 0, clickX: 0, clickY: 0, isDown: false };
 
   // Channel textures (for compatibility - scenes can use these)
-  private channelTextures: Array<any | null> = [null, null, null, null];
   private channelThreeTextures: Array<any | null> = [null, null, null, null];
   private channelResolutions: Array<[number, number, number]> = [[0, 0, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1]];
   private channelVideoSources: Array<HTMLVideoElement | null> = [null, null, null, null];
@@ -255,9 +251,6 @@ export class ThreeSceneRenderer implements IRenderer {
   compile(sceneSource: string, isJSX: boolean = false): CompileResult {
     const THREE = this.THREE;
     _tsrLog.info('Compiling scene', sceneSource.length, 'chars');
-
-    // Store source for reference
-    this.sceneSource = sceneSource;
 
     // Parse custom parameters from comments
     this.customParams = parseShaderParams(sceneSource);

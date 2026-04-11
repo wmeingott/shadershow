@@ -250,25 +250,6 @@ export function getActiveTab(): Tab | undefined {
   return tabs.find((t) => t.id === activeTabId);
 }
 
-/** Update the display title of a tab. */
-export function updateTabTitle(tabId: string, title: string): void {
-  const tab = tabs.find((t) => t.id === tabId);
-  if (tab) {
-    tab.title = title;
-    renderTabs();
-  }
-}
-
-/** Update the file path (and derived title) of a tab. */
-export function updateTabFilePath(tabId: string, filePath: string): void {
-  const tab = tabs.find((t) => t.id === tabId);
-  if (tab) {
-    tab.filePath = filePath;
-    tab.title = getFileName(filePath) || tab.title;
-    renderTabs();
-  }
-}
-
 /** Mark a tab as saved (snapshot current content as the saved baseline). */
 export function markTabSaved(tabId: string): void {
   const tab = tabs.find((t) => t.id === tabId);
@@ -349,7 +330,3 @@ export async function initTabs(): Promise<void> {
   });
 }
 
-/** Get all tabs (for debugging / state inspection). */
-export function getAllTabs(): Tab[] {
-  return tabs;
-}

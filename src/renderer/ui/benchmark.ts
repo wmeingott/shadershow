@@ -2,7 +2,6 @@
 // Creates an offscreen ShaderRenderer to avoid disrupting the main editor
 
 import { ShaderRenderer } from '../renderers/shader-renderer.js';
-import { setStatus } from './utils.js';
 
 // ─── Test Shaders ────────────────────────────────────────────────────────────
 

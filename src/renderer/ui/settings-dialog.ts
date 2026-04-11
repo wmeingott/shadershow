@@ -1,7 +1,6 @@
 // Settings Dialog module — manages the application settings overlay.
 // Typed version of js/settings.js.
 
-import { state } from '../core/state.js';
 import type {
   SettingsDialogData,
   AISettings,

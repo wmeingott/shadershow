@@ -196,14 +196,6 @@ function startThumbnailRefresh(): void {
   thumbnailRefreshTimer = setInterval(refreshChannelThumbnails, 2000);
 }
 
-// Stop periodic thumbnail refresh
-function stopThumbnailRefresh(): void {
-  if (thumbnailRefreshTimer) {
-    clearInterval(thumbnailRefreshTimer);
-    thumbnailRefreshTimer = null;
-  }
-}
-
 // Create a mixer channel DOM element and attach event handlers
 function createChannelElement(index: number): HTMLDivElement {
   const channelEl = document.createElement('div');

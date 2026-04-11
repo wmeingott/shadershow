@@ -2,7 +2,7 @@
 // Typed version of js/controls.js.
 
 import { state } from '../core/state.js';
-import { tileState, calculateTileBounds } from '../tiles/tile-state.js';
+import { tileState } from '../tiles/tile-state.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -340,7 +340,6 @@ export function initResizer(): void {
   const previewPanel = document.getElementById('preview-panel') as HTMLElement;
   const bottomRow = document.getElementById('bottom-row') as HTMLElement;
   const gridPanel = document.getElementById('grid-panel') as HTMLElement;
-  const _paramsPanel = document.getElementById('params-panel') as HTMLElement;
   const rightPanel = document.getElementById('right-panel') as HTMLElement;
   const visualPresetsPanel = document.getElementById('visual-presets-panel') as HTMLElement;
 

@@ -25,12 +25,6 @@ interface ViewState {
   visualPresetsWidth?: string;
 }
 
-/** Console panel state returned by getConsolePanelState */
-interface ConsolePanelState {
-  height: number;
-  collapsed: boolean;
-}
-
 /** Minimal electronAPI surface used by this module */
 declare const window: Window & {
   electronAPI: {

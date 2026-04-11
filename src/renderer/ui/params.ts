@@ -2,7 +2,7 @@
 // Typed version of js/params.js.
 
 import { state } from '../core/state.js';
-import type { ParamDef, ParamValue, ParamArrayValue, ParamBinding } from '@shared/types/params.js';
+import type { ParamDef, ParamValue, ParamArrayValue } from '@shared/types/params.js';
 import type { AssetParamDef } from '../renderers/asset-renderer.js';
 import { tileState } from '../tiles/tile-state.js';
 import { ASSET_PARAM_DEFS, VIDEO_PARAM_DEFS } from '../renderers/asset-renderer.js';
@@ -73,7 +73,6 @@ interface ColorPickerInput extends HTMLInputElement {
 
 import { updateMixerChannelParam } from './mixer.js';
 import { saveGridState } from '../grid/grid-persistence.js';
-import { setStatus } from './utils.js';
 import { parseShaderParams } from '@shared/param-parser.js';
 import { loadTilingToSliders } from './tiling.js';
 import { showContextMenu, hideContextMenu } from './context-menu.js';
@@ -86,7 +85,6 @@ import { getActiveABParamSource, handleABParamChange } from './ab-preview.js';
 let saveGridStateTimeout: ReturnType<typeof setTimeout> | null = null;
 const SAVE_DEBOUNCE_MS = 500;
 
-let usingCustomParams = false;
 let draggedColor: number[] | null = null;
 let abParamValuesOverride: Record<string, ParamValue | ParamArrayValue> | null = null;
 
@@ -536,14 +534,6 @@ export function loadParamsToSliders(
   generateCustomParamUI();
 }
 
-export function updateParamLabels(_paramNames: string[]): void {
-  // No longer needed
-}
-
-export function resetParamLabels(): void {
-  // No longer needed
-}
-
 // =============================================================================
 // Dynamic Custom Parameter UI Generation
 // =============================================================================
@@ -592,11 +582,8 @@ function renderCustomParamUI(
   container.innerHTML = '';
 
   if (params.length === 0) {
-    usingCustomParams = false;
     return;
   }
-
-  usingCustomParams = true;
 
   // Store values so createParamControl can read them via the getter override
   abParamValuesOverride = values;
@@ -663,15 +650,6 @@ function renderCustomParamUI(
 
   // Auto-sync dmx: directive mappings to Art-Net manager
   syncDmxMappingsFromParams(params);
-}
-
-export function loadCustomParamsToUI(): void {
-  if (!state.renderer || !usingCustomParams) return;
-  generateCustomParamUI();
-}
-
-export function isUsingCustomParams(): boolean {
-  return usingCustomParams;
 }
 
 // ---------------------------------------------------------------------------
@@ -961,7 +939,7 @@ function createVec2Control(
 
 function createColorControl(
   row: HTMLDivElement,
-  param: ParamDef,
+  _param: ParamDef,
   value: number[],
   paramName: string,
   arrayIndex: number | null,
@@ -1376,7 +1354,6 @@ function updateCustomParamValue(
 function generateAssetParamUI(container: HTMLElement, slotData: GridSlotLike): void {
   selectedColorPickers.clear();
   container.innerHTML = '';
-  usingCustomParams = true;
 
   const assetRenderer = slotData.renderer;
   if (!assetRenderer) return;
@@ -1451,7 +1428,6 @@ function generateAssetParamUI(container: HTMLElement, slotData: GridSlotLike): v
 function generateMixerParamsUI(container: HTMLElement): void {
   selectedColorPickers.clear();
   container.innerHTML = '';
-  usingCustomParams = true;
 
   for (let i = 0; i < channels().length; i++) {
     const ch = channels()[i];

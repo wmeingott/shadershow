@@ -8,7 +8,6 @@ import { tileState } from '../tiles/tile-state.js';
 import { setStatus } from './utils.js';
 import { saveGridState } from '../grid/grid-persistence.js';
 import { loadParamsToSliders, generateCustomParamUI } from './params.js';
-import { updateMixerChannelParam } from './mixer.js';
 import { resetTiling, getTilingParams } from './tiling.js';
 
 // ---------------------------------------------------------------------------
@@ -451,14 +450,6 @@ function applyParamsToSelectedTile(params: Record<string, unknown>): void {
   // Update the MiniShaderRenderer speed if available
   if (slotData.renderer && speed !== undefined) {
     slotData.renderer.setSpeed(speed as number);
-  }
-}
-
-/** Apply params to selected mixer channel */
-function applyParamsToMixerChannel(params: Record<string, unknown>): void {
-  if (!params) return;
-  for (const [name, value] of Object.entries(params)) {
-    updateMixerChannelParam(name, value);
   }
 }
 

@@ -10,7 +10,7 @@ import { loadFileTexturesForRenderer } from '../grid/grid-renderer.js';
 import { hideMixerOverlay, recallMixState, snapshotMixerState } from './mixer.js';
 import { hideAssetOverlay } from '../core/render-loop.js';
 import { loadParamsToSliders, generateCustomParamUI } from './params.js';
-import { tilingValues, loadTilingToSliders, isTilingFixed, setOnTilingChanged } from './tiling.js';
+import { tilingValues, isTilingFixed, setOnTilingChanged } from './tiling.js';
 
 import type { ParamDef, ParamValue } from '@shared/types/params.js';
 import { parseShaderParams } from '@shared/param-parser.js';
@@ -813,10 +813,6 @@ export function setABCrossfade(value: number): void {
 // ---------------------------------------------------------------------------
 // Accessors
 // ---------------------------------------------------------------------------
-
-export function getABSide(side: 'a' | 'b'): ABSide {
-  return side === 'a' ? sideA : sideB;
-}
 
 export function getABOverlayCanvas(): HTMLCanvasElement | null {
   return abOverlayCanvas;

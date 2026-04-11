@@ -102,7 +102,6 @@ let tileConfig: LocalTileConfig = {
 };
 
 let selectedTileIndex: number | null = null;
-let draggedSlotIndex: number | null = null;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -454,7 +453,6 @@ function populateShaderList(): void {
         e.preventDefault();
         return;
       }
-      draggedSlotIndex = index;
       item.classList.add('dragging');
       if (e.dataTransfer) {
         e.dataTransfer.effectAllowed = 'copy';
@@ -464,7 +462,6 @@ function populateShaderList(): void {
 
     item.addEventListener('dragend', () => {
       item.classList.remove('dragging');
-      draggedSlotIndex = null;
     });
 
     // Click to assign to selected tile

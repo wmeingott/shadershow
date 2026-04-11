@@ -4,10 +4,7 @@
 
 import { state, notifyRemoteStateChanged } from '../core/state.js';
 import { createTaggedLogger, LOG_LEVEL } from '../../shared/logger.js';
-import {
-  showContextMenu as showContextMenuHelper,
-  hideContextMenu as hideContextMenuHelper,
-} from '../ui/context-menu.js';
+import { showContextMenu as showContextMenuHelper } from '../ui/context-menu.js';
 import { fileTextureCache } from './grid-renderer.js';
 
 // ---------------------------------------------------------------------------
@@ -560,10 +557,6 @@ function showTabContextMenu(x: number, y: number, tabIndex: number): void {
   }
 
   showContextMenuHelper(x, y, items);
-}
-
-function hideTabContextMenu(): void {
-  hideContextMenuHelper();
 }
 
 // ---------------------------------------------------------------------------

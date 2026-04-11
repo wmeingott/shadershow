@@ -11,16 +11,10 @@ import { tileState, assignTile } from '../tiles/tile-state.js';
 import {
   loadFileTexturesForRenderer,
   applyMaxContainerHeight,
-  startGridAnimation,
   stopGridAnimation,
-  reinitGridVisibilityObserver,
 } from './grid-renderer.js';
 import { assignShaderToMixer, addMixerChannel } from '../ui/mixer.js';
-import { updateTileRenderer, refreshTileRenderers } from '../ui/controls.js';
-import {
-  showContextMenu as showContextMenuHelper,
-  hideContextMenu as hideContextMenuHelper,
-} from '../ui/context-menu.js';
+import { updateTileRenderer } from '../ui/controls.js';
 
 // ---------------------------------------------------------------------------
 // Logger
@@ -64,12 +58,6 @@ interface MiniRendererLike {
   loadFileTexture?(channel: number, dataUrl: string): Promise<unknown>;
   loadTexture?(channel: number, dataUrl: string): Promise<unknown>;
   getParams?(): Record<string, unknown>;
-}
-
-/** Minimal renderer shape for the main state.renderer */
-interface MainRendererLike extends MiniRendererLike {
-  reinitialize?(): void;
-  resetTime?(): void;
 }
 
 /** Result from loadShaderForGrid IPC call */
@@ -129,7 +117,6 @@ import { loadGridState, saveGridState } from './grid-persistence.js';
 import { setStatus } from '../ui/utils.js';
 import { loadParamsToSliders, generateCustomParamUI } from '../ui/params.js';
 import { updateLocalPresetsUI } from '../ui/presets.js';
-import { compileShader, setEditorMode } from '../ui/editor.js';
 import { setRenderMode, ensureSceneRenderer, detectRenderMode } from '../core/renderer-manager.js';
 import { hideAssetOverlay } from '../core/render-loop.js';
 import { loadShaderToSide, getActiveSide } from '../ui/ab-preview.js';
@@ -2172,115 +2159,6 @@ export async function selectGridSlot(slotIndex: number): Promise<void> {
   const tileInfo = state.tiledPreviewEnabled ? ` -> tile ${state.selectedTileIndex + 1}` : '';
   setStatus(`Playing ${slotName} (slot ${slotIndex + 1}${tileInfo})`, 'success');
   notifyRemoteStateChanged();
-}
-
-/**
- * Play a grid shader: open it in an editor tab and send to fullscreen.
- * Used for explicit "play" action vs. single-click select.
- */
-export function playGridShader(slotIndex: number): void {
-  const slotData = state.gridSlots[slotIndex] as GridSlotData | null;
-  if (!slotData) return;
-
-  // If tiled preview is enabled, assign to selected tile instead
-  if (state.tiledPreviewEnabled) {
-    assignShaderToTile(slotIndex, state.selectedTileIndex);
-    return;
-  }
-
-  // Clear previous active slot highlight
-  if (state.activeGridSlot !== null) {
-    const prevSlot = document.querySelector(`.grid-slot[data-slot="${state.activeGridSlot}"]`);
-    if (prevSlot) prevSlot.classList.remove('active');
-  }
-
-  // Set active slot
-  state.activeGridSlot = slotIndex;
-  const slot = document.querySelector(`.grid-slot[data-slot="${slotIndex}"]`) as HTMLElement | null;
-  if (slot) slot.classList.add('active');
-
-  // Check if this is a scene (detect from content as fallback)
-  const detectedType = detectRenderMode(slotData.filePath, slotData.shaderCode);
-  const isScene = slotData.type === 'scene' || detectedType === 'scene';
-  if (isScene && slotData.type !== 'scene') slotData.type = 'scene';
-  const slotName = slotData.filePath
-    ? slotData.filePath.split('/').pop()!.split('\\').pop()!
-    : `Slot ${slotIndex + 1}`;
-
-  // Open in a new tab (or activate existing tab for this slot)
-  openInTab({
-    content: slotData.shaderCode,
-    filePath: slotData.filePath,
-    type: isScene ? 'scene' : 'shader',
-    title: slotName,
-    slotIndex: slotIndex,
-    activate: true,
-  });
-
-  // Cancel debounced compile — tab-activated handler compiles immediately
-  if (state.compileTimeout) {
-    clearTimeout(state.compileTimeout);
-    state.compileTimeout = null;
-  }
-
-  // Load speed to slider if present
-  if (slotData.params) {
-    loadParamsToSliders(slotData.params);
-  }
-
-  // Update local presets UI for this shader
-  updateLocalPresetsUI();
-
-  // Update save button state
-  updateSaveButtonState();
-
-  // Load saved custom param values if available (after tab is activated)
-  setTimeout(() => {
-    if (slotData.customParams && !isScene) {
-      const renderer = state.renderer as MiniRendererLike;
-      renderer.setCustomParamValues?.(slotData.customParams);
-      // Restore binding toggle states
-      if ((slotData as Record<string, unknown>).bindingStates && (renderer as any).setBindingStates) {
-        (renderer as any).setBindingStates((slotData as Record<string, unknown>).bindingStates);
-      }
-      generateCustomParamUI(); // Regenerate to reflect loaded values
-    }
-  }, 100);
-
-  // Batch all params for fullscreen to reduce IPC overhead
-  const mainRenderer = state.renderer as MiniRendererLike;
-  const allParams: Record<string, unknown> = {
-    ...(slotData.params || {}),
-    ...(slotData.customParams || mainRenderer.getCustomParamValues?.() || {}),
-  };
-
-  // Send to fullscreen window (if open) with all params included
-  const fullscreenState: Record<string, unknown> = {
-    shaderCode: slotData.shaderCode,
-    time: 0,
-    frame: 0,
-    isPlaying: true,
-    channels: state.channelState,
-    params: allParams,
-    renderMode: isScene ? 'scene' : 'shader',
-  };
-  window.electronAPI.sendShaderUpdate(fullscreenState);
-  window.electronAPI.sendTimeSync({ time: 0, frame: 0, isPlaying: true });
-
-  // Send batched params in single IPC call (fullscreen will apply them from the state above,
-  // but we also send individually for any param listeners that expect per-param updates)
-  // Use a single batch call if available, otherwise fall back to individual calls
-  if (window.electronAPI.sendBatchParamUpdate) {
-    window.electronAPI.sendBatchParamUpdate(allParams);
-  } else {
-    // Fall back to individual calls for backwards compatibility
-    Object.entries(allParams).forEach(([name, value]) => {
-      window.electronAPI.sendParamUpdate({ name, value });
-    });
-  }
-
-  const typeLabel = isScene ? 'scene' : 'shader';
-  setStatus(`Playing ${typeLabel}: ${slotName}`, 'success');
 }
 
 // ---------------------------------------------------------------------------

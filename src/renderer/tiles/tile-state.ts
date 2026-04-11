@@ -51,17 +51,6 @@ interface TileState {
   isInitialized: boolean;
 }
 
-interface LayoutPresetEntry {
-  label: string;
-  rows: number;
-  cols: number;
-}
-
-interface SerializedTileState {
-  layout: TileLayoutConfig;
-  tiles: TileConfig[];
-}
-
 interface SerializedTilePresets {
   presets: (TilePreset | null)[];
   activeIndex: number | null;
@@ -109,18 +98,6 @@ export const tileState: TileState = {
   isInitialized: false
 };
 
-// Layout presets for quick selection
-export const layoutPresets: LayoutPresetEntry[] = [
-  { label: '1x1 (Single)', rows: 1, cols: 1 },
-  { label: '2x1 (Dual)', rows: 1, cols: 2 },
-  { label: '1x2 (Stack)', rows: 2, cols: 1 },
-  { label: '2x2 (Quad)', rows: 2, cols: 2 },
-  { label: '3x2', rows: 2, cols: 3 },
-  { label: '2x3', rows: 3, cols: 2 },
-  { label: '3x3 (Nine)', rows: 3, cols: 3 },
-  { label: '4x4 (Sixteen)', rows: 4, cols: 4 }
-];
-
 // ---------------------------------------------------------------------------
 // Functions
 // ---------------------------------------------------------------------------
@@ -132,19 +109,6 @@ function createEmptyTile(): TileConfig {
     customParams: null,
     visible: true
   };
-}
-
-// Initialize tiles array based on layout
-export function initTiles(rows: number, cols: number): void {
-  const count = rows * cols;
-  tileState.tiles = [];
-
-  for (let i = 0; i < count; i++) {
-    tileState.tiles.push(createEmptyTile());
-  }
-
-  tileState.layout.rows = rows;
-  tileState.layout.cols = cols;
 }
 
 // Set layout with optional tile preservation
@@ -199,20 +163,6 @@ export function assignTile(
   }
 }
 
-// Clear a tile
-export function clearTile(tileIndex: number): void {
-  if (tileIndex >= 0 && tileIndex < tileState.tiles.length) {
-    tileState.tiles[tileIndex] = createEmptyTile();
-  }
-}
-
-// Toggle tile visibility
-export function setTileVisibility(tileIndex: number, visible: boolean): void {
-  if (tileIndex >= 0 && tileIndex < tileState.tiles.length) {
-    tileState.tiles[tileIndex].visible = visible;
-  }
-}
-
 // Get tile bounds for rendering (pixel coordinates within canvas)
 export function calculateTileBounds(
   canvasWidth: number,
@@ -245,48 +195,6 @@ export function calculateTileBounds(
   }
 
   return bounds;
-}
-
-// Serialize tile state for persistence
-export function serializeTileState(): SerializedTileState {
-  return {
-    layout: { ...tileState.layout },
-    tiles: tileState.tiles.map(t => ({
-      gridSlotIndex: t.gridSlotIndex,
-      params: t.params ? { ...t.params } : null,
-      customParams: t.customParams ? { ...t.customParams } : null,
-      visible: t.visible
-    }))
-  };
-}
-
-// Deserialize tile state from saved data
-export function deserializeTileState(data: Partial<SerializedTileState> | null | undefined): void {
-  if (!data) return;
-
-  if (data.layout) {
-    tileState.layout.rows = data.layout.rows || 2;
-    tileState.layout.cols = data.layout.cols || 2;
-    tileState.layout.gaps = data.layout.gaps ?? 4;
-  }
-
-  if (data.tiles && Array.isArray(data.tiles)) {
-    tileState.tiles = data.tiles.map(t => ({
-      gridSlotIndex: t.gridSlotIndex ?? null,
-      params: t.params ? { ...t.params } : null,
-      customParams: t.customParams ? { ...t.customParams } : null,
-      visible: t.visible !== false
-    }));
-  }
-
-  // Ensure we have the right number of tiles
-  const expectedCount = tileState.layout.rows * tileState.layout.cols;
-  while (tileState.tiles.length < expectedCount) {
-    tileState.tiles.push(createEmptyTile());
-  }
-  if (tileState.tiles.length > expectedCount) {
-    tileState.tiles.length = expectedCount;
-  }
 }
 
 // =============================================================================
@@ -365,16 +273,6 @@ export function getTilePresetInfo(
     layout: preset.layout,
     tileCount: preset.tiles.filter(t => t.gridSlotIndex !== null).length
   };
-}
-
-// Clear a preset
-export function clearTilePreset(index: number): void {
-  if (index >= 0 && index < tilePresets.presets.length) {
-    tilePresets.presets[index] = null;
-    if (tilePresets.activeIndex === index) {
-      tilePresets.activeIndex = null;
-    }
-  }
 }
 
 // Serialize presets for persistence (deep copy)

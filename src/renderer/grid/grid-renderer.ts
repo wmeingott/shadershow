@@ -93,13 +93,6 @@ export function applyMaxContainerHeight(): void {
   });
 }
 
-/**
- * Reset max container height to zero (e.g. when tab count changes).
- */
-export function resetMaxContainerHeight(): void {
-  maxContainerHeight = 0;
-}
-
 // Reset max height tracking when panel width changes (grid reflows)
 let _gridPanelWidth = 0;
 
@@ -238,10 +231,3 @@ export function stopGridAnimation(): void {
   cleanupGridVisibilityObserver();
 }
 
-/**
- * Re-initialize the visibility observer.
- * Call this after the grid DOM has been rebuilt (e.g. tab switch, slot add/remove).
- */
-export function reinitGridVisibilityObserver(): void {
-  initGridVisibilityObserver();
-}

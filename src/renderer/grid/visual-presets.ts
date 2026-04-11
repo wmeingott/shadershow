@@ -39,7 +39,7 @@ import { setStatus } from '../ui/utils.js';
 import { compileShader } from '../ui/editor.js';
 import { setRenderMode, ensureSceneRenderer, detectRenderMode } from '../core/renderer-manager.js';
 import { loadParamsToSliders, generateCustomParamUI } from '../ui/params.js';
-import { getTilingParams, loadTilingToSliders } from '../ui/tiling.js';
+import { getTilingParams } from '../ui/tiling.js';
 
 // ---------------------------------------------------------------------------
 // Local interfaces

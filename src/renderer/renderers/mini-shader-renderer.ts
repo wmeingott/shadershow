@@ -149,13 +149,6 @@ export class MiniShaderRenderer {
     return { width: this.canvas.width, height: this.canvas.height };
   }
 
-  private _resizeSharedCanvas(width: number, height: number): void {
-    if (sharedGLCanvas && (sharedGLCanvas.width !== width || sharedGLCanvas.height !== height)) {
-      sharedGLCanvas.width = width;
-      sharedGLCanvas.height = height;
-    }
-  }
-
   static ensureSharedCanvasSize(width: number, height: number): void {
     if (!sharedGLCanvas) {
       getSharedGL();
@@ -330,11 +323,22 @@ export class MiniShaderRenderer {
     const width = this.canvas.width;
     const height = this.canvas.height;
 
-    this._resizeSharedCanvas(width, height);
+    // Grow-only shared canvas (exact resizing here fought with the larger
+    // sizes used by mixer/A-B renderDirect, reallocating the drawing buffer
+    // many times per second) and explicit viewport — resizing a canvas does
+    // NOT update the GL viewport, so relying on the last-set viewport broke
+    // thumbnails whenever renderDirect ran at composite resolution.
+    MiniShaderRenderer.ensureSharedCanvasSize(width, height);
+    gl.viewport(0, 0, width, height);
     this._renderInternal(gl, width, height);
 
     if (this.ctx2d) {
-      this.ctx2d.drawImage(sharedGLCanvas, 0, 0, width, height);
+      // Viewport region is bottom-left in GL, top-left source coords in 2D
+      this.ctx2d.drawImage(
+        sharedGLCanvas,
+        0, sharedGLCanvas.height - height, width, height,
+        0, 0, width, height,
+      );
     }
   }
 

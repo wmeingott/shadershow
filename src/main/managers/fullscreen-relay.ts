@@ -39,6 +39,7 @@ const MAIN_TO_FULLSCREEN_CHANNELS = [
   'ab-crossfade',
   'ab-param-update',
   'ab-composition-update',
+  'ab-comp-channel-update',
   'ab-tiling-update',
   'ab-exit',
 ] as const;

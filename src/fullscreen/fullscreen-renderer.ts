@@ -232,6 +232,7 @@ declare const window: Window & {
     onABCrossfade?(cb: (value: number) => void): void;
     onABParamUpdate?(cb: (data: { side: 'a' | 'b'; paramName: string; value: ParamValue | ParamArrayValue }) => void): void;
     onABCompositionUpdate?(cb: (data: { side: 'a' | 'b'; channels: Array<{ shaderCode: string; alpha: number; params: ParamValues; customParams: ParamValues }>; blendMode: string; tiling?: { cols: number; rows: number; spaceX: number; spaceY: number; bgR: number; bgG: number; bgB: number } }) => void): void;
+    onABCompChannelUpdate?(cb: (data: { side: 'a' | 'b'; channelIndex: number; alpha?: number; paramName?: string; value?: ParamValue | ParamArrayValue }) => void): void;
     onABTilingUpdate?(cb: (data: { side: 'a' | 'b'; tiling: { cols: number; rows: number; spaceX: number; spaceY: number; bgR: number; bgG: number; bgB: number } }) => void): void;
     onABExit?(cb: () => void): void;
   };
@@ -2146,6 +2147,20 @@ export function registerIPCHandlers(): void {
     if (data.tiling) {
       if (data.side === 'a') Object.assign(abTilingA, data.tiling);
       else Object.assign(abTilingB, data.tiling);
+    }
+  });
+
+  // Lightweight per-channel composition updates (alpha/param sliders) —
+  // avoids the full rebuild + recompile that onABCompositionUpdate does
+  window.electronAPI.onABCompChannelUpdate?.((data) => {
+    const renderers = data.side === 'a' ? abCompRenderersA : abCompRenderersB;
+    const alphas = data.side === 'a' ? abCompAlphasA : abCompAlphasB;
+    if (data.channelIndex < 0 || data.channelIndex >= renderers.length) return;
+    if (data.alpha !== undefined) {
+      alphas[data.channelIndex] = data.alpha;
+    }
+    if (data.paramName !== undefined && data.value !== undefined) {
+      renderers[data.channelIndex].setParam(data.paramName, data.value);
     }
   });
 

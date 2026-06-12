@@ -99,7 +99,7 @@ import { loadParamsToSliders, generateCustomParamUI } from './params.js';
 import { updateLocalPresetsUI } from './presets.js';
 import { setStatus } from './utils.js';
 import { showContextMenu as showContextMenuHelper } from './context-menu.js';
-import { syncMixerToABComposition } from './ab-preview.js';
+import { syncMixerToABComposition, syncMixerChannelToABComposition } from './ab-preview.js';
 import { MiniShaderRenderer } from '../renderers/mini-shader-renderer.js';
 import { AssetRenderer } from '../renderers/asset-renderer.js';
 
@@ -340,7 +340,10 @@ function createChannelElement(index: number): HTMLDivElement {
     const alpha = parseFloat(slider.value);
     channels()[index].alpha = alpha;
     window.electronAPI.sendMixerAlphaUpdate({ channelIndex: index, alpha });
-    syncMixerToABComposition();
+    // In-place update; full rebuild only if the light path doesn't apply
+    if (!syncMixerChannelToABComposition(index, { alpha })) {
+      syncMixerToABComposition();
+    }
   });
 
   return channelEl;
@@ -832,7 +835,10 @@ export function updateMixerChannelParam(paramName: string, value: ParamValue): v
   }
 
   window.electronAPI.sendMixerParamUpdate({ channelIndex: chIdx, paramName, value });
-  syncMixerToABComposition();
+  // In-place update; full rebuild only if the light path doesn't apply
+  if (!syncMixerChannelToABComposition(chIdx, { paramName, value })) {
+    syncMixerToABComposition();
+  }
 }
 
 export function renderMixerComposite(): { time: number; frame: number; fps: number } {

@@ -120,6 +120,8 @@ class SceneABAdapter {
 // ---------------------------------------------------------------------------
 
 interface CompositionChannelData {
+  /** Index of the originating mixer channel (before filtering) */
+  sourceIndex: number;
   shaderCode: string;
   alpha: number;
   params: Record<string, ParamValue>;
@@ -134,6 +136,8 @@ interface CompositionChannel {
 
 class CompositionABAdapter {
   private channels: CompositionChannel[] = [];
+  /** Maps mixer channel index → index into this.channels (filtered) */
+  private indexBySource: Map<number, number> = new Map();
   private compCanvas: HTMLCanvasElement;
   private compCtx: CanvasRenderingContext2D | null = null;
   private blendMode: GlobalCompositeOperation = 'lighter';
@@ -170,7 +174,37 @@ class CompositionABAdapter {
         alpha: ch.alpha ?? 1.0,
         shaderCode: ch.shaderCode,
       });
+      this.indexBySource.set(ch.sourceIndex, this.channels.length - 1);
     }
+  }
+
+  /** Update a channel's alpha in place (no recompile). Returns false if unknown. */
+  updateAlpha(sourceIndex: number, alpha: number): boolean {
+    const i = this.indexBySource.get(sourceIndex);
+    if (i === undefined) return false;
+    this.channels[i].alpha = alpha;
+    return true;
+  }
+
+  /** Update a channel's param in place (no recompile). Returns false if unknown. */
+  updateChannelParam(sourceIndex: number, name: string, value: ParamValue): boolean {
+    const i = this.indexBySource.get(sourceIndex);
+    if (i === undefined) return false;
+    if (name === 'speed') {
+      this.channels[i].renderer.setSpeed(value as number);
+    } else {
+      this.channels[i].renderer.setParam(name, value);
+    }
+    return true;
+  }
+
+  setBlendMode(blendMode: string): void {
+    this.blendMode = blendMode as GlobalCompositeOperation;
+  }
+
+  /** Filtered channel index used by the fullscreen composition arrays. */
+  getFilteredIndex(sourceIndex: number): number | undefined {
+    return this.indexBySource.get(sourceIndex);
   }
 
   renderDirect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
@@ -221,6 +255,7 @@ class CompositionABAdapter {
   private disposeChannels(): void {
     for (const ch of this.channels) ch.renderer.dispose();
     this.channels = [];
+    this.indexBySource.clear();
   }
 
   dispose(): void {
@@ -425,8 +460,10 @@ export function loadCompositionToSide(
 
   const adapter = new CompositionABAdapter();
   const channelData: CompositionChannelData[] = channels
-    .filter(ch => ch.enabled !== false && ch.shaderCode)
-    .map(ch => ({
+    .map((ch, sourceIndex) => ({ ch, sourceIndex }))
+    .filter(({ ch }) => ch.enabled !== false && ch.shaderCode)
+    .map(({ ch, sourceIndex }) => ({
+      sourceIndex,
       shaderCode: ch.shaderCode!,
       alpha: ch.alpha ?? 1.0,
       params: ch.params || {},
@@ -903,8 +940,10 @@ export function syncMixerToABComposition(): void {
   if (target.renderer?.dispose) target.renderer.dispose();
   const adapter = new CompositionABAdapter();
   const channelData: CompositionChannelData[] = channels
-    .filter(ch => ch.enabled !== false && ch.shaderCode)
-    .map(ch => ({
+    .map((ch, sourceIndex) => ({ ch, sourceIndex }))
+    .filter(({ ch }) => ch.enabled !== false && ch.shaderCode)
+    .map(({ ch, sourceIndex }) => ({
+      sourceIndex,
       shaderCode: ch.shaderCode!,
       alpha: ch.alpha,
       params: ch.params || {},
@@ -915,6 +954,56 @@ export function syncMixerToABComposition(): void {
 
   // Send updated composition to fullscreen
   sendABCompositionUpdate(side, channels, blendMode);
+}
+
+/**
+ * Lightweight in-place sync for continuous mixer changes (alpha slider,
+ * param sliders) while the active A/B side is a composition.
+ *
+ * Unlike syncMixerToABComposition this does NOT rebuild the adapter (which
+ * recompiles every channel shader — far too expensive per input event).
+ * Returns false when not applicable (caller should fall back to a full sync).
+ */
+export function syncMixerChannelToABComposition(
+  channelIndex: number,
+  update: { alpha?: number; paramName?: string; value?: ParamValue },
+): boolean {
+  if (!state.abEnabled) return false;
+  const target = state.abActiveTarget === 'a' ? sideA : sideB;
+  if (target.renderMode !== 'composition') return false;
+  if (!(target.renderer instanceof CompositionABAdapter)) return false;
+  const adapter = target.renderer;
+
+  // Update the live adapter and the stored preset (used on side switch)
+  const presetCh = target.compositionPreset?.channels?.[channelIndex];
+  if (update.alpha !== undefined) {
+    adapter.updateAlpha(channelIndex, update.alpha);
+    if (presetCh) presetCh.alpha = update.alpha;
+  }
+  if (update.paramName !== undefined && update.value !== undefined) {
+    adapter.updateChannelParam(channelIndex, update.paramName, update.value);
+    if (presetCh) {
+      if (update.paramName === 'speed') {
+        presetCh.params = { ...presetCh.params, speed: update.value };
+      } else {
+        presetCh.customParams = { ...presetCh.customParams, [update.paramName]: update.value };
+      }
+    }
+  }
+
+  // Granular sync to fullscreen (the fullscreen composition arrays are
+  // filtered, so translate to the filtered index)
+  const filteredIndex = adapter.getFilteredIndex(channelIndex);
+  if (filteredIndex !== undefined) {
+    window.electronAPI?.sendABCompChannelUpdate?.({
+      side: state.abActiveTarget,
+      channelIndex: filteredIndex,
+      alpha: update.alpha,
+      paramName: update.paramName,
+      value: update.value,
+    });
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -976,6 +1065,7 @@ declare const window: Window & {
     sendABCrossfade?(value: number): void;
     sendABParamUpdate?(data: unknown): void;
     sendABCompositionUpdate?(data: unknown): void;
+    sendABCompChannelUpdate?(data: unknown): void;
     sendABTilingUpdate?(data: unknown): void;
     sendABExit?(): void;
   };

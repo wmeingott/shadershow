@@ -198,6 +198,10 @@ export class ShaderRenderer {
   // Track texture dimensions for texSubImage2D optimization
   private _channelTexSizes: Array<[number, number]>;
 
+  // Last uploaded video currentTime per channel — skips redundant uploads
+  // when the display refresh rate exceeds the video frame rate
+  private _channelVideoTimes: number[];
+
   // Extra wrapper lines added by shader options (e.g. 2.5D relief, post-processing)
   private _extraEffectLines: number;
 
@@ -325,6 +329,7 @@ export class ShaderRenderer {
 
     // Track texture dimensions for texSubImage2D optimization
     this._channelTexSizes = [[0, 0], [0, 0], [0, 0], [0, 0]];
+    this._channelVideoTimes = [-1, -1, -1, -1];
 
     // Extra effect wrapper lines
     this._extraEffectLines = 0;
@@ -778,9 +783,16 @@ export class ShaderRenderer {
       if (channelType === 'video' || channelType === 'camera') {
         const video = this.channelVideoSources[i];
         if (video && video.readyState >= 2) {
-          gl.bindTexture(gl.TEXTURE_2D, this.channelTextures[i]);
           const sz = this._channelTexSizes[i];
-          if (sz[0] === video.videoWidth && sz[1] === video.videoHeight) {
+          const sameSize = sz[0] === video.videoWidth && sz[1] === video.videoHeight;
+          // Skip upload when the video hasn't produced a new frame
+          // (e.g. 25/30 fps video on a 60 Hz render loop)
+          if (sameSize && video.currentTime === this._channelVideoTimes[i]) {
+            continue;
+          }
+          this._channelVideoTimes[i] = video.currentTime;
+          gl.bindTexture(gl.TEXTURE_2D, this.channelTextures[i]);
+          if (sameSize) {
             gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, video);
           } else {
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);

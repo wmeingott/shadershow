@@ -33,6 +33,8 @@ export class ShaderTextureChannel {
 
   private uniforms: StandardUniforms = {} as StandardUniforms;
   private customParamUniforms: CustomParamUniforms = {};
+  private tileColsUniform: WebGLUniformLocation | null = null;
+  private tileRowsUniform: WebGLUniformLocation | null = null;
 
   /** Parsed @param definitions from the texture shader source */
   readonly customParams: ParamDef[];
@@ -55,6 +57,11 @@ export class ShaderTextureChannel {
 
   /** Whether the texture has been rendered at least once */
   private _rendered: boolean = false;
+
+  private readonly _channelUniformKeys: readonly ['iChannel0', 'iChannel1', 'iChannel2', 'iChannel3'] = ['iChannel0', 'iChannel1', 'iChannel2', 'iChannel3'] as const;
+  private readonly _dateObject: Date = new Date();
+  private readonly _resArray: Float32Array = new Float32Array(12);
+  private readonly _mergedValues: Record<string, number | number[]> = {};
 
   constructor(
     gl: WebGL2RenderingContext,
@@ -110,6 +117,8 @@ export class ShaderTextureChannel {
 
     this.uniforms = cacheStandardUniforms(gl, this.program);
     this.customParamUniforms = cacheCustomParamUniforms(gl, this.program, this.customParams);
+    this.tileColsUniform = gl.getUniformLocation(this.program, 'tile_cols');
+    this.tileRowsUniform = gl.getUniformLocation(this.program, 'tile_rows');
   }
 
   /**
@@ -211,7 +220,8 @@ export class ShaderTextureChannel {
     gl.uniform4f(this.uniforms.iMouse, mouse[0], mouse[1], mouse[2], mouse[3]);
 
     // Date
-    const date = new Date();
+    const date = this._dateObject;
+    date.setTime(Date.now());
     gl.uniform4f(this.uniforms.iDate,
       date.getFullYear(), date.getMonth(), date.getDate(),
       date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds() + date.getMilliseconds() / 1000,
@@ -224,25 +234,25 @@ export class ShaderTextureChannel {
     gl.uniform1f(this.uniforms.iHighLevel, 0);
 
     // Tiling defaults (texture shaders don't tile)
-    const tileCols = gl.getUniformLocation(this.program, 'tile_cols');
-    const tileRows = gl.getUniformLocation(this.program, 'tile_rows');
-    if (tileCols) gl.uniform1f(tileCols, 1);
-    if (tileRows) gl.uniform1f(tileRows, 1);
+    if (this.tileColsUniform) gl.uniform1f(this.tileColsUniform, 1);
+    if (this.tileRowsUniform) gl.uniform1f(this.tileRowsUniform, 1);
 
     // Set custom param uniforms using shared values
-    const mergedValues: Record<string, number | number[]> = {};
+    const mergedValues = this._mergedValues;
     for (const param of this.customParams) {
       const val = paramValues[param.name] !== undefined
         ? paramValues[param.name]
         : this.ownDefaults[param.name];
       if (val !== undefined) {
         mergedValues[param.name] = val as number | number[];
+      } else {
+        delete mergedValues[param.name];
       }
     }
     setCustomUniforms(gl, this.customParams, mergedValues, this.customParamUniforms);
 
     // Bind parent's channel textures (excluding our own channel to avoid feedback)
-    const resArray = new Float32Array(12);
+    const resArray = this._resArray;
     for (let i = 0; i < 4; i++) {
       gl.activeTexture(gl.TEXTURE0 + i);
       if (i === this.channel) {
@@ -258,7 +268,7 @@ export class ShaderTextureChannel {
         resArray[i * 3 + 2] = channelResolutions[i][2];
       }
       gl.uniform1i(
-        (this.uniforms as any)[`iChannel${i}`] as WebGLUniformLocation | null,
+        this.uniforms[this._channelUniformKeys[i]],
         i,
       );
     }

@@ -1041,6 +1041,26 @@ function renderMixerFrame(): void {
   // Prepare shared state (same as tiled mode)
   const sharedState: TileSharedState = prepareSharedState();
 
+  const directMixerRenderer = getSingleOpaqueMixerShaderRenderer();
+  if (directMixerRenderer) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.BLEND);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    try {
+      directMixerRenderer.render(sharedState);
+    } catch (err: unknown) {
+      log.error('Mixer direct render error:', err);
+    }
+    mixerOverlayCanvas.style.display = 'none';
+    if (shaderRenderer!.isPlaying) {
+      shaderRenderer!.frameCount++;
+    }
+    return;
+  }
+
   // Clear 2D overlay to opaque black
   ctx.globalCompositeOperation = 'source-over';
   ctx.fillStyle = '#000';
@@ -1103,6 +1123,30 @@ function renderMixerFrame(): void {
   if (shaderRenderer!.isPlaying) {
     shaderRenderer!.frameCount++;
   }
+}
+
+function getSingleOpaqueMixerShaderRenderer(): TileRenderer | null {
+  let activeRenderer: TileRenderer | null = null;
+  let activeCount = 0;
+  const maxChannels: number = Math.max(mixerRenderers.length, mixerAssets.length);
+
+  for (let i = 0; i < maxChannels; i++) {
+    const alpha: number = i < mixerChannelAlphas.length ? mixerChannelAlphas[i] : 1;
+    if (alpha <= 0) continue;
+
+    const asset: AssetEntry | null = i < mixerAssets.length ? mixerAssets[i] : null;
+    if (asset?.source) {
+      activeCount++;
+      continue;
+    }
+
+    const tr: TileRenderer | null = i < mixerRenderers.length ? mixerRenderers[i] : null;
+    if (!tr?.program) continue;
+    activeCount++;
+    activeRenderer = alpha >= 1 ? tr : null;
+  }
+
+  return activeCount === 1 ? activeRenderer : null;
 }
 
 function exitMixerMode(): void {
@@ -1204,11 +1248,6 @@ function renderABFrame(): void {
 
   const sharedState: TileSharedState = prepareSharedState();
 
-  // Clear to black
-  ctx.globalCompositeOperation = 'source-over';
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
   // Apply per-side tiling to sharedState before each side's render
   function applyABTiling(t: ABTilingSnapshot): void {
     sharedState.tilingCols = t.cols;
@@ -1220,16 +1259,36 @@ function renderABFrame(): void {
     sharedState.tilingBgB = t.bgB;
   }
 
+  const directSide: 'a' | 'b' | null = abCrossfade <= 0 ? 'a' : (abCrossfade >= 1 ? 'b' : null);
+  if (directSide && canRenderABShaderSideDirect(directSide)) {
+    applyABTiling(directSide === 'a' ? abTilingA : abTilingB);
+    renderABShaderSideDirect(canvas, gl, sharedState, directSide);
+    abOverlayCanvas.style.display = 'none';
+    if (shaderRenderer!.isPlaying) {
+      shaderRenderer!.frameCount++;
+    }
+    return;
+  }
+
+  // Clear to black
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
   // Render side A with alpha (1 - crossfade)
-  applyABTiling(abTilingA);
-  ctx.globalAlpha = 1.0 - abCrossfade;
-  renderABSide(canvas, ctx, gl, sharedState, 'a');
+  if (abCrossfade < 1) {
+    applyABTiling(abTilingA);
+    ctx.globalAlpha = 1.0 - abCrossfade;
+    renderABSide(canvas, ctx, gl, sharedState, 'a');
+  }
 
   // Render side B with alpha (crossfade)
-  applyABTiling(abTilingB);
-  ctx.globalCompositeOperation = 'lighter';
-  ctx.globalAlpha = abCrossfade;
-  renderABSide(canvas, ctx, gl, sharedState, 'b');
+  if (abCrossfade > 0) {
+    applyABTiling(abTilingB);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = abCrossfade;
+    renderABSide(canvas, ctx, gl, sharedState, 'b');
+  }
 
   ctx.globalAlpha = 1.0;
   ctx.globalCompositeOperation = 'source-over';
@@ -1237,6 +1296,35 @@ function renderABFrame(): void {
 
   if (shaderRenderer!.isPlaying) {
     shaderRenderer!.frameCount++;
+  }
+}
+
+function canRenderABShaderSideDirect(side: 'a' | 'b'): boolean {
+  const mode = side === 'a' ? abModeA : abModeB;
+  const tr = side === 'a' ? abRendererA : abRendererB;
+  return mode === 'shader' && !!tr?.program;
+}
+
+function renderABShaderSideDirect(
+  canvas: HTMLCanvasElement,
+  gl: WebGL2RenderingContext,
+  sharedState: TileSharedState,
+  side: 'a' | 'b',
+): void {
+  const tr = side === 'a' ? abRendererA : abRendererB;
+  if (!tr?.program) return;
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.disable(gl.DEPTH_TEST);
+  gl.disable(gl.BLEND);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.clearColor(0, 0, 0, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+
+  try {
+    tr.render(sharedState);
+  } catch (err: unknown) {
+    log.error(`AB side ${side} direct render error:`, err);
   }
 }
 

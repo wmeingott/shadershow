@@ -49,6 +49,10 @@ let recordingBuffer: Uint8Array | null = null;
 let recordingLastW = 0;
 let recordingLastH = 0;
 
+let outputBuffer: Uint8Array | null = null;
+let outputLastW = 0;
+let outputLastH = 0;
+
 // Recording state
 let savedPreviewWidth = 0;
 let savedPreviewHeight = 0;
@@ -138,6 +142,32 @@ export function sendRecordingFrame(): void {
     window.electronAPI.sendRecordingFrame({ data: result.buffer, width: result.width, height: result.height, flipped: result.flipped });
   } catch (err) {
     console.warn('Failed to send recording frame:', err);
+  }
+}
+
+export function sendOutputFrames(targets: { ndi?: boolean; syphon?: boolean; recording?: boolean }): void {
+  if (!targets.ndi && !targets.syphon && !targets.recording) return;
+
+  try {
+    const result = readCanvasPixels(outputBuffer, outputLastW, outputLastH);
+    if (!result) return;
+
+    outputBuffer = result.buffer;
+    outputLastW = result.lastW;
+    outputLastH = result.lastH;
+
+    const frame = {
+      data: result.buffer,
+      width: result.width,
+      height: result.height,
+      flipped: result.flipped,
+    };
+
+    if (targets.ndi) window.electronAPI.sendNDIFrame(frame);
+    if (targets.syphon) window.electronAPI.sendSyphonFrame(frame);
+    if (targets.recording) window.electronAPI.sendRecordingFrame(frame);
+  } catch (err) {
+    console.warn('Failed to send output frame:', err);
   }
 }
 

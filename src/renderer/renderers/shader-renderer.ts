@@ -236,7 +236,7 @@ export class ShaderRenderer {
     const glContext = canvas.getContext('webgl2', {
       alpha: false,
       antialias: false,
-      preserveDrawingBuffer: true,
+      preserveDrawingBuffer: false,
     });
 
     if (!glContext) {

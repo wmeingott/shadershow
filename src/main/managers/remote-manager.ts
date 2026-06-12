@@ -185,8 +185,20 @@ export class RemoteManager {
 
   private async getPreviewFrame(): Promise<Buffer | null> {
     try {
-      const result = await this.queryRenderer('remote-get-preview-frame') as { dataUrl: string } | null;
-      if (result && result.dataUrl) {
+      const result = await this.queryRenderer('remote-get-preview-frame') as {
+        data?: Uint8Array | ArrayBuffer | Buffer;
+        dataUrl?: string;
+      } | null;
+      if (result?.data) {
+        if (Buffer.isBuffer(result.data)) return result.data;
+        if (result.data instanceof Uint8Array) {
+          return Buffer.from(result.data.buffer, result.data.byteOffset, result.data.byteLength);
+        }
+        if (result.data instanceof ArrayBuffer) {
+          return Buffer.from(result.data);
+        }
+      }
+      if (result?.dataUrl) {
         const base64 = result.dataUrl.replace(/^data:image\/\w+;base64,/, '');
         return Buffer.from(base64, 'base64');
       }

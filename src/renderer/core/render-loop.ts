@@ -5,7 +5,7 @@
 import { state } from './state.js';
 import { tileState, calculateTileBounds } from '../tiles/tile-state.js';
 import { MiniShaderRenderer } from '../renderers/mini-shader-renderer.js';
-import { sendNDIFrame, sendSyphonFrame, sendRecordingFrame } from '../ipc/frame-sender.js';
+import { sendOutputFrames } from '../ipc/frame-sender.js';
 import { createTaggedLogger, LOG_LEVEL } from '../../shared/logger.js';
 
 import type { ParamValue } from '@shared/types/params.js';
@@ -116,6 +116,13 @@ let cachedTimeDisplay: HTMLElement | null = null;
 let cachedFrameDisplay: HTMLElement | null = null;
 let cachedChannelSlots: (HTMLElement | null)[] = [null, null, null, null];
 let cachedShaderCanvas: HTMLCanvasElement | null = null;
+let lastStatsDomUpdate = 0;
+let lastFpsText = '';
+let lastTimeText = '';
+let lastFrameText = '';
+let lastBpmText = '';
+
+const STATS_DOM_UPDATE_INTERVAL = 250;
 
 // Tile bounds cache — avoids recalculating every frame
 let _cachedPreviewTileBounds: TileBounds[] | null = null;
@@ -191,50 +198,57 @@ export function renderLoop(currentTime: DOMHighResTimeStamp): void {
     log.error('Renderer', 'Render error:', err);
   }
 
-  if (stats && state.previewEnabled) {
-    // Use cached DOM elements
-    if (cachedFpsDisplay) cachedFpsDisplay.textContent = `FPS: ${stats.fps}`;
-    if (cachedTimeDisplay)
-      cachedTimeDisplay.textContent = `Time: ${stats.time.toFixed(2)}s`;
-    if (cachedFrameDisplay)
-      cachedFrameDisplay.textContent = `Frame: ${stats.frame}`;
+  if (stats && state.previewEnabled && currentTime - lastStatsDomUpdate >= STATS_DOM_UPDATE_INTERVAL) {
+    lastStatsDomUpdate = currentTime;
+
+    // Use cached DOM elements and avoid redundant text writes.
+    const fpsText = `FPS: ${stats.fps}`;
+    const timeText = `Time: ${stats.time.toFixed(2)}s`;
+    const frameText = `Frame: ${stats.frame}`;
+    if (cachedFpsDisplay && fpsText !== lastFpsText) {
+      cachedFpsDisplay.textContent = fpsText;
+      lastFpsText = fpsText;
+    }
+    if (cachedTimeDisplay && timeText !== lastTimeText) {
+      cachedTimeDisplay.textContent = timeText;
+      lastTimeText = timeText;
+    }
+    if (cachedFrameDisplay && frameText !== lastFrameText) {
+      cachedFrameDisplay.textContent = frameText;
+      lastFrameText = frameText;
+    }
 
     // Update BPM display on audio channel slots
     const bd = (state.renderer as MainRendererLike).beatDetector;
     if (bd) {
       const bpmText = String(Math.round(bd.getBPM()));
-      for (let i = 0; i < 4; i++) {
-        const slot = cachedChannelSlots[i];
-        if (slot && slot.classList.contains('has-audio')) {
-          slot.textContent = bpmText;
+      if (bpmText !== lastBpmText) {
+        for (let i = 0; i < 4; i++) {
+          const slot = cachedChannelSlots[i];
+          if (slot && slot.classList.contains('has-audio')) {
+            slot.textContent = bpmText;
+          }
         }
+        lastBpmText = bpmText;
       }
     }
   }
 
-  // Send frame to NDI output if enabled (skip frames to reduce load)
-  // Use setTimeout(0) to defer readPixels outside the critical render path
-  if (state.ndiEnabled && state.ndiFrameCounter % state.ndiFrameSkip === 0) {
-    setTimeout(sendNDIFrame, 0);
+  // Capture once per rendered frame, then fan the same pixels out to all due outputs.
+  const sendNDI = state.ndiEnabled && state.ndiFrameCounter % state.ndiFrameSkip === 0;
+  const sendSyphon = state.syphonEnabled && state.syphonFrameCounter % state.syphonFrameSkip === 0;
+  const sendRecording = state.recordingEnabled && state.recordingFrameCounter % state.recordingFrameSkip === 0;
+  if (sendNDI || sendSyphon || sendRecording) {
+    sendOutputFrames({
+      ndi: sendNDI,
+      syphon: sendSyphon,
+      recording: sendRecording,
+    });
   }
+
+  // Update output frame counters after scheduling capture.
   if (state.ndiEnabled) state.ndiFrameCounter++;
-
-  // Send frame to Syphon output if enabled (skip frames to reduce load)
-  if (
-    state.syphonEnabled &&
-    state.syphonFrameCounter % state.syphonFrameSkip === 0
-  ) {
-    setTimeout(sendSyphonFrame, 0);
-  }
   if (state.syphonEnabled) state.syphonFrameCounter++;
-
-  // Send frame to recording if enabled
-  if (
-    state.recordingEnabled &&
-    state.recordingFrameCounter % state.recordingFrameSkip === 0
-  ) {
-    setTimeout(sendRecordingFrame, 0);
-  }
   if (state.recordingEnabled) state.recordingFrameCounter++;
 }
 

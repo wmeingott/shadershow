@@ -494,7 +494,7 @@ export function renderABFrame(): { fps: number; time: number; frame: number } {
   const tilingFixed = isTilingFixed();
 
   // Render side A with alpha (1 - crossfade)
-  if (sideA.renderer && sideA.shaderCode) {
+  if (sideA.renderer && sideA.shaderCode && crossfade < 1.0) {
     if (!tilingFixed) applyTiling(sideA.tiling);
     ctx.globalAlpha = 1.0 - crossfade;
     try {
@@ -505,7 +505,7 @@ export function renderABFrame(): { fps: number; time: number; frame: number } {
   }
 
   // Render side B with alpha (crossfade)
-  if (sideB.renderer && sideB.shaderCode) {
+  if (sideB.renderer && sideB.shaderCode && crossfade > 0.0) {
     if (!tilingFixed) applyTiling(sideB.tiling);
     ctx.globalCompositeOperation = 'lighter';
     ctx.globalAlpha = crossfade;

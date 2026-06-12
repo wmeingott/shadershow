@@ -36,7 +36,7 @@ function getSharedGL(): WebGL2RenderingContext | null {
     sharedGL = sharedGLCanvas.getContext('webgl2', {
       alpha: false,
       antialias: false,
-      preserveDrawingBuffer: true,
+      preserveDrawingBuffer: false,
     });
 
     if (!sharedGL) {

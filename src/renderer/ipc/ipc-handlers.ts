@@ -229,6 +229,52 @@ interface RemoteStateSnapshot {
   blackout: boolean;
 }
 
+let remotePreviewCanvas: HTMLCanvasElement | null = null;
+let remotePreviewCtx: CanvasRenderingContext2D | null = null;
+
+function getRemotePreviewCanvas(width: number, height: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null {
+  if (!remotePreviewCanvas) {
+    remotePreviewCanvas = document.createElement('canvas');
+  }
+
+  if (remotePreviewCanvas.width !== width || remotePreviewCanvas.height !== height) {
+    remotePreviewCanvas.width = width;
+    remotePreviewCanvas.height = height;
+    remotePreviewCtx = null;
+  }
+
+  if (!remotePreviewCtx) {
+    remotePreviewCtx = remotePreviewCanvas.getContext('2d');
+  }
+
+  return remotePreviewCtx ? { canvas: remotePreviewCanvas, ctx: remotePreviewCtx } : null;
+}
+
+function encodeJpeg(canvas: HTMLCanvasElement, quality: number): Promise<Uint8Array | null> {
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        resolve(null);
+        return;
+      }
+      blob.arrayBuffer()
+        .then((buffer) => resolve(new Uint8Array(buffer)))
+        .catch(() => resolve(null));
+    }, 'image/jpeg', quality);
+  });
+}
+
+function getVisibleCompositeCanvas(fallback: HTMLCanvasElement): HTMLCanvasElement {
+  const overlayIds = ['ab-overlay-canvas', 'mixer-overlay-canvas', 'tiled-preview-canvas', 'asset-overlay-canvas'];
+  for (const id of overlayIds) {
+    const canvas = document.getElementById(id) as HTMLCanvasElement | null;
+    if (!canvas || canvas.width === 0 || canvas.height === 0) continue;
+    if (getComputedStyle(canvas).display === 'none') continue;
+    return canvas;
+  }
+  return fallback;
+}
+
 interface RemoteParamDef {
   name: string;
   type: string;
@@ -1135,7 +1181,7 @@ function initRemoteHandlers(): void {
 
   // ---- Preview frame capture for MJPEG stream ----
 
-  window.electronAPI.onRemoteGetPreviewFrame((req: unknown) => {
+  window.electronAPI.onRemoteGetPreviewFrame(async (req: unknown) => {
     const _queryId = (req as { _queryId?: number } | null)?._queryId;
     try {
       const canvas = document.getElementById('shader-canvas') as HTMLCanvasElement | null;
@@ -1144,23 +1190,35 @@ function initRemoteHandlers(): void {
         return;
       }
 
+      let sourceCanvas = getVisibleCompositeCanvas(canvas);
+      if (sourceCanvas === canvas) {
+        try {
+          (state.renderer as { render?: () => unknown } | null)?.render?.();
+        } catch {
+          // Keep remote preview best-effort; the main render loop owns normal error reporting.
+        }
+        sourceCanvas = getVisibleCompositeCanvas(canvas);
+      }
+
       // Downscale to max 640px width for bandwidth efficiency
       const maxW = 640;
-      let w = canvas.width;
-      let h = canvas.height;
+      let w = sourceCanvas.width;
+      let h = sourceCanvas.height;
       if (w > maxW) {
         const scale = maxW / w;
         w = maxW;
         h = Math.round(h * scale);
       }
 
-      const offscreen = document.createElement('canvas');
-      offscreen.width = w;
-      offscreen.height = h;
-      const ctx = offscreen.getContext('2d')!;
-      ctx.drawImage(canvas, 0, 0, w, h);
-      const dataUrl = offscreen.toDataURL('image/jpeg', 0.5);
-      window.electronAPI.sendRemoteGetPreviewFrameResponse({ dataUrl, _queryId });
+      const preview = getRemotePreviewCanvas(w, h);
+      if (!preview) {
+        window.electronAPI.sendRemoteGetPreviewFrameResponse({ _queryId });
+        return;
+      }
+
+      preview.ctx.drawImage(sourceCanvas, 0, 0, w, h);
+      const data = await encodeJpeg(preview.canvas, 0.5);
+      window.electronAPI.sendRemoteGetPreviewFrameResponse({ data, _queryId });
     } catch (err: unknown) {
       log.error('IPC', 'Preview frame capture error:', err);
       window.electronAPI.sendRemoteGetPreviewFrameResponse({ _queryId });

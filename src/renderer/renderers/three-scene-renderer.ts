@@ -180,7 +180,7 @@ export class ThreeSceneRenderer implements IRenderer {
     this.threeRenderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
       antialias: true,
-      preserveDrawingBuffer: true, // Required for readPixels (NDI/Syphon)
+      preserveDrawingBuffer: false,
       alpha: false
     });
 

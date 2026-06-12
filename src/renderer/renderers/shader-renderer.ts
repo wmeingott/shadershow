@@ -1018,18 +1018,16 @@ export class ShaderRenderer {
       const entry = createBuiltinTexture(gl, textureName);
       if (!entry) continue;
 
-      // Delete old texture for this channel
-      if (this.channelTextures[channel]) {
-        gl.deleteTexture(this.channelTextures[channel]);
-      }
+      // Full cleanup: stops camera/audio MediaStream tracks, closes the
+      // AudioContext and disposes STCs (just nulling the source fields
+      // leaked running streams). Installs a black placeholder texture
+      // that we immediately replace with the builtin one.
+      this.cleanupChannel(channel);
+      gl.deleteTexture(this.channelTextures[channel]);
 
       this.channelTextures[channel] = entry.texture;
       this.channelResolutions[channel] = [entry.width, entry.height, 1];
       this.channelTypes[channel] = 'builtin';
-      // Clear any video/audio/NDI source on this channel
-      this.channelVideoSources[channel] = null;
-      this.channelAudioSources[channel] = null;
-      this.channelNDIData[channel] = null;
     }
   }
 
@@ -1126,6 +1124,13 @@ export class ShaderRenderer {
     // Apply audio directives (async, non-blocking)
     for (const { channel, fftSize } of this.audioDirectives) {
       this.loadAudio(channel, fftSize).catch(err => log.warn('AudioFFT directive failed:', err.message));
+    }
+
+    // Release channels still pointing at STC textures from the previous
+    // shader: render() assigns the FBO texture into channelTextures, so
+    // disposing the STC would leave a deleted texture bound on the channel.
+    for (const ch of Array.from(this.shaderTextureChannels.keys())) {
+      this.cleanupChannel(ch);
     }
 
     // Create shader texture channels for inline function directives

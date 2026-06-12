@@ -120,11 +120,11 @@ export class ThreeSceneRenderer implements IRenderer {
   private sceneObjects: any | null = null;
   private animateSignature: AnimateSignature = 'time-first';
 
-  // Playback state
+  // Playback state.
+  // Time is accumulated (dt * speed per tick) so speed changes never jump.
   private isPlaying: boolean = true;
-  private startTime: number = performance.now();
-  private pausedTime: number = 0;
-  private lastFrameTime: number = performance.now();
+  private _shaderTime: number = 0;
+  private _lastTickWallTime: number = performance.now();
   private frameCount: number = 0;
   private fps: number = 0;
   private fpsFrames: number = 0;
@@ -436,16 +436,12 @@ export class ThreeSceneRenderer implements IRenderer {
   render(): SceneRenderStats {
     const now = performance.now();
 
-    // Calculate time
-    let currentTime: number;
-    if (this.isPlaying) {
-      currentTime = (now - this.startTime) / 1000 * this.params.speed;
-    } else {
-      currentTime = this.pausedTime / 1000 * this.params.speed;
-    }
-
-    const timeDelta = (now - this.lastFrameTime) / 1000 * this.params.speed;
-    this.lastFrameTime = now;
+    // Advance accumulated time (speed multiplier applied per tick)
+    const wallDelta = (now - this._lastTickWallTime) / 1000;
+    this._lastTickWallTime = now;
+    const timeDelta = this.isPlaying ? wallDelta * this.params.speed : 0;
+    this._shaderTime += timeDelta;
+    const currentTime = this._shaderTime;
 
     // FPS calculation
     this.fpsFrames++;
@@ -578,16 +574,14 @@ export class ThreeSceneRenderer implements IRenderer {
   // Playback control
   play(): void {
     if (!this.isPlaying) {
-      this.startTime = performance.now() - this.pausedTime;
+      // Don't integrate the paused span into time on resume
+      this._lastTickWallTime = performance.now();
       this.isPlaying = true;
     }
   }
 
   pause(): void {
-    if (this.isPlaying) {
-      this.pausedTime = performance.now() - this.startTime;
-      this.isPlaying = false;
-    }
+    this.isPlaying = false;
   }
 
   togglePlayback(): boolean {
@@ -601,35 +595,32 @@ export class ThreeSceneRenderer implements IRenderer {
 
   /** Sync playback state from another window (time in seconds). */
   setPlaybackState(timeSeconds: number, frame: number, isPlaying: boolean): void {
-    this.startTime = performance.now() - timeSeconds * 1000;
+    this._shaderTime = timeSeconds;
+    this._lastTickWallTime = performance.now();
     this.frameCount = frame;
     this.isPlaying = isPlaying;
-    if (!isPlaying) {
-      this.pausedTime = timeSeconds * 1000;
-    }
   }
 
   resetTime(): void {
-    this.startTime = performance.now();
-    this.pausedTime = 0;
+    this._shaderTime = 0;
+    this._lastTickWallTime = performance.now();
     this.frameCount = 0;
   }
 
   getStats(): SceneStats {
     return {
       fps: this.fps,
-      time: this.isPlaying ?
-        (performance.now() - this.startTime) / 1000 :
-        this.pausedTime / 1000,
+      time: this._shaderTime,
       frame: this.frameCount,
       isPlaying: this.isPlaying
     };
   }
 
   updateTime(): void {
-    const now = performance.now();
-    this.lastFrameTime = now;
+    const wallDelta = (performance.now() - this._lastTickWallTime) / 1000;
+    this._lastTickWallTime = performance.now();
     if (this.isPlaying) {
+      this._shaderTime += wallDelta * this.params.speed;
       this.frameCount++;
     }
   }

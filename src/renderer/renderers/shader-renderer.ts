@@ -144,11 +144,13 @@ export class ShaderRenderer {
   // WebGL program
   program: WebGLProgram | null;
 
-  // Playback state
+  // Playback state.
+  // Time is accumulated (dt * speed per tick) instead of derived from a
+  // start timestamp, so changing the speed param never jumps shader time.
   isPlaying: boolean;
-  startTime: number;
-  pausedTime: number;
-  lastFrameTime: number;
+  private _shaderTime: number;        // accumulated shader time (speed applied)
+  private _unscaledTime: number;      // accumulated wall-clock time (pause-aware, no speed)
+  private _lastTickWallTime: number;
   frameCount: number;
   fps: number;
   private fpsFrames: number;
@@ -264,9 +266,9 @@ export class ShaderRenderer {
     // State
     this.program = null;
     this.isPlaying = true;
-    this.startTime = performance.now();
-    this.pausedTime = 0;
-    this.lastFrameTime = performance.now();
+    this._shaderTime = 0;
+    this._unscaledTime = 0;
+    this._lastTickWallTime = performance.now();
     this.frameCount = 0;
     this.fps = 0;
     this.fpsFrames = 0;
@@ -1260,16 +1262,8 @@ export class ShaderRenderer {
       }
     }
 
-    // Calculate time (with speed multiplier applied)
-    let currentTime: number;
-    if (this.isPlaying) {
-      currentTime = (now - this.startTime) / 1000 * this.params.speed;
-    } else {
-      currentTime = this.pausedTime / 1000 * this.params.speed;
-    }
-
-    const timeDelta = (now - this.lastFrameTime) / 1000 * this.params.speed;
-    this.lastFrameTime = now;
+    // Advance accumulated time (speed multiplier applied per tick)
+    const { time: currentTime, timeDelta } = this.tickTime();
 
     // FPS calculation
     this.fpsFrames++;
@@ -1391,18 +1385,34 @@ export class ShaderRenderer {
     };
   }
 
+  /**
+   * Advance accumulated time by the speed-scaled wall-clock delta since the
+   * last tick. Called once per frame (render, updateTime, or — in the
+   * fullscreen window's tiled/mixer/A-B modes — prepareSharedState).
+   * `unscaledTime`/`unscaledDelta` advance with the same pause behaviour but
+   * without the speed param (tile renderers apply their own per-tile speed).
+   */
+  tickTime(): { time: number; timeDelta: number; unscaledTime: number; unscaledDelta: number } {
+    const now = performance.now();
+    const wallDelta = (now - this._lastTickWallTime) / 1000;
+    this._lastTickWallTime = now;
+    const unscaledDelta = this.isPlaying ? wallDelta : 0;
+    const timeDelta = unscaledDelta * this.params.speed;
+    this._shaderTime += timeDelta;
+    this._unscaledTime += unscaledDelta;
+    return { time: this._shaderTime, timeDelta, unscaledTime: this._unscaledTime, unscaledDelta };
+  }
+
   play(): void {
     if (!this.isPlaying) {
-      this.startTime = performance.now() - this.pausedTime;
+      // Don't integrate the paused span into time on resume
+      this._lastTickWallTime = performance.now();
       this.isPlaying = true;
     }
   }
 
   pause(): void {
-    if (this.isPlaying) {
-      this.pausedTime = performance.now() - this.startTime;
-      this.isPlaying = false;
-    }
+    this.isPlaying = false;
   }
 
   togglePlayback(): boolean {
@@ -1415,27 +1425,25 @@ export class ShaderRenderer {
   }
 
   resetTime(): void {
-    this.startTime = performance.now();
-    this.pausedTime = 0;
+    this._shaderTime = 0;
+    this._unscaledTime = 0;
+    this._lastTickWallTime = performance.now();
     this.frameCount = 0;
   }
 
   /** Sync playback state from another window (time in seconds). */
   setPlaybackState(timeSeconds: number, frame: number, isPlaying: boolean): void {
-    this.startTime = performance.now() - timeSeconds * 1000;
+    this._shaderTime = timeSeconds;
+    this._unscaledTime = timeSeconds;
+    this._lastTickWallTime = performance.now();
     this.frameCount = frame;
     this.isPlaying = isPlaying;
-    if (!isPlaying) {
-      this.pausedTime = timeSeconds * 1000;
-    }
   }
 
   getStats(): ShaderStats {
     return {
       fps: this.fps,
-      time: this.isPlaying
-        ? (performance.now() - this.startTime) / 1000
-        : this.pausedTime / 1000,
+      time: this._shaderTime,
       frame: this.frameCount,
       isPlaying: this.isPlaying,
     };
@@ -1443,8 +1451,7 @@ export class ShaderRenderer {
 
   /** Update time without rendering (for when preview is disabled) */
   updateTime(): void {
-    const now = performance.now();
-    this.lastFrameTime = now;
+    this.tickTime();
 
     if (this.isPlaying) {
       this.frameCount++;

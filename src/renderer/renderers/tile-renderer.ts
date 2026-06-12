@@ -99,6 +99,11 @@ export class TileRenderer {
   // Legacy fixed params
   private params: { speed: number; [key: string]: number } = { speed: 1.0 };
 
+  // Per-tile accumulated time (dt * speed per frame) — keeps time continuous
+  // when the tile's speed param changes, instead of rescaling total elapsed time
+  private _tileTime: number = 0;
+  private _lastSharedTime: number | null = null;
+
   // Extra wrapper lines from shader options (e.g. 2.5D, post-processing)
   private _extraEffectLines: number = 0;
 
@@ -304,11 +309,20 @@ export class TileRenderer {
     // Use this tile's shader program
     gl.useProgram(this.program);
 
+    // Advance per-tile time. On first render (or when the shared clock was
+    // reset/seeked backwards) sync to the shared time so tiles start aligned.
+    if (this._lastSharedTime === null || time < this._lastSharedTime) {
+      this._tileTime = time * this.params.speed;
+    } else {
+      this._tileTime += timeDelta * this.params.speed;
+    }
+    this._lastSharedTime = time;
+
     // Set standard uniforms (resolution is tile size, not canvas size)
     const tileCols = this._useTiling ? (sharedState.tilingCols ?? 1) : 1;
     const tileRows = this._useTiling ? (sharedState.tilingRows ?? 1) : 1;
     gl.uniform3f(this.uniforms.iResolution, width / tileCols, height / tileRows, 1);
-    gl.uniform1f(this.uniforms.iTime, time * this.params.speed);
+    gl.uniform1f(this.uniforms.iTime, this._tileTime);
     gl.uniform1f(this.uniforms.iTimeDelta, timeDelta * this.params.speed);
     gl.uniform1i(this.uniforms.iFrame, frame);
     gl.uniform4f(this.uniforms.iDate, date[0], date[1], date[2], date[3]);

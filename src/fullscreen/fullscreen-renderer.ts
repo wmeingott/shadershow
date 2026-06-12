@@ -362,10 +362,9 @@ function getCachedGL(): WebGL2RenderingContext {
  */
 function prepareSharedState(): TileSharedState {
   const sr = shaderRenderer!;
-  const now: number = performance.now();
-  const time: number = (now - sr.startTime) / 1000;
-  const timeDelta: number = (now - sr.lastFrameTime) / 1000;
-  sr.lastFrameTime = now;
+  // Unscaled accumulated time: pause-aware, but without the global speed
+  // param — tile renderers apply their own per-tile speed.
+  const { unscaledTime: time, unscaledDelta: timeDelta } = sr.tickTime();
 
   reusedDate.setTime(Date.now());
   _sharedDateValues[0] = reusedDate.getFullYear();

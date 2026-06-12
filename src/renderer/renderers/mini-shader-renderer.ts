@@ -81,7 +81,10 @@ export class MiniShaderRenderer {
   private gl: WebGL2RenderingContext | null;
   private contextValid: boolean;
   private program: WebGLProgram | null = null;
-  private startTime: number = performance.now();
+  // Accumulated time (dt * speed per render) — keeps time continuous when
+  // the speed changes (the mixer composite calls setSpeed every frame)
+  private _shaderTime: number = 0;
+  private _lastTickWallTime: number = performance.now();
   private uniforms: MiniUniforms = {} as MiniUniforms;
   private speed: number = 1.0;
 
@@ -357,7 +360,10 @@ export class MiniShaderRenderer {
   }
 
   private _renderInternal(gl: WebGL2RenderingContext, width: number, height: number): void {
-    const time = (performance.now() - this.startTime) / 1000 * this.speed;
+    const now = performance.now();
+    this._shaderTime += (now - this._lastTickWallTime) / 1000 * this.speed;
+    this._lastTickWallTime = now;
+    const time = this._shaderTime;
 
     // Render shader texture channels before main shader
     if (this.shaderTextureChannels.size > 0) {

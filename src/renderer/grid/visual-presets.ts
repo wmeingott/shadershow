@@ -2,6 +2,7 @@
 // Typed version of the visual-presets portion of js/shader-grid.js (lines 993-1397).
 
 import { state, notifyRemoteStateChanged } from '../core/state.js';
+import type { ParamValue } from '@shared/types/params.js';
 import type { MixPreset } from '../ui/mixer.js';
 import { isMixerActive, captureMixerThumbnail, recallMixState, resetMixer } from '../ui/mixer.js';
 import { showContextMenu as showContextMenuHelper } from '../ui/context-menu.js';
@@ -461,7 +462,7 @@ export async function recallVisualPreset(presetIndex: number): Promise<void> {
 
     // 3. Restore params (speed etc.)
     if (preset.params) {
-      loadParamsToSliders(preset.params, { skipMixerSync: true });
+      loadParamsToSliders(preset.params as Record<string, ParamValue>, { skipMixerSync: true });
     }
 
     // 4. Restore custom params

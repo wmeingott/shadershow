@@ -7,7 +7,7 @@
 // Uses GLUtils (gl-utils.ts) for shared WebGL utilities
 // =============================================================================
 
-import type { ParamDef, ParamValues, TextureDirective } from '@shared/types/params.js';
+import type { ParamDef, ParamValue, ParamArrayValue, ParamValues, TextureDirective } from '@shared/types/params.js';
 import type { CompileResult } from '@shared/types/renderer.js';
 import { parseShaderParams, parseShaderConsts, generateConstDefines, generateUniformDeclarations, createParamValues, parseTextureDirectives, parseOption25D } from '@shared/param-parser.js';
 import {
@@ -52,7 +52,7 @@ export interface TileSharedState {
   timeDelta: number;
   frame: number;
   mouse: MouseState;
-  date: [number, number, number, number];
+  date: ArrayLike<number>;
   channelTextures: (WebGLTexture | null)[];
   channelResolutions: Float32Array | number[];
   ppLuminance?: number;
@@ -86,8 +86,9 @@ interface CompileError {
 
 export class TileRenderer {
   private gl: WebGL2RenderingContext;
-  private bounds: TileBounds;
-  private program: WebGLProgram | null = null;
+  // Public: the fullscreen renderer reads bounds/tileIndex and clears program directly.
+  bounds: TileBounds;
+  program: WebGLProgram | null = null;
   private uniforms: TileUniforms = {} as TileUniforms;
 
   // Custom parameters
@@ -233,16 +234,16 @@ export class TileRenderer {
   }
 
   // Set a parameter value
-  setParam(name: string, value: number): void {
+  setParam(name: string, value: ParamValue | ParamArrayValue): void {
     if (Object.prototype.hasOwnProperty.call(this.customParamValues, name)) {
       this.customParamValues[name] = value;
     } else if (Object.prototype.hasOwnProperty.call(this.params, name)) {
-      this.params[name] = value;
+      this.params[name] = value as number;
     }
   }
 
   // Set all parameters at once
-  setParams(params: Record<string, number> | null | undefined): void {
+  setParams(params: ParamValues | Record<string, number> | null | undefined): void {
     if (!params) return;
     for (const [name, value] of Object.entries(params)) {
       this.setParam(name, value);

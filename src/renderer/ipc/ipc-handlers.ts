@@ -51,7 +51,11 @@ interface GridSlot {
   customParams: ParamValues | null;
   presets: Array<{ name: string | null; params?: ParamValues }>;
   label?: string;
-  renderer?: { canvas: HTMLCanvasElement } | null;
+  renderer?: {
+    canvas: HTMLCanvasElement;
+    setSpeed?(speed: number): void;
+    render?(): void;
+  } | null;
 }
 
 // ShaderTab extended with runtime fields used in this file
@@ -148,7 +152,7 @@ interface ElectronAPI {
   onFullscreenOpened(cb: (displayId: number) => void): void;
 
   // Remote control listeners
-  onRemoteGetState(cb: (data: unknown) => void): void;
+  onRemoteGetState(cb: (data: { _queryId?: number } | null) => void): void;
   onRemoteGetThumbnail(cb: (data: { tabIndex: number; slotIndex: number }) => void): void;
   onRemoteSelectTab(cb: (data: { tabIndex: number }) => void): void;
   onRemoteSelectSlot(cb: (data: { slotIndex: number }) => void): void;
@@ -169,6 +173,10 @@ interface ElectronAPI {
   onRemoteReorderVisualPreset(cb: (data: { vpTabIndex: number; fromIndex: number; toIndex: number }) => void): void;
   onRemoteGetPreviewFrame(cb: (data: unknown) => void): void;
   sendRemoteGetPreviewFrameResponse(data: unknown): void;
+
+  // Art-Net DMX listeners
+  onArtNetStatus(cb: (data: unknown) => void): void;
+  onArtNetDmxUpdate(cb: (changes: Array<{ target: { type: string; [k: string]: unknown }; dmxValue: number }>) => void): void;
 }
 
 declare const window: Window & { electronAPI: ElectronAPI };
@@ -353,11 +361,12 @@ export async function initIPC(): Promise<void> {
     // Detect render mode from file extension/content
     const mode: RenderMode = detectRenderMode(filePath, content);
 
-    // Open in a new tab (or activate existing if already open)
+    // Open in a new tab (or activate existing if already open).
+    // Editor tabs only know shader/scene; assets are never opened as files here.
     openInTab({
       content,
       filePath,
-      type: mode,
+      type: mode === 'scene' ? 'scene' : 'shader',
       activate: true,
     });
   });
@@ -389,7 +398,7 @@ export async function initIPC(): Promise<void> {
     const content: string = editor.getValue();
     window.electronAPI.saveContent(content);
     // Mark current tab as saved
-    const activeTab: EditorTabInfo | null = getActiveTab();
+    const activeTab = getActiveTab();
     if (activeTab) {
       markTabSaved(activeTab.id);
     }
@@ -730,8 +739,9 @@ export async function initIPC(): Promise<void> {
 
   window.electronAPI.onPresetSync((data: { type: string; index: number; params: ParamValues }) => {
     // Apply params directly from sync message to renderer and sliders
+    // (sliders only handle scalar/vector values, not param arrays)
     if (data.params) {
-      loadParamsToSliders(data.params);
+      loadParamsToSliders(data.params as Record<string, ParamValue>);
     }
 
     // Update highlighting without triggering another sync
@@ -981,7 +991,7 @@ function initRemoteHandlers(): void {
         const slot = tab.slots?.[slotIndex];
         if (slot && slot.renderer) {
           // Render a fresh frame before capturing to ensure canvas is up-to-date
-          if (slot.renderer.setSpeed) slot.renderer.setSpeed(slot.params?.speed ?? 1);
+          if (slot.renderer.setSpeed) slot.renderer.setSpeed((slot.params?.speed as number) ?? 1);
           if (slot.renderer.render) slot.renderer.render();
           const canvas: HTMLCanvasElement = slot.renderer.canvas;
           if (canvas && canvas.width > 0) {
@@ -1264,7 +1274,7 @@ function initRemoteHandlers(): void {
               const compValue = min + (dmxValue / 255) * (max - min);
               // Get current vector value and update component
               const current = renderer.getCustomParamValues?.()[baseName];
-              const vec = Array.isArray(current) ? [...current] : [0, 0, 0, 0];
+              const vec: number[] = Array.isArray(current) ? [...(current as number[])] : [0, 0, 0, 0];
               vec[compIndex] = compValue;
               renderer.setParam(baseName, vec);
               window.electronAPI.sendParamUpdate({ name: baseName, value: vec });

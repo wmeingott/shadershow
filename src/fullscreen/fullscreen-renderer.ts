@@ -1600,8 +1600,10 @@ export function registerIPCHandlers(): void {
     if (state.shaderCode) {
       try {
         renderer!.compile(state.shaderCode);
-        loadFileTexturesForRenderer(renderer!);
-        loadShaderTexturesForRenderer(renderer!);
+        if (renderer instanceof ShaderRenderer) {
+          loadFileTexturesForRenderer(renderer);
+          loadShaderTexturesForRenderer(renderer);
+        }
       } catch (err: unknown) {
         log.error('Compile error:', err);
       }
@@ -1609,12 +1611,7 @@ export function registerIPCHandlers(): void {
 
     // Sync time
     if (state.time !== undefined) {
-      renderer!.startTime = performance.now() - (state.time * 1000);
-      renderer!.frameCount = state.frame || 0;
-      renderer!.isPlaying = state.isPlaying !== false;
-      if (!renderer!.isPlaying) {
-        renderer!.pausedTime = state.time * 1000;
-      }
+      renderer!.setPlaybackState(state.time, state.frame || 0, state.isPlaying !== false);
     }
 
     // Load textures/videos/cameras
@@ -1687,8 +1684,10 @@ export function registerIPCHandlers(): void {
     if (data.shaderCode) {
       try {
         renderer!.compile(data.shaderCode);
-        loadFileTexturesForRenderer(renderer!);
-        loadShaderTexturesForRenderer(renderer!);
+        if (renderer instanceof ShaderRenderer) {
+          loadFileTexturesForRenderer(renderer);
+          loadShaderTexturesForRenderer(renderer);
+        }
       } catch (err: unknown) {
         log.error('Compile error:', err);
       }
@@ -1698,12 +1697,7 @@ export function registerIPCHandlers(): void {
   // Handle time sync from main window
   window.electronAPI.onTimeSync((data: TimeSyncData) => {
     if (data.time !== undefined) {
-      renderer!.startTime = performance.now() - (data.time * 1000);
-      renderer!.frameCount = data.frame || 0;
-      renderer!.isPlaying = data.isPlaying !== false;
-      if (!renderer!.isPlaying) {
-        renderer!.pausedTime = data.time * 1000;
-      }
+      renderer!.setPlaybackState(data.time, data.frame || 0, data.isPlaying !== false);
     }
   });
 

@@ -171,7 +171,7 @@ export function sendOutputFrames(targets: { ndi?: boolean; syphon?: boolean; rec
   }
 }
 
-export async function toggleRecording(setStatus: (msg: string, type: string) => void): Promise<void> {
+export async function toggleRecording(setStatus: (msg: string, type: 'success' | 'error') => void): Promise<void> {
   if (state.recordingEnabled) {
     await stopRecordingCapture(setStatus);
   } else {
@@ -179,7 +179,7 @@ export async function toggleRecording(setStatus: (msg: string, type: string) => 
   }
 }
 
-async function startRecordingCapture(setStatus: (msg: string, type: string) => void): Promise<void> {
+async function startRecordingCapture(setStatus: (msg: string, type: 'success' | 'error') => void): Promise<void> {
   try {
     const result = await window.electronAPI.startRecording();
 
@@ -218,7 +218,7 @@ async function startRecordingCapture(setStatus: (msg: string, type: string) => v
   }
 }
 
-async function stopRecordingCapture(setStatus: (msg: string, type: string) => void): Promise<void> {
+async function stopRecordingCapture(setStatus: (msg: string, type: 'success' | 'error') => void): Promise<void> {
   state.recordingEnabled = false;
   window.electronAPI.stopRecording();
 

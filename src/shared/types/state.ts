@@ -54,6 +54,8 @@ export interface GridSlotData {
   thumbnail?: string;
   /** Media file path (for asset slots) */
   mediaPath?: string;
+  /** Param binding toggle states (bind: directive on/off per param) */
+  bindingStates?: Record<string, boolean>;
   /** Reference to the active mini renderer (transient, not persisted) */
   renderer?: IRenderer | null;
 }
@@ -100,7 +102,7 @@ export interface TileData {
 export interface TileLayout {
   rows: number;
   cols: number;
-  gap: number;
+  gaps: number;
 }
 
 /** Visual presets tab (groups presets) */

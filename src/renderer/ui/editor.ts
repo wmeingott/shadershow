@@ -380,7 +380,7 @@ export async function compileShader(): Promise<void> {
     setStatus(`Compile error${lineInfo}: ${message}`, 'error');
 
     // Parse all errors from raw WebGL log for editor annotations
-    const annotations: Array<{ row: number; column: number; text: string; type: string }> = [];
+    const annotations: Array<{ row: number; column: number; text: string; type: 'error' | 'warning' | 'info' }> = [];
     if (compileErr.raw) {
       const errorRegex = /ERROR:\s*\d+:(\d+):\s*(.+)/g;
       let m;

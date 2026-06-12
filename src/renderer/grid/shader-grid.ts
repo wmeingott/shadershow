@@ -32,13 +32,14 @@ interface GridSlotData {
   filePath: string | null;
   renderer: unknown;
   type: string;
-  params: Record<string, unknown>;
-  customParams: Record<string, unknown>;
+  params: Record<string, ParamValue>;
+  customParams: Record<string, ParamValue>;
   presets: unknown[];
   label?: string;
   thumbnail?: string;
   hasError?: boolean;
   mediaPath?: string;
+  bindingStates?: Record<string, boolean>;
 }
 
 /** Minimal MiniShaderRenderer surface used by this module */
@@ -1164,7 +1165,7 @@ function setCurrentParamsAsDefault(slotIndex: number): void {
   const currentParams = renderer.getParams ? renderer.getParams() : {};
 
   // Update the slot's params
-  slotData.params = { ...currentParams };
+  slotData.params = { ...currentParams } as Record<string, ParamValue>;
 
   // Apply the new params to the mini renderer so the snapshot reflects them
   const slotRenderer = slotData.renderer as MiniRendererLike | null;
@@ -1953,8 +1954,8 @@ export async function loadGridShaderToEditor(slotIndex: number): Promise<void> {
       const renderer = state.renderer as MiniRendererLike;
       renderer.setCustomParamValues?.(slotData.customParams);
       // Restore binding toggle states
-      if ((slotData as Record<string, unknown>).bindingStates && (renderer as any).setBindingStates) {
-        (renderer as any).setBindingStates((slotData as Record<string, unknown>).bindingStates);
+      if (slotData.bindingStates && (renderer as any).setBindingStates) {
+        (renderer as any).setBindingStates(slotData.bindingStates);
       }
       generateCustomParamUI(); // Regenerate UI to reflect loaded values
     }
@@ -2112,8 +2113,8 @@ export async function selectGridSlot(slotIndex: number): Promise<void> {
       renderer.setCustomParamValues(slotData.customParams);
     }
     // Restore binding toggle states
-    if ((slotData as Record<string, unknown>).bindingStates && (renderer as any)?.setBindingStates) {
-      (renderer as any).setBindingStates((slotData as Record<string, unknown>).bindingStates);
+    if (slotData.bindingStates && (renderer as any)?.setBindingStates) {
+      (renderer as any).setBindingStates(slotData.bindingStates);
     }
     // Also load to MiniShaderRenderer for tiled preview
     const slotRenderer = slotData.renderer as MiniRendererLike | null;

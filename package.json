@@ -4,7 +4,7 @@
   "description": "A VS Code-like GLSL shader editor with Shadertoy compatibility",
   "main": "dist/main/app.js",
   "scripts": {
-    "build": "node esbuild.config.mjs",
+    "build": "tsc -b && node esbuild.config.mjs",
     "build:watch": "node esbuild.config.mjs --watch",
     "typecheck": "tsc -b",
     "start": "npm run build && electron .",

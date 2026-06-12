@@ -1420,6 +1420,16 @@ export class ShaderRenderer {
     this.frameCount = 0;
   }
 
+  /** Sync playback state from another window (time in seconds). */
+  setPlaybackState(timeSeconds: number, frame: number, isPlaying: boolean): void {
+    this.startTime = performance.now() - timeSeconds * 1000;
+    this.frameCount = frame;
+    this.isPlaying = isPlaying;
+    if (!isPlaying) {
+      this.pausedTime = timeSeconds * 1000;
+    }
+  }
+
   getStats(): ShaderStats {
     return {
       fps: this.fps,

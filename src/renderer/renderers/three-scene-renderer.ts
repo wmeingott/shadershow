@@ -599,6 +599,16 @@ export class ThreeSceneRenderer implements IRenderer {
     return this.isPlaying;
   }
 
+  /** Sync playback state from another window (time in seconds). */
+  setPlaybackState(timeSeconds: number, frame: number, isPlaying: boolean): void {
+    this.startTime = performance.now() - timeSeconds * 1000;
+    this.frameCount = frame;
+    this.isPlaying = isPlaying;
+    if (!isPlaying) {
+      this.pausedTime = timeSeconds * 1000;
+    }
+  }
+
   resetTime(): void {
     this.startTime = performance.now();
     this.pausedTime = 0;

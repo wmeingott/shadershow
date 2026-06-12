@@ -195,7 +195,7 @@ export function recallLocalPreset(index: number, fromSync: boolean = false): voi
   const preset: PresetEntry = presets[index];
   const params: Record<string, unknown> = cloneParams(preset.params);
   // loadParamsToSliders routes to mixer channel automatically when one is selected
-  loadParamsToSliders(params);
+  loadParamsToSliders(params as Record<string, ParamValue>);
 
   // Update selected tile if in tiled mode
   if (state.tiledPreviewEnabled) {

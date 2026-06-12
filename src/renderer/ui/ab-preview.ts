@@ -775,7 +775,8 @@ function restoreTargetSideParams(side: 'a' | 'b'): void {
   // Build merged params: start with saved params, overlay current tiling
   // so loadParamsToSliders (which internally calls loadTilingToSliders) gets correct tiling
   const tilingFixed = isTilingFixed();
-  const mergedParams = { ...target.params };
+  // tilingBg is a hex color string — loadParamsToSliders handles it specially
+  const mergedParams: Record<string, ParamValue | string> = { ...target.params };
   if (!tilingFixed) {
     mergedParams.cols = target.tiling.cols;
     mergedParams.rows = target.tiling.rows;
@@ -788,7 +789,7 @@ function restoreTargetSideParams(side: 'a' | 'b'): void {
   }
 
   // Load speed, custom params, and tiling to sliders
-  loadParamsToSliders(mergedParams, { skipMixerSync: true });
+  loadParamsToSliders(mergedParams as Record<string, ParamValue>, { skipMixerSync: true });
 
   // For composition mode: restore mixer panel with composition data
   if (target.renderMode === 'composition' && target.compositionPreset) {

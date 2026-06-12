@@ -116,6 +116,7 @@ const MAX_MIXER_CHANNELS = 8;
 let mixerOverlayCanvas: HTMLCanvasElement | null = null;
 let mixerOverlayCtx: CanvasRenderingContext2D | null = null;
 let thumbnailRefreshTimer: ReturnType<typeof setInterval> | null = null;
+let cachedShaderCanvas: HTMLCanvasElement | null = null;
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -842,7 +843,8 @@ export function updateMixerChannelParam(paramName: string, value: ParamValue): v
 }
 
 export function renderMixerComposite(): { time: number; frame: number; fps: number } {
-  const mainCanvas = document.getElementById('shader-canvas') as HTMLCanvasElement;
+  const mainCanvas = cachedShaderCanvas
+    || (cachedShaderCanvas = document.getElementById('shader-canvas') as HTMLCanvasElement);
   const canvasWidth = mainCanvas.width;
   const canvasHeight = mainCanvas.height;
 
@@ -890,10 +892,15 @@ export function renderMixerComposite(): { time: number; frame: number; fps: numb
 
     (chRenderer as MiniRendererLike).setSpeed?.(ch.params.speed as number ?? 1);
 
-    (chRenderer as MiniRendererLike).customParamValues = {};
-    if (ch.customParams) {
-      for (const [name, value] of Object.entries(ch.customParams)) {
-        (chRenderer as MiniRendererLike).customParamValues[name] = value;
+    // Sync params in place (avoids a fresh object + Object.entries array
+    // per channel per frame in this hot path)
+    const cpv = (chRenderer as MiniRendererLike).customParamValues;
+    if (cpv) {
+      for (const key in cpv) {
+        if (!(key in ch.customParams)) delete cpv[key];
+      }
+      for (const key in ch.customParams) {
+        cpv[key] = ch.customParams[key];
       }
     }
 

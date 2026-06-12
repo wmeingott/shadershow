@@ -57,6 +57,10 @@ let outputLastH = 0;
 let savedPreviewWidth = 0;
 let savedPreviewHeight = 0;
 
+// Cached canvas + GL context (avoid DOM lookup per output frame)
+let _cachedCanvas: HTMLCanvasElement | null = null;
+let _cachedGL: WebGL2RenderingContext | null = null;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -85,9 +89,15 @@ function readCanvasPixels(
     }
   }
 
-  const canvas = document.getElementById('shader-canvas') as HTMLCanvasElement | null;
+  if (!_cachedCanvas) {
+    _cachedCanvas = document.getElementById('shader-canvas') as HTMLCanvasElement | null;
+  }
+  const canvas = _cachedCanvas;
   if (!canvas) return null;
-  const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+  if (!_cachedGL) {
+    _cachedGL = (canvas.getContext('webgl2') || canvas.getContext('webgl')) as WebGL2RenderingContext | null;
+  }
+  const gl = _cachedGL;
   if (!gl) return null;
 
   const width = canvas.width;

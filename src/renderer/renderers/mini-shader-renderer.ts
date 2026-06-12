@@ -479,6 +479,17 @@ export class MiniShaderRenderer {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
+  // Scratch arrays for broadcasting a scalar to vec uniforms (avoids
+  // allocating literals per uniform per frame)
+  private static readonly _v2 = new Float32Array(2);
+  private static readonly _v3 = new Float32Array(3);
+  private static readonly _v4 = new Float32Array(4);
+
+  private static _broadcast(target: Float32Array, value: number): Float32Array {
+    target.fill(value);
+    return target;
+  }
+
   private _setUniform(gl: WebGL2RenderingContext, type: GLSLType, loc: WebGLUniformLocation, value: ParamValue): void {
     switch (type) {
       case 'float':
@@ -488,13 +499,13 @@ export class MiniShaderRenderer {
         gl.uniform1i(loc, value as number);
         break;
       case 'vec2':
-        gl.uniform2fv(loc, Array.isArray(value) ? value : [value, value]);
+        gl.uniform2fv(loc, Array.isArray(value) ? value : MiniShaderRenderer._broadcast(MiniShaderRenderer._v2, value));
         break;
       case 'vec3':
-        gl.uniform3fv(loc, Array.isArray(value) ? value : [value, value, value]);
+        gl.uniform3fv(loc, Array.isArray(value) ? value : MiniShaderRenderer._broadcast(MiniShaderRenderer._v3, value));
         break;
       case 'vec4':
-        gl.uniform4fv(loc, Array.isArray(value) ? value : [value, value, value, value]);
+        gl.uniform4fv(loc, Array.isArray(value) ? value : MiniShaderRenderer._broadcast(MiniShaderRenderer._v4, value));
         break;
     }
   }

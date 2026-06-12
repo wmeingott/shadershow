@@ -1484,17 +1484,18 @@ export function initFullscreen(): void {
     // Default to shader renderer (scene renderer created on demand)
     renderer = shaderRenderer;
 
-    // Get display refresh rate and set frame interval limit
+    // Get display refresh rate. Frame limiting is only useful on high-Hz
+    // displays — RAF is already vsync-bound, and limiting at ~60 Hz just
+    // drops frames that arrive slightly early due to timer jitter (judder).
     try {
       const refreshRate: number = await window.electronAPI.getDisplayRefreshRate();
       if (refreshRate && refreshRate > 0) {
         targetRefreshRate = refreshRate;
-        // Allow slightly faster than refresh rate to avoid frame drops
-        minFrameInterval = (1000 / targetRefreshRate) * 0.95;
+        minFrameInterval = refreshRate > 61 ? (1000 / 60) * 0.95 : 0;
       }
     } catch (_err: unknown) {
       log.warn('Could not get display refresh rate, using 60Hz default');
-      minFrameInterval = (1000 / 60) * 0.95;
+      minFrameInterval = 0;
     }
 
     // Handle window resize

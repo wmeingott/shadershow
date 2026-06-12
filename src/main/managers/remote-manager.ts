@@ -125,10 +125,12 @@ export class RemoteManager {
         reject(new Error('timeout'));
       }, QUERY_TIMEOUT_MS);
 
-      // Use persistent listener that filters by queryId and removes itself on match
+      // Use persistent listener that filters by queryId and removes itself on match.
+      // Strict match: a response without our queryId must not resolve this
+      // query (it could belong to a different in-flight request).
       const listener = (_event: Electron.IpcMainEvent, result: unknown): void => {
         const res = result as Record<string, unknown> | null;
-        if (res && res._queryId !== undefined && res._queryId !== queryId) {
+        if (!res || res._queryId !== queryId) {
           return; // Not our response — keep listening
         }
         ipcMain.removeListener(responseChannel, listener);

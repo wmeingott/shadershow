@@ -1557,6 +1557,7 @@ export function renderLoop(currentTime?: number): void {
     gl.clear(gl.COLOR_BUFFER_BIT);
     if (mixerOverlayCanvas) mixerOverlayCanvas.style.display = 'none';
     if (abOverlayCanvas) abOverlayCanvas.style.display = 'none';
+    if (standaloneOverlayCanvas) standaloneOverlayCanvas.style.display = 'none';
   } else if (abMode) {
     renderABFrame();
     if (mixerOverlayCanvas) mixerOverlayCanvas.style.display = 'none';

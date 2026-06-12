@@ -37,18 +37,6 @@ interface RecordingResult {
 // Per-channel reusable buffers (avoid per-frame allocation)
 // ---------------------------------------------------------------------------
 
-let ndiBuffer: Uint8Array | null = null;
-let ndiLastW = 0;
-let ndiLastH = 0;
-
-let syphonBuffer: Uint8Array | null = null;
-let syphonLastW = 0;
-let syphonLastH = 0;
-
-let recordingBuffer: Uint8Array | null = null;
-let recordingLastW = 0;
-let recordingLastH = 0;
-
 let outputBuffer: Uint8Array | null = null;
 let outputLastW = 0;
 let outputLastH = 0;
@@ -115,45 +103,6 @@ function readCanvasPixels(
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
-
-export function sendNDIFrame(): void {
-  try {
-    const result = readCanvasPixels(ndiBuffer, ndiLastW, ndiLastH);
-    if (!result) return;
-    ndiBuffer = result.buffer;
-    ndiLastW = result.lastW;
-    ndiLastH = result.lastH;
-    window.electronAPI.sendNDIFrame({ data: result.buffer, width: result.width, height: result.height, flipped: result.flipped });
-  } catch (err) {
-    console.warn('Failed to send NDI frame:', err);
-  }
-}
-
-export function sendSyphonFrame(): void {
-  try {
-    const result = readCanvasPixels(syphonBuffer, syphonLastW, syphonLastH);
-    if (!result) return;
-    syphonBuffer = result.buffer;
-    syphonLastW = result.lastW;
-    syphonLastH = result.lastH;
-    window.electronAPI.sendSyphonFrame({ data: result.buffer, width: result.width, height: result.height, flipped: result.flipped });
-  } catch (err) {
-    console.warn('Failed to send Syphon frame:', err);
-  }
-}
-
-export function sendRecordingFrame(): void {
-  try {
-    const result = readCanvasPixels(recordingBuffer, recordingLastW, recordingLastH);
-    if (!result) return;
-    recordingBuffer = result.buffer;
-    recordingLastW = result.lastW;
-    recordingLastH = result.lastH;
-    window.electronAPI.sendRecordingFrame({ data: result.buffer, width: result.width, height: result.height, flipped: result.flipped });
-  } catch (err) {
-    console.warn('Failed to send recording frame:', err);
-  }
-}
 
 export function sendOutputFrames(targets: { ndi?: boolean; syphon?: boolean; recording?: boolean }): void {
   if (!targets.ndi && !targets.syphon && !targets.recording) return;

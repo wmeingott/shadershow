@@ -1,9 +1,13 @@
 // Main preload script — typed electronAPI bridge
 import { contextBridge, ipcRenderer } from 'electron';
 
-/** Register an IPC listener with automatic cleanup of previous listener */
+/** Register an IPC listener, replacing only the handler previously registered via onIPC */
+const _ipcHandlers = new Map<string, (...args: any[]) => void>();
+
 function onIPC(channel: string, handler: (...args: any[]) => void): void {
-  ipcRenderer.removeAllListeners(channel);
+  const prev = _ipcHandlers.get(channel);
+  if (prev) ipcRenderer.removeListener(channel, prev);
+  _ipcHandlers.set(channel, handler);
   ipcRenderer.on(channel, handler);
 }
 

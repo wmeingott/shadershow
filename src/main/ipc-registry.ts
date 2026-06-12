@@ -362,6 +362,7 @@ export class IPCRegistry {
       ndiManager,
       claudeManager,
       windowManager,
+      artnetManager,
     } = this.deps;
 
     // 1. get-default-shader

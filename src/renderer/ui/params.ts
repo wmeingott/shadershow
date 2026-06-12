@@ -82,9 +82,6 @@ import { getActiveABParamSource, handleABParamChange } from './ab-preview.js';
 // Module state
 // ---------------------------------------------------------------------------
 
-let saveGridStateTimeout: ReturnType<typeof setTimeout> | null = null;
-const SAVE_DEBOUNCE_MS = 500;
-
 let draggedColor: number[] | null = null;
 let abParamValuesOverride: Record<string, ParamValue | ParamArrayValue> | null = null;
 
@@ -156,14 +153,6 @@ const MIXER_CHANNEL_COLORS = [
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function debouncedSaveGridState(): void {
-  if (saveGridStateTimeout) clearTimeout(saveGridStateTimeout);
-  saveGridStateTimeout = setTimeout(() => {
-    saveGridState();
-    saveGridStateTimeout = null;
-  }, SAVE_DEBOUNCE_MS);
-}
 
 function channels(): MixerChannelRuntime[] {
   return state.mixerChannels as MixerChannelRuntime[];
@@ -362,7 +351,7 @@ function updateSelectedTileParam(paramName: string, value: ParamValue): void {
   (tile.params as Record<string, ParamValue>)[paramName] = value;
 
   window.electronAPI.updateTileParam?.(tileIndex, paramName, value);
-  debouncedSaveGridState();
+  saveGridState();
 }
 
 // ---------------------------------------------------------------------------
@@ -866,7 +855,7 @@ function createSliderControl(
           delete slot.bindingStates;
         }
       }
-      debouncedSaveGridState();
+      saveGridState();
     });
 
     row.appendChild(toggleBtn);
@@ -1331,7 +1320,7 @@ function updateCustomParamValue(
     if (slot.renderer?.setParam) {
       slot.renderer.setParam(paramName, paramValue);
     }
-    debouncedSaveGridState();
+    saveGridState();
   }
 
   if (state.tiledPreviewEnabled) {
@@ -1398,7 +1387,7 @@ function generateAssetParamUI(container: HTMLElement, slotData: GridSlotLike): v
       if (state.renderMode === 'asset') {
         window.electronAPI.sendParamUpdate({ name, value: val });
       }
-      debouncedSaveGridState();
+      saveGridState();
     };
 
     slider.addEventListener('input', () => {
@@ -1622,5 +1611,5 @@ function updateMixerChannelParamDirect(
     window.electronAPI.sendParamUpdate({ name: paramName, value: fullValue });
   }
 
-  debouncedSaveGridState();
+  saveGridState();
 }

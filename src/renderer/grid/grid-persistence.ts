@@ -140,7 +140,35 @@ function setActiveSection(section: string): void {
 // saveGridState
 // ---------------------------------------------------------------------------
 
+let _saveTimeout: ReturnType<typeof setTimeout> | null = null;
+const SAVE_DEBOUNCE_MS = 300;
+
+/**
+ * Debounced save — the default for the ~45 call sites across the app.
+ * Serializing the full grid (~hundreds of KB incl. shader code and
+ * thumbnails) per call is too expensive to run on every interaction.
+ */
 export function saveGridState(): void {
+  if (_saveTimeout) clearTimeout(_saveTimeout);
+  _saveTimeout = setTimeout(() => {
+    _saveTimeout = null;
+    saveGridStateNow();
+  }, SAVE_DEBOUNCE_MS);
+}
+
+// Flush a pending debounced save when the window closes
+window.addEventListener('beforeunload', () => {
+  if (_saveTimeout) {
+    saveGridStateNow();
+  }
+});
+
+/** Immediate save — use when persistence must be guaranteed (import/migration flows). */
+export function saveGridStateNow(): void {
+  if (_saveTimeout) {
+    clearTimeout(_saveTimeout);
+    _saveTimeout = null;
+  }
   const tabs = getTabs();
   log.debug(
     'Grid',
@@ -621,7 +649,7 @@ async function loadLegacyGridState(gridState: SavedSlotData[]): Promise<void> {
   }
 
   // Save in new format
-  saveGridState();
+  saveGridStateNow();
 
   if (failedSlots.length > 0) {
     setStatus(
@@ -702,7 +730,7 @@ export async function loadGridPresetsFromData(
       'success',
     );
     // Save as current state
-    saveGridState();
+    saveGridStateNow();
   } else {
     setStatus(`No valid shaders found in ${fileName}`, 'error');
   }

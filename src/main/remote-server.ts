@@ -64,6 +64,8 @@ export class RemoteServer {
   private app: Express | null = null;
   private thumbnailCache = new Map<string, Buffer>();
   private previewClients = new Set<Response>();
+  /** Clients whose socket buffer is full — skip frames until 'drain' */
+  private stalledClients = new Set<Response>();
   private previewTimer: ReturnType<typeof setInterval> | null = null;
   port = 9876;
 
@@ -84,7 +86,12 @@ export class RemoteServer {
     this.app = express();
     this.app.use(express.json());
 
-    // Serve static files from web/ directory (no auth required for the UI itself)
+    // Serve static files from web/ directory.
+    // Auth model: the static UI shell is intentionally public; everything
+    // that exposes state or accepts actions (/api/*, the WebSocket) is
+    // token-gated. The token is accepted as Bearer header (preferred) or
+    // query param (needed for the MJPEG <img> stream) — be aware that
+    // query tokens can end up in proxy/access logs.
     this.app.use(express.static(path.join(__dirname, '..', '..', 'web')));
 
     // Token auth middleware for /api routes
@@ -278,6 +285,7 @@ export class RemoteServer {
 
       req.on('close', () => {
         this.previewClients.delete(res);
+        this.stalledClients.delete(res);
         if (this.previewClients.size === 0) {
           this.stopPreviewTimer();
         }
@@ -350,10 +358,17 @@ export class RemoteServer {
       const dead: Response[] = [];
 
       for (const client of this.previewClients) {
+        // Without this check a slow client would buffer frames unboundedly
+        // in main-process memory
+        if (this.stalledClients.has(client)) continue;
         try {
           client.write(header);
           client.write(buf);
-          client.write('\r\n');
+          const ok = client.write('\r\n');
+          if (!ok) {
+            this.stalledClients.add(client);
+            client.once('drain', () => this.stalledClients.delete(client));
+          }
         } catch {
           dead.push(client);
         }
@@ -361,6 +376,7 @@ export class RemoteServer {
 
       for (const d of dead) {
         this.previewClients.delete(d);
+        this.stalledClients.delete(d);
       }
       if (this.previewClients.size === 0) {
         this.stopPreviewTimer();

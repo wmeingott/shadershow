@@ -36,6 +36,9 @@
       const tab = appState.activeTab;
       const slot = appState.activeSlot;
       if (tab === undefined || slot === undefined) return;
+      // Evict the server-side cache entry so the refetch renders fresh
+      // (other slots are served from the short-TTL cache)
+      wsSend('invalidate-thumbnail', { tab, slot });
       bumpSlotThumbnail(tab, slot);
       // Update the <img> element for the active slot
       const img = document.querySelector(`.slot-thumb[data-tab="${tab}"][data-slot="${slot}"]`);

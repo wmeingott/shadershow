@@ -9,6 +9,9 @@ import { Logger } from '@shared/logger.js';
 const log = new Logger('Remote');
 
 const MAX_THUMBNAIL_CACHE = 200;
+/** Serve cached thumbnails up to this age — bounds renderer IPC roundtrips
+ *  during state-update storms while keeping staleness invisible in practice */
+const THUMBNAIL_TTL_MS = 5000;
 
 const WS_ACTIONS: Record<string, string> = {
   'select-tab': 'remote-select-tab',
@@ -62,7 +65,7 @@ export class RemoteServer {
   private server: http.Server | null = null;
   private wss: WebSocketServer | null = null;
   private app: Express | null = null;
-  private thumbnailCache = new Map<string, Buffer>();
+  private thumbnailCache = new Map<string, { buf: Buffer; at: number }>();
   private previewClients = new Set<Response>();
   /** Clients whose socket buffer is full — skip frames until 'drain' */
   private stalledClients = new Set<Response>();
@@ -142,10 +145,6 @@ export class RemoteServer {
 
   broadcast(type: string, data: unknown): void {
     if (!this.wss) return;
-    // Clear thumbnail cache on state updates so stale images are re-fetched
-    if (type === 'state-update') {
-      this.thumbnailCache.clear();
-    }
     const msg = JSON.stringify({ type, data });
     for (const client of this.wss.clients) {
       if (client.readyState === WebSocket.OPEN) {
@@ -173,12 +172,12 @@ export class RemoteServer {
         const slotIndex = parseInt(req.params.slotIndex as string, 10);
         const cacheKey = `${tabIndex}-${slotIndex}`;
 
-        // Serve from cache if available
+        // Serve from cache while fresh (invalidate-thumbnail evicts eagerly)
         const cached = this.thumbnailCache.get(cacheKey);
-        if (cached) {
+        if (cached && Date.now() - cached.at < THUMBNAIL_TTL_MS) {
           res.set('Content-Type', 'image/jpeg');
           res.set('Cache-Control', 'no-cache');
-          res.send(cached);
+          res.send(cached.buf);
           return;
         }
 
@@ -192,7 +191,7 @@ export class RemoteServer {
             const oldest = this.thumbnailCache.keys().next().value;
             if (oldest !== undefined) this.thumbnailCache.delete(oldest);
           }
-          this.thumbnailCache.set(cacheKey, buf);
+          this.thumbnailCache.set(cacheKey, { buf, at: Date.now() });
           res.set('Content-Type', 'image/jpeg');
           res.set('Cache-Control', 'no-cache');
           res.send(buf);

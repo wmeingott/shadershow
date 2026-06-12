@@ -145,7 +145,10 @@ export class SettingsManager {
         ...additionalData,
       };
 
-      await fs.promises.writeFile(this.settingsFile, JSON.stringify(data, null, 2), 'utf-8');
+      // Atomic write (tmp + rename) so a crash mid-write can't corrupt settings
+      const tmpFile = `${this.settingsFile}.tmp`;
+      await fs.promises.writeFile(tmpFile, JSON.stringify(data, null, 2), 'utf-8');
+      await fs.promises.rename(tmpFile, this.settingsFile);
     } catch (err) {
       log.error('Failed to save settings:', err);
     }

@@ -102,6 +102,26 @@ export class FileManager {
     return path.join(this.shadersDir, `button${slotIndex + 1}.glsl`);
   }
 
+  // ── Atomic writes ───────────────────────────────────────────────────
+
+  private _writeQueue: Promise<void> = Promise.resolve();
+
+  /**
+   * Write a file atomically (tmp + rename) and strictly sequentially.
+   * Prevents corruption from crashes mid-write and from overlapping
+   * writes to the same file.
+   */
+  private writeFileAtomic(filePath: string, data: string): Promise<void> {
+    this._writeQueue = this._writeQueue.then(async () => {
+      const tmp = `${filePath}.tmp`;
+      await fsPromises.writeFile(tmp, data, 'utf-8');
+      await fsPromises.rename(tmp, filePath);
+    }).catch((err) => {
+      log.error(`Atomic write failed for ${filePath}:`, err);
+    });
+    return this._writeQueue;
+  }
+
   // ── Grid state ──────────────────────────────────────────────────────
 
   /**
@@ -113,12 +133,8 @@ export class FileManager {
   async saveGridState(gridState: any): Promise<void> {
     log.info('Saving grid state...');
     await this.ensureDataDir();
-    try {
-      await fsPromises.writeFile(this.gridStateFile, JSON.stringify(gridState, null, 2), 'utf-8');
-      log.debug('Grid state saved');
-    } catch (err) {
-      log.error('Failed to save grid state:', err);
-    }
+    await this.writeFileAtomic(this.gridStateFile, JSON.stringify(gridState, null, 2));
+    log.debug('Grid state saved');
   }
 
   /**
@@ -266,11 +282,7 @@ export class FileManager {
 
   async savePresets(data: unknown): Promise<void> {
     await this.ensureDataDir();
-    try {
-      await fsPromises.writeFile(this.presetsFile, JSON.stringify(data, null, 2), 'utf-8');
-    } catch (err) {
-      log.error('Failed to save presets:', err);
-    }
+    await this.writeFileAtomic(this.presetsFile, JSON.stringify(data, null, 2));
   }
 
   async loadPresets(): Promise<any[]> {
@@ -287,11 +299,7 @@ export class FileManager {
 
   async saveViewState(data: unknown): Promise<void> {
     await this.ensureDataDir();
-    try {
-      await fsPromises.writeFile(this.viewStateFile, JSON.stringify(data, null, 2), 'utf-8');
-    } catch (err) {
-      log.debug('Failed to save view state:', err);
-    }
+    await this.writeFileAtomic(this.viewStateFile, JSON.stringify(data, null, 2));
   }
 
   async loadViewState(): Promise<any | null> {

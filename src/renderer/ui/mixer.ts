@@ -401,6 +401,59 @@ function syncToggleButton(): void {
   if (btn) btn.classList.toggle('active', state.mixerEnabled);
 }
 
+/**
+ * Fully resync the fullscreen mixer after channel indices shifted (splice).
+ * The fullscreen window keeps channels at fixed indices, so removing a channel
+ * on this side would otherwise leave all following channels misaligned.
+ */
+function resyncMixerToFullscreen(previousCount: number): void {
+  const count = Math.max(previousCount, channels().length);
+  for (let i = 0; i < count; i++) {
+    window.electronAPI.sendMixerChannelUpdate({ channelIndex: i, clear: true });
+  }
+  window.electronAPI.sendMixerBlendMode({ blendMode: state.mixerBlendMode });
+
+  for (let i = 0; i < channels().length; i++) {
+    const ch = channels()[i];
+
+    if (ch.shaderCode) {
+      window.electronAPI.sendMixerChannelUpdate({
+        channelIndex: i,
+        shaderCode: ch.shaderCode,
+        params: { speed: ch.params.speed ?? 1, ...ch.customParams },
+      });
+    } else if (ch.assetType) {
+      // Grid-assigned asset channels keep mediaPath on the slot, not the channel
+      let mediaPath = ch.mediaPath;
+      if (!mediaPath && ch.slotIndex !== null && ch.tabIndex != null) {
+        mediaPath = tabs()[ch.tabIndex]?.slots?.[ch.slotIndex]?.mediaPath;
+      }
+      if (mediaPath) {
+        const assetType = ch.assetType;
+        const customParams = { ...ch.customParams };
+        const channelIndex = i;
+        if (assetType === 'asset-video') {
+          window.electronAPI.getMediaAbsolutePath(mediaPath).then(absPath => {
+            window.electronAPI.sendMixerChannelUpdate({
+              channelIndex, assetType, mediaPath, filePath: absPath, params: customParams,
+            });
+          });
+        } else {
+          window.electronAPI.loadMediaDataUrl(mediaPath).then(loaded => {
+            if (loaded.success) {
+              window.electronAPI.sendMixerChannelUpdate({
+                channelIndex, assetType, mediaPath, dataUrl: loaded.dataUrl, params: customParams,
+              });
+            }
+          });
+        }
+      }
+    }
+
+    window.electronAPI.sendMixerAlphaUpdate({ channelIndex: i, alpha: ch.alpha });
+  }
+}
+
 // Select a mixer channel for parameter editing
 function selectMixerChannel(channelIndex: number): void {
   const ch = channels()[channelIndex];
@@ -656,6 +709,7 @@ export function clearMixerChannel(channelIndex: number): void {
   }
 
   if (state.mixerChannels.length > 1) {
+    const previousCount = state.mixerChannels.length;
     (state.mixerChannels as MixerChannelRuntime[]).splice(channelIndex, 1);
 
     if (state.mixerArmedChannel === channelIndex) {
@@ -678,7 +732,8 @@ export function clearMixerChannel(channelIndex: number): void {
     }
 
     rebuildChannelElements();
-    window.electronAPI.sendMixerChannelUpdate({ channelIndex, clear: true });
+    // Indices shifted — resync the fullscreen window completely
+    resyncMixerToFullscreen(previousCount);
 
     if (!isMixerActive()) hideMixerOverlay();
     generateCustomParamUI();

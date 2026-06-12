@@ -79,6 +79,10 @@ export class RecordingManager {
     const isMac = process.platform === 'darwin';
     const encoder = isMac ? 'hevc_videotoolbox' : 'libx265';
 
+    // Note: -framerate 60 assigns timestamps per delivered frame. Frames
+    // dropped under encoder backpressure shorten the recording (time-lapse
+    // effect); true CFR correctness would require wall-clock-based frame
+    // duplication (see improvement-plan.md, Phase 3 output-pipeline plan).
     const ffmpegArgs = [
       '-y',
       '-f', 'rawvideo',

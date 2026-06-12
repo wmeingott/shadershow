@@ -162,7 +162,9 @@ export function renderLoop(currentTime: DOMHighResTimeStamp): void {
   }
 
   // Apply frame rate limiting when fullscreen is active
-  if (state.fullscreenActive && state.previewFrameInterval > 0) {
+  // (never while recording — FFmpeg expects a constant 60 fps on its pipe
+  // input; throttling to 30 fps would make recordings play back too fast)
+  if (state.fullscreenActive && state.previewFrameInterval > 0 && !state.recordingEnabled) {
     if (currentTime - lastPreviewFrameTime < state.previewFrameInterval) {
       return;
     }

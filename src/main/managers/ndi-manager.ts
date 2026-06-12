@@ -68,11 +68,6 @@ export class NDIManager {
   private ndiReceivers: (NDIReceiver | null)[] = [null, null, null, null];
   private ndiSourceCache: Array<{ name: string; urlAddress: string }> = [];
 
-  // Pre-allocated buffers for NDI frame flipping (avoid allocation per frame)
-  private ndiFlipBuffer: Buffer | null = null;
-  private ndiLastWidth = 0;
-  private ndiLastHeight = 0;
-
   // ── Callbacks ────────────────────────────────────────────────────────
   private readonly callbacks: NDIManagerCallbacks;
 
@@ -256,26 +251,22 @@ export class NDIManager {
         return;
       }
 
-      // Otherwise flip vertically (sync readback path)
+      // Otherwise flip vertically (sync readback path).
+      // Fresh buffer per frame: sendFrame is async (native NDI holds the
+      // reference until the send completes) and calls are not awaited by
+      // the IPC handler, so reusing one buffer would corrupt in-flight frames.
       const rowSize = width * 4;
-      const bufferSize = width * height * 4;
-
-      // Reallocate flip buffer only if resolution changed
-      if (width !== this.ndiLastWidth || height !== this.ndiLastHeight) {
-        this.ndiFlipBuffer = Buffer.allocUnsafe(bufferSize);
-        this.ndiLastWidth = width;
-        this.ndiLastHeight = height;
-      }
+      const flipBuffer = Buffer.allocUnsafe(width * height * 4);
 
       // Flip vertically using Buffer.copy (native, much faster than JS loops)
       // WebGL readPixels gives bottom-to-top, NDI expects top-to-bottom
       for (let y = 0; y < height; y++) {
         const srcOffset = (height - 1 - y) * rowSize;
         const dstOffset = y * rowSize;
-        sourceBuffer.copy(this.ndiFlipBuffer!, dstOffset, srcOffset, srcOffset + rowSize);
+        sourceBuffer.copy(flipBuffer, dstOffset, srcOffset, srcOffset + rowSize);
       }
 
-      await this.ndiSender.sendFrame(this.ndiFlipBuffer!, width, height);
+      await this.ndiSender.sendFrame(flipBuffer, width, height);
     } catch (e: any) {
       log.warn('Frame send error:', e.message);
     }

@@ -46,9 +46,6 @@ export class RecordingManager {
   private process: ChildProcess | null = null;
   private enabled = false;
   private resolution: RecordingResolution = { width: 1920, height: 1080, label: '1920x1080 (1080p)' };
-  private flipBuffer: Buffer | null = null;
-  private lastWidth = 0;
-  private lastHeight = 0;
   private filePath: string | null = null;
   private backpressure = false;
 
@@ -174,6 +171,7 @@ export class RecordingManager {
    */
   sendFrame(frameData: RecordingFrameData): void {
     if (!this.process || !this.enabled) return;
+    if (this.backpressure) return; // Drop frame before doing any work
 
     try {
       const { data, width, height, flipped } = frameData;
@@ -186,39 +184,24 @@ export class RecordingManager {
         return;
       }
 
-      // If already flipped (e.g. from 2D canvas getImageData), send directly
+      let outBuffer: Buffer;
       if (flipped) {
-        if (this.backpressure) return;
-        const canWrite = this.process.stdin!.write(sourceBuffer);
-        if (!canWrite) {
-          this.backpressure = true;
-          this.process.stdin!.once('drain', () => {
-            this.backpressure = false;
-          });
+        // Already top-to-bottom (e.g. from 2D canvas getImageData)
+        outBuffer = sourceBuffer;
+      } else {
+        // Flip vertically (WebGL readPixels gives bottom-to-top, video
+        // expects top-to-bottom). Fresh buffer per write: stream.write()
+        // keeps the reference until flushed — reusing one buffer would
+        // overwrite frames still queued in stdin (visible tearing).
+        const rowSize = width * 4;
+        outBuffer = Buffer.allocUnsafe(width * height * 4);
+        for (let y = 0; y < height; y++) {
+          const srcOffset = (height - 1 - y) * rowSize;
+          sourceBuffer.copy(outBuffer, y * rowSize, srcOffset, srcOffset + rowSize);
         }
-        return;
       }
 
-      const rowSize = width * 4;
-      const bufferSize = width * height * 4;
-
-      // Reallocate flip buffer only if resolution changed
-      if (width !== this.lastWidth || height !== this.lastHeight) {
-        this.flipBuffer = Buffer.allocUnsafe(bufferSize);
-        this.lastWidth = width;
-        this.lastHeight = height;
-      }
-
-      // Flip vertically (WebGL readPixels gives bottom-to-top, video expects top-to-bottom)
-      for (let y = 0; y < height; y++) {
-        const srcOffset = (height - 1 - y) * rowSize;
-        const dstOffset = y * rowSize;
-        sourceBuffer.copy(this.flipBuffer!, dstOffset, srcOffset, srcOffset + rowSize);
-      }
-
-      // Write to FFmpeg stdin
-      if (this.backpressure) return; // Drop frame during back-pressure
-      const canWrite = this.process.stdin!.write(this.flipBuffer!);
+      const canWrite = this.process.stdin!.write(outBuffer);
       if (!canWrite) {
         this.backpressure = true;
         this.process.stdin!.once('drain', () => {

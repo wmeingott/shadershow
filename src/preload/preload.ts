@@ -85,7 +85,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // NDI output
   onNDIStatus: (callback: (data: any) => void) => onIPC('ndi-status', (_event: any, data: any) => callback(data)),
-  sendNDIFrame: (frameData: any) => ipcRenderer.send('ndi-frame', frameData),
+  sendOutputFrame: (frameData: any) => ipcRenderer.send('output-frame', frameData),
   onRequestPreviewResolution: (callback: () => void) => onIPC('request-preview-resolution', () => callback()),
   sendPreviewResolution: (data: any) => ipcRenderer.send('preview-resolution', data),
   toggleNDI: () => ipcRenderer.send('toggle-ndi'),
@@ -100,13 +100,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Syphon output (macOS only)
   onSyphonStatus: (callback: (data: any) => void) => onIPC('syphon-status', (_event: any, data: any) => callback(data)),
-  sendSyphonFrame: (frameData: any) => ipcRenderer.send('syphon-frame', frameData),
   toggleSyphon: () => ipcRenderer.send('toggle-syphon'),
 
   // Recording output (H.265 MP4)
   startRecording: () => ipcRenderer.invoke('start-recording'),
   stopRecording: () => ipcRenderer.send('stop-recording'),
-  sendRecordingFrame: (frameData: any) => ipcRenderer.send('recording-frame', frameData),
   onRecordingStatus: (callback: (data: any) => void) => onIPC('recording-status', (_event: any, data: any) => callback(data)),
   onRequestPreviewResolutionForRecording: (callback: () => void) => onIPC('request-preview-resolution-for-recording', () => callback()),
   sendPreviewResolutionForRecording: (data: any) => ipcRenderer.send('preview-resolution-for-recording', data),

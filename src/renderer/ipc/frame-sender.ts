@@ -10,9 +10,7 @@ import { getABOverlayCanvas } from '../ui/ab-preview.js';
 
 declare const window: Window & {
   electronAPI: {
-    sendNDIFrame: (data: FrameData) => void;
-    sendSyphonFrame: (data: FrameData) => void;
-    sendRecordingFrame: (data: FrameData) => void;
+    sendOutputFrame: (data: OutputFrameMessage) => void;
     startRecording: () => Promise<RecordingResult>;
     stopRecording: () => void;
   };
@@ -23,6 +21,11 @@ interface FrameData {
   width: number;
   height: number;
   flipped?: boolean;
+}
+
+interface OutputFrameMessage extends FrameData {
+  flipped: true;
+  targets: { ndi: boolean; syphon: boolean; recording: boolean };
 }
 
 interface RecordingResult {
@@ -41,6 +44,10 @@ let outputBuffer: Uint8Array | null = null;
 let outputLastW = 0;
 let outputLastH = 0;
 
+// Renderer-side vertical-flip buffer: shared across all sinks, reallocated only on resolution change.
+// The IPC send structured-clones the buffer synchronously, so this is safe to reuse frame-to-frame.
+let flipBuffer: Uint8Array | null = null;
+
 // Recording state
 let savedPreviewWidth = 0;
 let savedPreviewHeight = 0;
@@ -58,7 +65,9 @@ function readCanvasPixels(
   lastW: number,
   lastH: number,
 ): { buffer: Uint8Array; width: number; height: number; lastW: number; lastH: number; flipped: boolean } | null {
-  // When A/B mode is active, read from the composite 2D overlay canvas
+  // When A/B mode is active, read from the composite 2D overlay canvas.
+  // getImageData returns a fresh Uint8ClampedArray each call (top-to-bottom),
+  // so we return a Uint8Array view of it directly — no extra copy needed.
   if (state.abEnabled) {
     const abCanvas = getABOverlayCanvas();
     if (abCanvas && abCanvas.width > 0 && abCanvas.height > 0) {
@@ -66,13 +75,9 @@ function readCanvasPixels(
       if (ctx) {
         const width = abCanvas.width;
         const height = abCanvas.height;
-        if (width !== lastW || height !== lastH) {
-          buffer = new Uint8Array(width * height * 4);
-        }
         const imageData = ctx.getImageData(0, 0, width, height);
-        buffer!.set(imageData.data);
         // getImageData returns top-to-bottom (already correct orientation)
-        return { buffer: buffer!, width, height, lastW: width, lastH: height, flipped: true };
+        return { buffer: new Uint8Array(imageData.data.buffer), width, height, lastW: width, lastH: height, flipped: true };
       }
     }
   }
@@ -115,16 +120,36 @@ export function sendOutputFrames(targets: { ndi?: boolean; syphon?: boolean; rec
     outputLastW = result.lastW;
     outputLastH = result.lastH;
 
-    const frame = {
-      data: result.buffer,
+    let sendBuffer: Uint8Array;
+    if (result.flipped) {
+      // A/B path: getImageData already returns top-to-bottom
+      sendBuffer = result.buffer;
+    } else {
+      // WebGL readPixels path: flip vertically into the shared flip buffer.
+      // The IPC send structured-clones the data synchronously, so this
+      // buffer is safe to reuse on the next frame.
+      const { width, height } = result;
+      const needed = width * height * 4;
+      if (!flipBuffer || flipBuffer.byteLength !== needed) {
+        flipBuffer = new Uint8Array(needed);
+      }
+      const rowSize = width * 4;
+      for (let y = 0; y < height; y++) {
+        flipBuffer.set(
+          result.buffer.subarray((height - 1 - y) * rowSize, (height - y) * rowSize),
+          y * rowSize,
+        );
+      }
+      sendBuffer = flipBuffer;
+    }
+
+    window.electronAPI.sendOutputFrame({
+      data: sendBuffer,
       width: result.width,
       height: result.height,
-      flipped: result.flipped,
-    };
-
-    if (targets.ndi) window.electronAPI.sendNDIFrame(frame);
-    if (targets.syphon) window.electronAPI.sendSyphonFrame(frame);
-    if (targets.recording) window.electronAPI.sendRecordingFrame(frame);
+      flipped: true,
+      targets: { ndi: !!targets.ndi, syphon: !!targets.syphon, recording: !!targets.recording },
+    });
   } catch (err) {
     console.warn('Failed to send output frame:', err);
   }

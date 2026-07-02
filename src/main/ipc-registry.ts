@@ -94,9 +94,12 @@ export class IPCRegistry {
       }
     });
 
-    // 3. ndi-frame
-    ipcMain.on('ndi-frame', (_event, frameData) => {
-      void ndiManager.sendNDIFrame(frameData);
+    // 3. output-frame — single fan-out replacing ndi-frame/syphon-frame/recording-frame
+    ipcMain.on('output-frame', (_event, frameData) => {
+      const { targets } = frameData;
+      if (targets?.ndi) void ndiManager.sendNDIFrame(frameData);
+      if (targets?.syphon) void syphonManager.sendFrame(frameData);
+      if (targets?.recording) recordingManager.sendFrame(frameData);
     });
 
     // 4. set-channel-ndi
@@ -229,11 +232,6 @@ export class IPCRegistry {
       settingsManager.save();
     });
 
-    // 12. syphon-frame
-    ipcMain.on('syphon-frame', (_event, frameData) => {
-      void syphonManager.sendFrame(frameData);
-    });
-
     // 13. toggle-syphon
     ipcMain.on('toggle-syphon', () => {
       void syphonManager.toggle();
@@ -242,11 +240,6 @@ export class IPCRegistry {
     // 14. stop-recording
     ipcMain.on('stop-recording', () => {
       recordingManager.stop();
-    });
-
-    // 15. recording-frame
-    ipcMain.on('recording-frame', (_event, frameData) => {
-      recordingManager.sendFrame(frameData);
     });
 
     // 16. open-fullscreen-primary

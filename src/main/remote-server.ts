@@ -176,7 +176,8 @@ export class RemoteServer {
         const cached = this.thumbnailCache.get(cacheKey);
         if (cached && Date.now() - cached.at < THUMBNAIL_TTL_MS) {
           res.set('Content-Type', 'image/jpeg');
-          res.set('Cache-Control', 'no-cache');
+          // ponytail: immutable is safe because clients include ?v= in the URL
+          res.set('Cache-Control', 'private, max-age=31536000, immutable');
           res.send(cached.buf);
           return;
         }
@@ -193,7 +194,50 @@ export class RemoteServer {
           }
           this.thumbnailCache.set(cacheKey, { buf, at: Date.now() });
           res.set('Content-Type', 'image/jpeg');
-          res.set('Cache-Control', 'no-cache');
+          res.set('Cache-Control', 'private, max-age=31536000, immutable');
+          res.send(buf);
+        } else {
+          res.status(404).json({ error: 'No thumbnail available' });
+        }
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.get('/api/aux-thumbnail/:kind/:a/:b', async (req: Request, res: Response) => {
+      try {
+        const kind = req.params.kind as string;
+        if (kind !== 'vp' && kind !== 'mix' && kind !== 'mixer') {
+          res.status(400).json({ error: 'kind must be vp, mix, or mixer' });
+          return;
+        }
+        const a = parseInt(req.params.a as string, 10);
+        const b = parseInt(req.params.b as string, 10);
+        if (isNaN(a) || isNaN(b)) {
+          res.status(400).json({ error: 'a and b must be integers' });
+          return;
+        }
+        const cacheKey = `aux-${kind}-${a}-${b}`;
+
+        const cached = this.thumbnailCache.get(cacheKey);
+        if (cached && Date.now() - cached.at < THUMBNAIL_TTL_MS) {
+          res.set('Content-Type', 'image/jpeg');
+          res.set('Cache-Control', 'private, max-age=31536000, immutable');
+          res.send(cached.buf);
+          return;
+        }
+
+        const result = await this.queryRenderer('remote-get-aux-thumbnail', { kind, a, b }) as any;
+        if (result && result.dataUrl) {
+          const base64 = result.dataUrl.replace(/^data:image\/\w+;base64,/, '');
+          const buf = Buffer.from(base64, 'base64');
+          if (this.thumbnailCache.size >= MAX_THUMBNAIL_CACHE) {
+            const oldest = this.thumbnailCache.keys().next().value;
+            if (oldest !== undefined) this.thumbnailCache.delete(oldest);
+          }
+          this.thumbnailCache.set(cacheKey, { buf, at: Date.now() });
+          res.set('Content-Type', 'image/jpeg');
+          res.set('Cache-Control', 'private, max-age=31536000, immutable');
           res.send(buf);
         } else {
           res.status(404).json({ error: 'No thumbnail available' });

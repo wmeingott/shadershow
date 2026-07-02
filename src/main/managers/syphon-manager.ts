@@ -33,11 +33,6 @@ export class SyphonManager {
   private sender: SyphonSender | null = null;
   private enabled = false;
 
-  // Pre-allocated buffers for vertical frame flipping
-  private flipBuffer: Buffer | null = null;
-  private lastWidth = 0;
-  private lastHeight = 0;
-
   private readonly callbacks: SyphonManagerCallbacks;
 
   constructor(callbacks: SyphonManagerCallbacks) {
@@ -109,12 +104,13 @@ export class SyphonManager {
   /**
    * Send a single RGBA frame to the Syphon server.
    *
-   * The frame is vertically flipped (WebGL readPixels produces bottom-to-top
-   * scanlines, while Syphon expects top-to-bottom) using a pre-allocated
-   * buffer that is only reallocated when the resolution changes.
-   *
    * Accepts raw Uint8Array / Buffer data as well as a legacy base64 fallback
-   * via the `rgbaData` field.
+   * via the `rgbaData` field. Frames arriving with `flipped: true` (the normal
+   * path from the renderer's single-send output-frame) are sent directly.
+   * The legacy `!flipped` path flips vertically into a fresh buffer per frame:
+   * sendFrame is async (native Syphon holds the reference until the send
+   * completes) and calls are not awaited by the IPC handler, so reusing one
+   * buffer would corrupt in-flight frames.
    */
   async sendFrame(frameData: SyphonFrameData): Promise<void> {
     if (!this.sender || !this.enabled) return;
@@ -134,7 +130,7 @@ export class SyphonManager {
         return;
       }
 
-      // If already flipped (e.g. from 2D canvas getImageData), send directly
+      // If already flipped (e.g. from renderer-side flip or 2D canvas), send directly
       if (flipped) {
         await this.sender.sendFrame(sourceBuffer, width, height);
         return;
@@ -143,21 +139,19 @@ export class SyphonManager {
       const rowSize = width * 4;
       const bufferSize = width * height * 4;
 
-      // Reallocate flip buffer only if resolution changed
-      if (width !== this.lastWidth || height !== this.lastHeight) {
-        this.flipBuffer = Buffer.allocUnsafe(bufferSize);
-        this.lastWidth = width;
-        this.lastHeight = height;
-      }
+      // Fresh buffer per frame: sendFrame is async (native Syphon holds the
+      // reference until the send completes) and calls are not awaited by
+      // the IPC handler, so reusing one buffer would corrupt in-flight frames.
+      const flipBuffer = Buffer.allocUnsafe(bufferSize);
 
       // Flip vertically using Buffer.copy (native, much faster than JS loops)
       for (let y = 0; y < height; y++) {
         const srcOffset = (height - 1 - y) * rowSize;
         const dstOffset = y * rowSize;
-        sourceBuffer.copy(this.flipBuffer!, dstOffset, srcOffset, srcOffset + rowSize);
+        sourceBuffer.copy(flipBuffer, dstOffset, srcOffset, srcOffset + rowSize);
       }
 
-      await this.sender.sendFrame(this.flipBuffer!, width, height);
+      await this.sender.sendFrame(flipBuffer, width, height);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       log.warn('Syphon frame send error:', message);

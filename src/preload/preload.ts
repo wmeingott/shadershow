@@ -190,6 +190,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendRemoteGetStateResponse: (state: any) => ipcRenderer.send('remote-get-state-response', state),
   onRemoteGetThumbnail: (callback: (data: any) => void) => onIPC('remote-get-thumbnail', (_event: any, data: any) => callback(data)),
   sendRemoteGetThumbnailResponse: (data: any) => ipcRenderer.send('remote-get-thumbnail-response', data),
+  onRemoteGetAuxThumbnail: (callback: (data: any) => void) => onIPC('remote-get-aux-thumbnail', (_event: any, data: any) => callback(data)),
+  sendRemoteGetAuxThumbnailResponse: (data: any) => ipcRenderer.send('remote-get-aux-thumbnail-response', data),
   onRemoteSelectTab: (callback: (data: any) => void) => onIPC('remote-select-tab', (_event: any, data: any) => callback(data)),
   onRemoteSelectSlot: (callback: (data: any) => void) => onIPC('remote-select-slot', (_event: any, data: any) => callback(data)),
   onRemoteSetParam: (callback: (data: any) => void) => onIPC('remote-set-param', (_event: any, data: any) => callback(data)),

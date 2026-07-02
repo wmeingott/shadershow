@@ -51,6 +51,7 @@ interface GridSlot {
   customParams: ParamValues | null;
   presets: Array<{ name: string | null; params?: ParamValues }>;
   label?: string;
+  thumbnail?: string | null;
   renderer?: {
     canvas: HTMLCanvasElement;
     setSpeed?(speed: number): void;
@@ -116,6 +117,8 @@ interface ElectronAPI {
   sendRemoteStateChanged(data: unknown): void;
   sendRemoteGetStateResponse(data: unknown): void;
   sendRemoteGetThumbnailResponse(data: { tabIndex: number; slotIndex: number; dataUrl: string | null; _queryId?: number }): void;
+  onRemoteGetAuxThumbnail(cb: (data: { kind: 'vp' | 'mix' | 'mixer'; a: number; b: number; _queryId?: number }) => void): void;
+  sendRemoteGetAuxThumbnailResponse(data: { dataUrl: string | null; _queryId?: number }): void;
   sendBlackout(enabled: boolean): void;
 
   // On listeners (main → renderer)
@@ -1009,6 +1012,23 @@ function initRemoteHandlers(): void {
       dataUrl,
       _queryId,
     });
+  });
+
+  window.electronAPI.onRemoteGetAuxThumbnail((req: { kind: 'vp' | 'mix' | 'mixer'; a: number; b: number; _queryId?: number }) => {
+    const { kind, a, b, _queryId } = req || {};
+    let dataUrl: string | null = null;
+    try {
+      if (kind === 'vp') {
+        dataUrl = (state.vpTabs as Array<{ presets: Array<{ thumbnail?: string | null }> }>)?.[a]?.presets?.[b]?.thumbnail ?? null;
+      } else if (kind === 'mix') {
+        dataUrl = (state.shaderTabs as Array<{ mixPresets?: Array<{ thumbnail?: string | null }> }>)?.[a]?.mixPresets?.[b]?.thumbnail ?? null;
+      } else if (kind === 'mixer') {
+        dataUrl = (state.mixerChannels as Array<{ thumbnail?: string | null }>)?.[a]?.thumbnail ?? null;
+      }
+    } catch (err: unknown) {
+      log.error('IPC', 'Remote aux-thumbnail error:', err);
+    }
+    window.electronAPI.sendRemoteGetAuxThumbnailResponse({ dataUrl, _queryId });
   });
 
   // ---- Action dispatch (fire-and-forget) ----

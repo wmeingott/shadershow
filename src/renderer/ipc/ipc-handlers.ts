@@ -197,7 +197,7 @@ interface RemoteTabInfo {
   name: string;
   type: string;
   slots?: RemoteSlotInfo[];
-  mixPresets?: Array<{ index: number; name: string; thumbnail?: string | null }>;
+  mixPresets?: Array<{ index: number; name: string; thumbRev: number }>;
 }
 
 interface RemoteMixerChannelInfo {
@@ -207,12 +207,12 @@ interface RemoteMixerChannelInfo {
   hasShader: boolean;
   label: string | null;
   enabled: boolean;
-  thumbnail: string | null;
+  thumbRev: number;
 }
 
 interface RemoteVpTab {
   name: string;
-  presets: Array<{ name: string; thumbnail: string | null }>;
+  presets: Array<{ name: string; thumbRev: number }>;
 }
 
 interface RemoteStateSnapshot {
@@ -888,7 +888,7 @@ function buildRemoteStateSnapshot(): RemoteStateSnapshot {
           ? (tab.mixPresets || []).map((p, j: number) => ({
               index: j,
               name: p.name,
-              thumbnail: p.thumbnail ?? null,
+              thumbRev: p.thumbnail?.length ?? 0,
             }))
           : undefined,
     })),
@@ -905,7 +905,7 @@ function buildRemoteStateSnapshot(): RemoteStateSnapshot {
         hasShader: ch.slotIndex !== null || !!ch.renderer,
         label: ch.slotIndex !== null ? `Slot ${ch.slotIndex + 1}` : ch.renderer ? 'Mix' : null,
         enabled: (ch as { enabled?: boolean }).enabled !== false,
-        thumbnail: (ch as { thumbnail?: string | null }).thumbnail ?? null,
+        thumbRev: ((ch as { thumbnail?: string | null }).thumbnail?.length ?? 0),
       })),
     },
     params: buildCurrentParams(),
@@ -913,7 +913,7 @@ function buildRemoteStateSnapshot(): RemoteStateSnapshot {
     presets: getCurrentSlotPresetNames(),
     vpTabs: (state.vpTabs as Array<{ name: string; presets: Array<{ name: string; thumbnail: string | null }> }>).map(t => ({
       name: t.name,
-      presets: (t.presets || []).map(p => ({ name: p.name, thumbnail: p.thumbnail })),
+      presets: (t.presets || []).map(p => ({ name: p.name, thumbRev: p.thumbnail?.length ?? 0 })),
     })),
     activeVpTab: state.activeVpTab as number,
     playback: {

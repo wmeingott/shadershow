@@ -59,9 +59,13 @@ export interface IPCSendChannels {
   'close-fullscreen': void;
   'toggle-syphon': void;
   'stop-recording': void;
-  'ndi-frame': ArrayBuffer;
-  'syphon-frame': ArrayBuffer;
-  'recording-frame': ArrayBuffer;
+  'output-frame': {
+    data: Uint8Array;
+    width: number;
+    height: number;
+    flipped: boolean;
+    targets: { ndi: boolean; syphon: boolean; recording: boolean };
+  };
   'preview-resolution': { width: number; height: number };
   'preview-resolution-for-recording': { width: number; height: number };
   'save-settings': unknown;

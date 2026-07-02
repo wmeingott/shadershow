@@ -436,6 +436,8 @@ export class RemoteServer {
     if (msg.type === 'invalidate-thumbnail') {
       const { tab, slot } = msg.data as { tab: number; slot: number };
       this.thumbnailCache.delete(`${tab}-${slot}`);
+      // Broadcast to all other clients so they bump their slot revision too
+      this.broadcast('invalidate-thumbnail', { tab, slot });
       return;
     }
 

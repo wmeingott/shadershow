@@ -14,11 +14,17 @@
   let assigningChannel = null; // When non-null, next slot tap assigns to this mixer channel
 
   // ---- Thumbnail versioning ----
-  let thumbnailRevision = 0; // global revision — bumped on every state-update
+  let thumbnailRevision = 0; // global floor — bumped only on full-refresh (e.g. reconnect)
+  const slotThumbRevs = new Map(); // "tab-slot" -> per-slot counter
   let thumbnailRefreshTimer = null;
 
   function getThumbnailUrl(tab, slot) {
-    return `/api/thumbnail/${tab}/${slot}?v=${thumbnailRevision}&token=${authToken}`;
+    const r = slotThumbRevs.get(`${tab}-${slot}`) || 0;
+    return `/api/thumbnail/${tab}/${slot}?v=${thumbnailRevision}.${r}&token=${authToken}`;
+  }
+
+  function getAuxThumbnailUrl(kind, a, b, thumbRev) {
+    return `/api/aux-thumbnail/${kind}/${a}/${b}?v=${thumbRev}&token=${authToken}`;
   }
 
   function bumpAllThumbnails() {
@@ -26,7 +32,8 @@
   }
 
   function bumpSlotThumbnail(tab, slot) {
-    thumbnailRevision++;
+    const k = `${tab}-${slot}`;
+    slotThumbRevs.set(k, (slotThumbRevs.get(k) || 0) + 1);
   }
 
   function scheduleActiveThumbnailRefresh() {
@@ -124,7 +131,6 @@
     switch (msg.type) {
       case 'state-update':
         appState = msg.data;
-        bumpAllThumbnails();
         renderAll();
         break;
       case 'param-changed':
@@ -144,6 +150,12 @@
         if (appState && msg.data) {
           appState.playback = msg.data;
           renderPlayback();
+        }
+        break;
+      case 'invalidate-thumbnail':
+        if (msg.data) {
+          bumpSlotThumbnail(msg.data.tab, msg.data.slot);
+          renderGrid(); // re-create imgs so the bumped URL is picked up
         }
         break;
     }
@@ -195,10 +207,10 @@
           const card = document.createElement('div');
           card.className = 'mix-preset-card';
 
-          if (p.thumbnail) {
+          if (p.thumbRev) {
             const img = document.createElement('img');
             img.className = 'mix-preset-thumb';
-            img.src = p.thumbnail;
+            img.src = getAuxThumbnailUrl('mix', appState.activeTab, p.index, p.thumbRev);
             img.alt = p.name || `Mix ${p.index + 1}`;
             img.draggable = false;
             img.onerror = function() { this.style.visibility = 'hidden'; };
@@ -297,8 +309,8 @@
       thumbDiv.className = 'mixer-ch-thumb';
       if (ch.hasShader) {
         let thumbSrc = null;
-        if (ch.thumbnail) {
-          thumbSrc = ch.thumbnail;
+        if (ch.thumbRev) {
+          thumbSrc = getAuxThumbnailUrl('mixer', i, 0, ch.thumbRev);
         } else if (ch.slotIndex !== null && ch.tabIndex !== null && ch.tabIndex !== undefined) {
           thumbSrc = getThumbnailUrl(ch.tabIndex, ch.slotIndex);
         }
@@ -400,10 +412,10 @@
         const card = document.createElement('div');
         card.className = 'mix-preset-card';
 
-        if (p.thumbnail) {
+        if (p.thumbRev) {
           const img = document.createElement('img');
           img.className = 'mix-preset-thumb';
-          img.src = p.thumbnail;
+          img.src = getAuxThumbnailUrl('mix', tabIdx, p.index, p.thumbRev);
           img.alt = p.name || `Mix ${p.index + 1}`;
           img.draggable = false;
           img.onerror = function() { this.style.visibility = 'hidden'; };
@@ -749,10 +761,10 @@
       card.dataset.vpIndex = String(i);
       card.draggable = true;
 
-      if (preset.thumbnail) {
+      if (preset.thumbRev) {
         const img = document.createElement('img');
         img.className = 'vp-thumb';
-        img.src = preset.thumbnail;
+        img.src = getAuxThumbnailUrl('vp', activeVpTab, i, preset.thumbRev);
         img.alt = preset.name;
         img.draggable = false;
         img.onerror = function() { this.style.visibility = 'hidden'; };

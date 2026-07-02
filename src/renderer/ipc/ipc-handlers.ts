@@ -1224,7 +1224,8 @@ function initRemoteHandlers(): void {
       }
 
       let sourceCanvas = getVisibleCompositeCanvas(canvas);
-      if (sourceCanvas === canvas) {
+      const loopIsRendering = state.previewEnabled || state.ndiEnabled || state.syphonEnabled || state.recordingEnabled;
+      if (sourceCanvas === canvas && !loopIsRendering) {
         try {
           (state.renderer as { render?: () => unknown } | null)?.render?.();
         } catch {

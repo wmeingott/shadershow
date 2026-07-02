@@ -992,8 +992,11 @@ function initRemoteHandlers(): void {
       const tab = shaderTabs[tabIndex];
       if (tab && tab.type !== 'mix') {
         const slot = tab.slots?.[slotIndex];
-        if (slot && slot.renderer) {
-          // Render a fresh frame before capturing to ensure canvas is up-to-date
+        // Prefer the already-captured snapshot — no render() needed
+        if (slot?.thumbnail) {
+          dataUrl = slot.thumbnail;
+        } else if (slot && slot.renderer) {
+          // Fallback: render fresh frame for slots that never captured a snapshot
           if (slot.renderer.setSpeed) slot.renderer.setSpeed((slot.params?.speed as number) ?? 1);
           if (slot.renderer.render) slot.renderer.render();
           const canvas: HTMLCanvasElement = slot.renderer.canvas;

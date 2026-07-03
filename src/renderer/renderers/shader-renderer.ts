@@ -236,6 +236,12 @@ export class ShaderRenderer {
   private _bindingRuntime: Map<string, { enabled: boolean; smoothedValue: number }> = new Map();
   // Computed bound values for the current frame (param name → bound value)
   private _boundParamValues: Map<string, number> = new Map();
+  // Scratch object for setCustomUniforms — avoids per-frame spread allocation
+  private _boundValuesScratch: Record<string, number | number[]> = {};
+  // Index of customParams by name — avoids per-frame .find() in applyBindings
+  private _paramDefByName: Map<string, ParamDef> = new Map();
+  // Cached typed-array view over _audioBuffer — avoids per-frame construction
+  private _audioTexView: Uint8Array | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -821,7 +827,11 @@ export class ShaderRenderer {
           // Update texture (bins x 2, use texSubImage2D after first upload)
           gl.bindTexture(gl.TEXTURE_2D, this.channelTextures[i]);
           const sz = this._channelTexSizes[i];
-          const buf = new Uint8Array(this._audioBuffer.buffer, 0, bins * 2);
+          // ponytail: cache view — avoid per-frame Uint8Array construction
+          if (!this._audioTexView || this._audioTexView.buffer !== this._audioBuffer.buffer || this._audioTexView.length !== bins * 2) {
+            this._audioTexView = new Uint8Array(this._audioBuffer.buffer, 0, bins * 2);
+          }
+          const buf = this._audioTexView;
           if (sz[0] === bins && sz[1] === 2) {
             gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, bins, 2, gl.LUMINANCE, gl.UNSIGNED_BYTE, buf);
           } else {
@@ -913,7 +923,14 @@ export class ShaderRenderer {
   setCustomUniforms(): void {
     // If we have active bindings, temporarily override the values
     if (this._boundParamValues.size > 0) {
-      const values = { ...this.customParamValues } as Record<string, number | number[]>;
+      // ponytail: reuse scratch object — avoids spread allocation per frame
+      const values = this._boundValuesScratch;
+      for (const key in values) {
+        if (!(key in this.customParamValues)) delete values[key];
+      }
+      for (const key in this.customParamValues) {
+        values[key] = (this.customParamValues as Record<string, number | number[]>)[key];
+      }
       for (const [name, boundVal] of this._boundParamValues) {
         values[name] = boundVal;
       }
@@ -977,7 +994,7 @@ export class ShaderRenderer {
       }
 
       // Clamp to param range
-      const paramDef = this.customParams.find(p => p.name === paramName);
+      const paramDef = this._paramDefByName.get(paramName);
       if (paramDef) {
         if (paramDef.min !== null) value = Math.max(paramDef.min, value);
         if (paramDef.max !== null) value = Math.min(paramDef.max, value);
@@ -1066,6 +1083,9 @@ export class ShaderRenderer {
     this.customParamValues = createParamValues(this.customParams);
     this.customParamUniforms = {};
     this._paramsDirty = true; // Invalidate params cache on recompile
+    // Rebuild name→def index for O(1) lookup in applyBindings
+    this._paramDefByName.clear();
+    for (const p of this.customParams) this._paramDefByName.set(p.name, p);
 
     // Generate uniform declarations for custom params (with const defines prepended)
     const uniformDecls = generateUniformDeclarations(this.customParams);

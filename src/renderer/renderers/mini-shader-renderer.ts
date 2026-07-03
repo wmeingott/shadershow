@@ -181,8 +181,8 @@ export class MiniShaderRenderer {
 
   setParams(params: Record<string, ParamValue> | null | undefined): void {
     if (!params) return;
-    for (const [name, value] of Object.entries(params)) {
-      this.setParam(name, value);
+    for (const name in params) {
+      this.setParam(name, params[name]);
     }
   }
 
@@ -195,7 +195,8 @@ export class MiniShaderRenderer {
   }
 
   resetCustomParams(): void {
-    this.customParamValues = {};
+    // ponytail: clear in place — preserves object identity (mixer.ts:897 cpv ref)
+    for (const key in this.customParamValues) delete this.customParamValues[key];
   }
 
   compile(fragmentSource: string): void {

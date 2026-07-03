@@ -177,6 +177,8 @@ function captureChannelThumbnail(ch: MixerChannelRuntime): string | null {
 
 // Refresh thumbnails for all assigned channels
 function refreshChannelThumbnails(): void {
+  // ponytail: skip encodes when mixer is empty
+  if (channels().every(ch => ch.slotIndex === null && !ch.renderer)) return;
   const btns = document.querySelectorAll('#mixer-channels .mixer-btn');
   for (let i = 0; i < channels().length; i++) {
     const ch = channels()[i];

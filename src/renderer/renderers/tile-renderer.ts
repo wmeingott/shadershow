@@ -118,6 +118,9 @@ export class TileRenderer {
   // File texture directives (populated on compile)
   fileTextureDirectives: TextureDirective[] = [];
 
+  // Pre-cached channel uniform keys (avoids template-string construction per channel per draw)
+  private static readonly _channelUniformKeys: readonly ['iChannel0', 'iChannel1', 'iChannel2', 'iChannel3'] = ['iChannel0', 'iChannel1', 'iChannel2', 'iChannel3'] as const;
+
   // Per-tile channel textures (overrides shared textures when set)
   private channelTextures: (WebGLTexture | null)[] = [null, null, null, null];
   private channelResolutions: number[][] = [[0, 0, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1]];
@@ -360,7 +363,7 @@ export class TileRenderer {
       gl.activeTexture(gl.TEXTURE0 + i);
       const tex = this.channelTextures[i] || channelTextures[i];
       gl.bindTexture(gl.TEXTURE_2D, tex);
-      gl.uniform1i(this.uniforms[`iChannel${i}` as keyof StandardUniforms] as WebGLUniformLocation | null, i);
+      gl.uniform1i(this.uniforms[TileRenderer._channelUniformKeys[i]] as WebGLUniformLocation | null, i);
       if (this.channelTextures[i]) {
         resArray[i * 3] = this.channelResolutions[i][0];
         resArray[i * 3 + 1] = this.channelResolutions[i][1];

@@ -194,9 +194,10 @@ export function startGridAnimation(): void {
   // Use setTimeout instead of RAF for 10fps -- more efficient since we
   // don't need 60fps callbacks
   function animateGrid(): void {
-    // Skip rendering if grid panel is not visible (hidden via UI toggle).
-    // Keep the timer running so it resumes when the grid is shown.
-    if (!state.gridEnabled) {
+    // Skip rendering if grid panel is hidden or the show output is live
+    // (grid GPU work competes with the fullscreen window; thumbnails resume
+    // when fullscreen closes).
+    if (!state.gridEnabled || state.fullscreenActive) {
       state.gridAnimationId = setTimeout(animateGrid, GRID_FRAME_INTERVAL) as unknown as number;
       return;
     }

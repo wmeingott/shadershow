@@ -664,12 +664,9 @@ export function updatePreviewFrameLimit(): void {
     return;
   }
 
-  // If fullscreen is reaching target refresh rate, allow 60fps preview
-  // Otherwise limit to 30fps to reduce GPU load
-  const threshold = state.fullscreenTargetFps * 0.95; // 95% of target
-  if (state.fullscreenFps >= threshold) {
-    state.previewFrameInterval = 1000 / 60; // ~16.67ms for 60fps
-  } else {
-    state.previewFrameInterval = 1000 / 30; // ~33.33ms for 30fps
-  }
+  // Steady 30 fps while the show output runs. The previous reactive scheme
+  // (60 fps whenever fullscreen hit its target) oscillated: preview load made
+  // fullscreen miss frames, throttle kicked in, fullscreen recovered, preview
+  // sped up again — visible as periodic stutter in the output.
+  state.previewFrameInterval = 1000 / 30;
 }

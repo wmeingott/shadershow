@@ -179,6 +179,10 @@ function captureChannelThumbnail(ch: MixerChannelRuntime): string | null {
 function refreshChannelThumbnails(): void {
   // ponytail: skip encodes when mixer is empty
   if (channels().every(ch => ch.slotIndex === null && !ch.renderer)) return;
+  // Pause while fullscreen output runs: the per-channel GL-canvas drawImage
+  // (GPU sync) + JPEG data-URL decode + button repaint every 2 s contend with
+  // the show output on the shared GPU process (visible ~2 s stutter pulse).
+  if (state.fullscreenActive) return;
   const btns = document.querySelectorAll('#mixer-channels .mixer-btn');
   for (let i = 0; i < channels().length; i++) {
     const ch = channels()[i];

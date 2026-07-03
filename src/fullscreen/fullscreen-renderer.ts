@@ -7,6 +7,7 @@
 import { Logger, LOG_LEVEL } from '@shared/logger.js';
 import type { TextureDirective, ParamValue, ParamArrayValue, ParamValues } from '@shared/types/params.js';
 import { computeCropDraw, updateVideoLoop } from '@renderer/renderers/gl-utils.js';
+import { GLCompositor } from '@fullscreen/gl-compositor.js';
 import { ShaderRenderer } from '@renderer/renderers/shader-renderer.js';
 import { ThreeSceneRenderer } from '@renderer/renderers/three-scene-renderer.js';
 import { TileRenderer } from '@renderer/renderers/tile-renderer.js';
@@ -283,6 +284,10 @@ let mixerOverlayCtx: CanvasRenderingContext2D | null = null;
 
 // Asset mixer state
 let mixerAssets: (AssetEntry | null)[] = [];
+
+// GL compositor for the mixer multi-channel path (lazily created; falls back to 2D overlay on failure)
+let mixerCompositor: GLCompositor | null = null;
+let mixerCompositorFailed = false;
 
 // A/B crossfade mode state
 let abMode: boolean = false;
@@ -1061,6 +1066,64 @@ function renderMixerFrame(): void {
     return;
   }
 
+  const maxChannels: number = Math.max(mixerRenderers.length, mixerAssets.length);
+
+  // ── GL compositor path ────────────────────────────────────────────────────
+  // Avoids per-channel drawImage (which forces GPU pipeline syncs at 4K).
+  // Falls back permanently to the 2D overlay if construction fails.
+  if (!mixerCompositorFailed) {
+    if (!mixerCompositor) {
+      try {
+        mixerCompositor = new GLCompositor(gl);
+      } catch (err: unknown) {
+        log.error('GLCompositor init failed, falling back to 2D overlay:', err);
+        mixerCompositorFailed = true;
+      }
+    }
+  }
+
+  if (!mixerCompositorFailed && mixerCompositor) {
+    const comp = mixerCompositor;
+    const elapsed = (performance.now() - _fsStartTime) / 1000;
+    comp.begin(canvas.width, canvas.height);
+
+    for (let i = 0; i < maxChannels; i++) {
+      const alpha: number = i < mixerChannelAlphas.length ? mixerChannelAlphas[i] : 1;
+      if (alpha <= 0) continue;
+
+      const asset: AssetEntry | null = i < mixerAssets.length ? mixerAssets[i] : null;
+      if (asset && asset.source) {
+        if (asset.type === 'asset-video') {
+          updateVideoLoop(asset.source as HTMLVideoElement, asset.params);
+        }
+        try {
+          comp.compositeAsset(i, asset.source, asset.params, canvas.width, canvas.height, elapsed, alpha, mixerBlendMode);
+        } catch (_err: unknown) {
+          // source not ready yet — skip silently
+        }
+        continue;
+      }
+
+      const tr: TileRenderer | null = i < mixerRenderers.length ? mixerRenderers[i] : null;
+      if (!tr || !tr.program) continue;
+
+      try {
+        comp.compositeShader(() => tr.render(sharedState), alpha, mixerBlendMode);
+      } catch (err: unknown) {
+        log.error(`Mixer channel ${i} GL render error:`, err);
+      }
+    }
+
+    comp.present();
+    mixerOverlayCanvas.style.display = 'none'; // overlay is bypassed in GL path
+
+    if (shaderRenderer!.isPlaying) {
+      shaderRenderer!.frameCount++;
+    }
+    return;
+  }
+
+  // ── Legacy 2D overlay fallback (reachable when GLCompositor construction fails) ──
   // Clear 2D overlay to opaque black
   ctx.globalCompositeOperation = 'source-over';
   ctx.fillStyle = '#000';
@@ -1074,8 +1137,6 @@ function renderMixerFrame(): void {
   gl.disable(gl.DEPTH_TEST);
   gl.disable(gl.BLEND);
 
-  // Render each active channel (shaders + assets)
-  const maxChannels: number = Math.max(mixerRenderers.length, mixerAssets.length);
   for (let i = 0; i < maxChannels; i++) {
     const alpha: number = i < mixerChannelAlphas.length ? mixerChannelAlphas[i] : 1;
     if (alpha <= 0) continue;

@@ -198,6 +198,10 @@ export class ShaderRenderer {
   // Track texture dimensions for texSubImage2D optimization
   private _channelTexSizes: Array<[number, number]>;
 
+  // Incremented whenever a channel is torn down; lets in-flight async loads
+  // detect that the channel was reassigned while they awaited device access.
+  private _channelEpochs: [number, number, number, number] = [0, 0, 0, 0];
+
   // Last uploaded video currentTime per channel — skips redundant uploads
   // when the display refresh rate exceeds the video frame rate
   private _channelVideoTimes: number[];
@@ -506,6 +510,7 @@ export class ShaderRenderer {
 
       // Clean up any existing source for this channel
       this.cleanupChannel(channel);
+      const epoch = this._channelEpochs[channel]; // capture AFTER our own cleanup
 
       const video = document.createElement('video');
       // Convert file path to proper file:// URL (handles Windows paths)
@@ -519,6 +524,13 @@ export class ShaderRenderer {
       video.crossOrigin = 'anonymous';
 
       video.onloadedmetadata = () => {
+        if (this._channelEpochs[channel] !== epoch) {
+          // Channel was reassigned while we awaited — do not install over it.
+          video.src = '';
+          video.load();
+          reject(new Error('channel reassigned during video setup'));
+          return;
+        }
         // Create texture for video
         const texture = gl.createTexture();
         gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -552,12 +564,19 @@ export class ShaderRenderer {
 
     // Clean up any existing source for this channel
     this.cleanupChannel(channel);
+    const epoch = this._channelEpochs[channel]; // capture AFTER our own cleanup
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false,
       });
+
+      if (this._channelEpochs[channel] !== epoch) {
+        // Channel was reassigned while we awaited — do not install over it.
+        stream.getTracks().forEach(t => t.stop());
+        throw new Error('channel reassigned during camera setup');
+      }
 
       const video = document.createElement('video');
       video.srcObject = stream;
@@ -600,12 +619,19 @@ export class ShaderRenderer {
 
     // Clean up any existing source for this channel
     this.cleanupChannel(channel);
+    const epoch = this._channelEpochs[channel]; // capture AFTER our own cleanup
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
         video: false,
       });
+
+      if (this._channelEpochs[channel] !== epoch) {
+        // Channel was reassigned while we awaited — do not install over it.
+        stream.getTracks().forEach(t => t.stop());
+        throw new Error('channel reassigned during audio setup');
+      }
 
       // Create audio context and analyser
       const audioContext = new AudioContext();
@@ -660,6 +686,7 @@ export class ShaderRenderer {
   }
 
   cleanupChannel(channel: number): void {
+    this._channelEpochs[channel]++;
     const gl = this.gl;
 
     // Stop and cleanup video/camera source
@@ -723,6 +750,10 @@ export class ShaderRenderer {
     this.channelTextures[channel] = texture;
     this.channelResolutions[channel] = [0, 0, 1];
     this.channelTypes[channel] = 'empty';
+    // Invalidate the texSubImage2D size guard: the texture object (and possibly
+    // its format) just changed, so the next upload must re-specify via texImage2D.
+    this._channelTexSizes[channel][0] = 0;
+    this._channelTexSizes[channel][1] = 0;
   }
 
   clearChannel(channel: number): { type: string } {

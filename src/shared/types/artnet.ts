@@ -46,3 +46,14 @@ export const ARTNET_DEFAULTS: ArtNetSettings = {
   universe: 0,
   mappings: [],
 };
+
+/**
+ * Targets that fire once on a rising edge over a threshold
+ * (as opposed to continuously tracking a value).
+ */
+export function isThresholdTarget(target: ArtNetTarget): boolean {
+  return target.type === 'vp-recall'
+    || target.type === 'preset-recall'
+    || target.type === 'blackout'
+    || target.type === 'mixer-select';
+}

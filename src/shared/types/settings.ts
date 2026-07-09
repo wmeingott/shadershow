@@ -38,6 +38,9 @@ export interface AppSettings {
   artnetEnabled: boolean;
   artnetUniverse: number;
   artnetMappings: import('./artnet.js').ArtNetMapping[];
+  midiEnabled: boolean;
+  midiInputId: string;
+  midiMappings: import('./midi.js').MidiMapping[];
 }
 
 /** Settings returned to renderer for the settings dialog */
@@ -56,6 +59,9 @@ export interface SettingsDialogData {
   artnetEnabled: boolean;
   artnetUniverse: number;
   artnetMappings: import('./artnet.js').ArtNetMapping[];
+  midiEnabled: boolean;
+  midiInputId: string;
+  midiMappings: import('./midi.js').MidiMapping[];
 }
 
 /** AI provider identifier */

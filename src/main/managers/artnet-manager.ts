@@ -3,7 +3,8 @@
 
 import dgram from 'dgram';
 import { Logger } from '@shared/logger.js';
-import type { ArtNetMapping, ArtNetChange, ArtNetStatus, ArtNetTarget } from '@shared/types/artnet.js';
+import { isThresholdTarget } from '@shared/types/artnet.js';
+import type { ArtNetMapping, ArtNetChange, ArtNetStatus } from '@shared/types/artnet.js';
 
 const log = new Logger('ArtNet');
 
@@ -199,7 +200,7 @@ export class ArtNetManager {
       const target = mapping.target;
 
       // For threshold-based targets, only emit on rising edge
-      if (this.isThresholdTarget(target)) {
+      if (isThresholdTarget(target)) {
         const threshold = (target as { threshold?: number }).threshold ?? 127;
         const wasHigh = this.triggerState.get(mappingIdx) ?? false;
         const isHigh = dmxValue > threshold;
@@ -230,13 +231,6 @@ export class ArtNetManager {
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
-
-  private isThresholdTarget(target: ArtNetTarget): boolean {
-    return target.type === 'vp-recall'
-      || target.type === 'preset-recall'
-      || target.type === 'blackout'
-      || target.type === 'mixer-select';
-  }
 
   private rebuildLookup(): void {
     this.channelToMapping.clear();

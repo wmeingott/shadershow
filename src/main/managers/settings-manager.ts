@@ -13,6 +13,7 @@ import {
   RECORDING_RESOLUTIONS,
 } from '@shared/types/settings.js';
 import { type ArtNetMapping, ARTNET_DEFAULTS } from '@shared/types/artnet.js';
+import { type MidiMapping, MIDI_DEFAULTS } from '@shared/types/midi.js';
 
 const log = new Logger('Settings');
 
@@ -28,6 +29,9 @@ const DEFAULTS: AppSettings = {
   artnetEnabled: ARTNET_DEFAULTS.enabled,
   artnetUniverse: ARTNET_DEFAULTS.universe,
   artnetMappings: ARTNET_DEFAULTS.mappings,
+  midiEnabled: MIDI_DEFAULTS.enabled,
+  midiInputId: MIDI_DEFAULTS.inputId,
+  midiMappings: MIDI_DEFAULTS.mappings,
 };
 
 /**
@@ -51,6 +55,9 @@ export class SettingsManager {
   artnetEnabled: boolean;
   artnetUniverse: number;
   artnetMappings: ArtNetMapping[];
+  midiEnabled: boolean;
+  midiInputId: string;
+  midiMappings: MidiMapping[];
 
   constructor(settingsFile: string) {
     this.settingsFile = settingsFile;
@@ -66,6 +73,9 @@ export class SettingsManager {
     this.artnetEnabled = DEFAULTS.artnetEnabled;
     this.artnetUniverse = DEFAULTS.artnetUniverse;
     this.artnetMappings = [...DEFAULTS.artnetMappings];
+    this.midiEnabled = DEFAULTS.midiEnabled;
+    this.midiInputId = DEFAULTS.midiInputId;
+    this.midiMappings = [...DEFAULTS.midiMappings];
   }
 
   /**
@@ -109,6 +119,15 @@ export class SettingsManager {
         if (Array.isArray(data.artnetMappings)) {
           this.artnetMappings = data.artnetMappings;
         }
+        if (typeof data.midiEnabled === 'boolean') {
+          this.midiEnabled = data.midiEnabled;
+        }
+        if (typeof data.midiInputId === 'string') {
+          this.midiInputId = data.midiInputId;
+        }
+        if (Array.isArray(data.midiMappings)) {
+          this.midiMappings = data.midiMappings;
+        }
       }
     } catch (err) {
       log.error('Failed to load settings:', err);
@@ -142,6 +161,9 @@ export class SettingsManager {
         artnetEnabled: this.artnetEnabled,
         artnetUniverse: this.artnetUniverse,
         artnetMappings: this.artnetMappings,
+        midiEnabled: this.midiEnabled,
+        midiInputId: this.midiInputId,
+        midiMappings: this.midiMappings,
         ...additionalData,
       };
 
@@ -190,6 +212,9 @@ export class SettingsManager {
       artnetEnabled: this.artnetEnabled,
       artnetUniverse: this.artnetUniverse,
       artnetMappings: this.artnetMappings,
+      midiEnabled: this.midiEnabled,
+      midiInputId: this.midiInputId,
+      midiMappings: this.midiMappings,
     };
   }
 

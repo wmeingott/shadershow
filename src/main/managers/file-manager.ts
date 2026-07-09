@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { dialog, BrowserWindow } from 'electron';
 import { Logger, LOG_LEVEL } from '@shared/logger.js';
+import { splitThumbnails, mergeThumbnails, type ThumbnailMap } from './thumbnail-sidecar.js';
 
 const fsPromises = fs.promises;
 
@@ -19,6 +20,7 @@ export class FileManager {
   readonly dataDir: string;
   readonly shadersDir: string;
   readonly gridStateFile: string;
+  readonly thumbnailsFile: string;
   readonly presetsFile: string;
   readonly settingsFile: string;
   readonly viewStateFile: string;
@@ -28,10 +30,13 @@ export class FileManager {
   readonly mediaDir: string;
   readonly claudeKeyFile: string;
 
+  private lastThumbFingerprint: string | null = null;
+
   constructor(appDir: string) {
     this.dataDir = path.join(appDir, 'data');
     this.shadersDir = path.join(this.dataDir, 'shaders');
     this.gridStateFile = path.join(this.dataDir, 'grid-state.json');
+    this.thumbnailsFile = path.join(this.dataDir, 'thumbnails.json');
     this.presetsFile = path.join(this.dataDir, 'presets.json');
     this.settingsFile = path.join(this.dataDir, 'settings.json');
     this.viewStateFile = path.join(this.dataDir, 'view-state.json');
@@ -150,7 +155,16 @@ export class FileManager {
   async saveGridState(gridState: any): Promise<void> {
     log.info('Saving grid state...');
     await this.ensureDataDir();
+    const thumbs = splitThumbnails(gridState);
     await this.writeFileAtomic(this.gridStateFile, JSON.stringify(gridState, null, 2));
+    // Cheap change gate: thumbnails are JPEG data-URLs — content changes move
+    // the length. Same-length different-content misses are rare and self-heal
+    // on the next thumbnail refresh.
+    const fp = Object.keys(thumbs).sort().map(k => `${k}:${thumbs[k].length}`).join(',');
+    if (fp !== this.lastThumbFingerprint) {
+      await this.writeFileAtomic(this.thumbnailsFile, JSON.stringify(thumbs, null, 1));
+      this.lastThumbFingerprint = fp;
+    }
     log.debug('Grid state saved');
   }
 
@@ -191,6 +205,11 @@ export class FileManager {
             }
           }
           log.debug('Grid state loaded (v2)', String(savedData.tabs.length), 'tabs');
+          // Re-attach thumbnails from sidecar (if any); inline wins over sidecar (migration).
+          const thumbs: ThumbnailMap = await this.readJson<ThumbnailMap>(this.thumbnailsFile, {});
+          mergeThumbnails(savedData, thumbs);
+          // Seed fingerprint so an unchanged-thumbnail session never rewrites the sidecar.
+          this.lastThumbFingerprint = Object.keys(thumbs).sort().map(k => `${k}:${thumbs[k].length}`).join(',');
           return savedData;
         }
 

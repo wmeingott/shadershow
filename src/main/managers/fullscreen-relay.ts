@@ -113,7 +113,6 @@ export class FullscreenRelay {
    */
   private relay(channel: string): void {
     ipcMain.on(channel, (_event: IpcMainEvent, data: unknown) => {
-      log.debug(`Relay ${channel}`);
       this.sendToFullscreen(channel, data);
     });
   }

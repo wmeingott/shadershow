@@ -95,7 +95,7 @@ interface MixPresetChannel {
   enabled?: boolean;
 }
 
-import { loadParamsToSliders, generateCustomParamUI } from './params.js';
+import { loadParamsToSliders, generateCustomParamUI, expandMixerParamSection, resetMixerParamCollapse } from './params.js';
 import { updateLocalPresetsUI } from './presets.js';
 import { setStatus } from './utils.js';
 import { showContextMenu as showContextMenuHelper } from './context-menu.js';
@@ -634,6 +634,7 @@ export function assignShaderToMixer(channelIndex: number, slotIndex: number): vo
   state.mixerArmedChannel = null;
   state.mixerEnabled = true;
   syncToggleButton();
+  expandMixerParamSection(channelIndex);
   selectMixerChannel(channelIndex);
 
   window.electronAPI.sendMixerChannelUpdate({
@@ -682,6 +683,7 @@ export function assignAssetToMixer(channelIndex: number, slotIndex: number): voi
   state.mixerArmedChannel = null;
   state.mixerEnabled = true;
   syncToggleButton();
+  expandMixerParamSection(channelIndex);
   selectMixerChannel(channelIndex);
 
   const assetRenderer = slotData?.renderer as unknown as AssetRendererLike | null;
@@ -746,6 +748,7 @@ export function clearMixerChannel(channelIndex: number): void {
     resyncMixerToFullscreen(previousCount);
 
     if (!isMixerActive()) hideMixerOverlay();
+    resetMixerParamCollapse(); // indices shifted — stale collapse state would hide the wrong channel
     generateCustomParamUI();
     syncMixerToABComposition();
 
@@ -985,6 +988,7 @@ export function recallMixState(preset: MixPreset): void {
 
   state.mixerArmedChannel = null;
   state.mixerSelectedChannel = null;
+  resetMixerParamCollapse();
 
   state.mixerBlendMode = (preset.blendMode || 'lighter') as typeof state.mixerBlendMode;
   const blendSelect = document.getElementById('mixer-blend-mode') as HTMLSelectElement | null;

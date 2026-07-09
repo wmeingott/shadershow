@@ -1414,6 +1414,19 @@ function generateAssetParamUI(container: HTMLElement, slotData: GridSlotLike): v
 // Mixer Multi-Channel Parameter UI
 // =============================================================================
 
+// Collapsed channel sections — session-only, keyed by channel index
+const collapsedMixerSections = new Set<number>();
+
+/** Expand a mixer channel's param section (called when a source is assigned) */
+export function expandMixerParamSection(channelIndex: number): void {
+  collapsedMixerSections.delete(channelIndex);
+}
+
+/** Expand all sections — used when channel indices shift (removal) or a mix preset is recalled */
+export function resetMixerParamCollapse(): void {
+  collapsedMixerSections.clear();
+}
+
 function generateMixerParamsUI(container: HTMLElement): void {
   selectedColorPickers.clear();
   container.innerHTML = '';
@@ -1450,14 +1463,30 @@ function generateMixerParamsUI(container: HTMLElement): void {
     if (slotData) {
       filename = isAsset
         ? (slotData.label || slotData.mediaPath || null)
-        : (slotData.filePath?.split('/').pop()?.split('\\').pop() || null);
+        : (slotData.label || slotData.filePath?.split('/').pop()?.split('\\').pop() || null);
     }
+    if (!filename && ch.slotIndex !== null) filename = `Slot ${ch.slotIndex + 1}`;
     const channelLabel = `Ch ${i + 1}: ${filename || (isAsset ? 'Asset' : 'Mix Preset')}`;
     const accentColor = MIXER_CHANNEL_COLORS[i % MIXER_CHANNEL_COLORS.length];
+    const collapsed = collapsedMixerSections.has(i);
 
     const section = document.createElement('div');
     section.className = 'params-section mixer-channel-section';
     section.style.borderLeftColor = accentColor;
+
+    const header = document.createElement('div');
+    header.className = 'mixer-channel-header';
+
+    const caret = document.createElement('button');
+    caret.className = 'mixer-collapse-btn';
+    caret.textContent = collapsed ? '▶' : '▼';
+    caret.title = collapsed ? 'Expand parameters' : 'Collapse parameters';
+    caret.addEventListener('click', (e: MouseEvent) => {
+      e.stopPropagation();
+      if (collapsed) collapsedMixerSections.delete(i);
+      else collapsedMixerSections.add(i);
+      generateCustomParamUI();
+    });
 
     const titleEl = document.createElement('div');
     titleEl.className = 'params-section-title mixer-channel-title';
@@ -1481,7 +1510,15 @@ function generateMixerParamsUI(container: HTMLElement): void {
       section.classList.add('mixer-channel-selected');
     });
 
-    section.appendChild(titleEl);
+    header.appendChild(caret);
+    header.appendChild(titleEl);
+    section.appendChild(header);
+
+    if (collapsed) {
+      section.classList.add('collapsed');
+      container.appendChild(section);
+      continue;
+    }
 
     const scalarParams = params.filter((p: ParamDef | AssetParamDef) => !(p as ParamDef).isArray);
     const arrayParams = params.filter((p: ParamDef | AssetParamDef) => (p as ParamDef).isArray);

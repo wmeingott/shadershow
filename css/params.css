@@ -555,6 +555,44 @@
   margin-bottom: 0;
 }
 
+/* Sticky per-channel header: caret + title. Sticks to the top of the
+   #params-panel scrollport so the channel name stays visible while its
+   params scroll. Opaque background covers rows passing underneath. */
+.mixer-channel-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background-color: var(--bg-secondary);
+  padding: 2px 0;
+}
+
+.mixer-channel-header .params-section-title {
+  margin-bottom: 0;
+}
+
+.mixer-collapse-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  width: 14px;
+  flex: 0 0 14px;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.mixer-collapse-btn:hover {
+  color: var(--text-primary);
+}
+
+.mixer-channel-section.collapsed {
+  padding-bottom: 2px;
+}
+
 .mixer-channel-title {
   font-weight: 700;
   cursor: pointer;

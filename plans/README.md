@@ -23,6 +23,7 @@ planned per the skill's non-interactive default.
 | 007  | Pause mixer thumbnail refresh while fullscreen is live (fixes ~2s stutter pulse in fullscreen output) | P1 | S | 005 | DONE — merged to ts-cleanup @ 11508aa (live-verified: 2s pulse removed) |
 | 008  | Quiet main window during fullscreen: steady 30fps preview cap + paused grid thumbnails (residual stutter) | P1 | S | 007 | DONE — merged to ts-cleanup @ 11508aa (live-tested: residual stutter resolved) |
 | 009  | Atomic shader+param propagation: params travel with every shader message, FS applies in-handler (fixes preview/fullscreen param divergence) | P1 | S | — | DONE — committed 7f02ad8, live-verified via CDP (slot select / dblclick-edit / debounced recompile / live tweak all keep params in FS). Note: param restore keys off the active *tab's* slotIndex, not `state.activeGridSlot`, per the plan's STOP-condition remedy |
+| 010  | Collapsible mixer channel sections in PAR: sticky colored headers + caret collapse, auto-expand on assign, slot-label fix | P2 | S | — | DONE — live-verified via CDP (3 channels: collapse/expand, title-click select, auto-expand on reassign, labels "Slot N") |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 

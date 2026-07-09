@@ -127,6 +127,7 @@ interface InitFullscreenState {
 interface ShaderUpdateData {
   renderMode?: RenderMode;
   shaderCode?: string;
+  params?: ParamValues;
 }
 
 interface TimeSyncData {
@@ -1751,6 +1752,9 @@ export function registerIPCHandlers(): void {
           loadFileTexturesForRenderer(renderer);
           loadShaderTexturesForRenderer(renderer);
         }
+        // compile() resets all params to @param defaults — apply the snapshot
+        // that rode along with the shader in the same turn (no ordering races)
+        if (data.params) renderer!.setParams(data.params);
       } catch (err: unknown) {
         log.error('Compile error:', err);
       }

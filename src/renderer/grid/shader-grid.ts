@@ -1940,26 +1940,14 @@ export async function loadGridShaderToEditor(slotIndex: number): Promise<void> {
     activate: true,
   });
 
-  // Cancel debounced compile from editor change event — the tab-activated handler
-  // already triggers an immediate compile, and a later debounced compile would
-  // overwrite the custom params we restore below.
+  // Cancel debounced compile from editor change event — the tab-activated
+  // handler already triggers an immediate compile, which restores the slot's
+  // saved custom params itself (see compileShader); a later debounced compile
+  // would be redundant.
   if (state.compileTimeout) {
     clearTimeout(state.compileTimeout);
     state.compileTimeout = null;
   }
-
-  // Load saved custom param values if available (after tab is activated and compiled)
-  setTimeout(() => {
-    if (slotData.customParams && !isScene) {
-      const renderer = state.renderer as MiniRendererLike;
-      renderer.setCustomParamValues?.(slotData.customParams);
-      // Restore binding toggle states
-      if (slotData.bindingStates && (renderer as any).setBindingStates) {
-        (renderer as any).setBindingStates(slotData.bindingStates);
-      }
-      generateCustomParamUI(); // Regenerate UI to reflect loaded values
-    }
-  }, 100);
 
   // Load speed to slider if present
   if (slotData.params) {
@@ -2145,16 +2133,13 @@ export async function selectGridSlot(slotIndex: number): Promise<void> {
       window.electronAPI.assignTileShader(state.selectedTileIndex, slotIndex, slotData.shaderCode, allParams);
     }
   } else {
-    // In normal mode, update the main fullscreen
+    // In normal mode, update the main fullscreen — params ride with the
+    // shader message and are applied atomically after the fullscreen compile
     window.electronAPI.sendShaderUpdate({
       shaderCode: slotData.shaderCode,
       renderMode: isScene ? 'scene' : 'shader',
       params: allParams,
     });
-
-    if (window.electronAPI.sendBatchParamUpdate) {
-      window.electronAPI.sendBatchParamUpdate(allParams);
-    }
   }
 
   const tileInfo = state.tiledPreviewEnabled ? ` -> tile ${state.selectedTileIndex + 1}` : '';

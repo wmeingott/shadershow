@@ -77,7 +77,7 @@ declare const ace: {
 declare const window: Window & {
   electronAPI: {
     saveContent(content: string): void;
-    sendShaderUpdate(data: { shaderCode: string; renderMode: string }): void;
+    sendShaderUpdate(data: { shaderCode: string; renderMode: string; params?: Record<string, unknown> }): void;
     loadFileTexture(name: string): Promise<{ success: boolean; dataUrl?: string }>;
     loadShaderFile(path: string): Promise<{ success: boolean; source?: string }>;
     sendParamUpdate(data: unknown): void;
@@ -125,6 +125,10 @@ interface ShaderRendererSurface {
   loadShaderTextureFile?(channel: number, fileSource: string, directive: ShaderTextureDirective): unknown[];
   channelResolutions: [number, number, number][];
   setParam?(name: string, value: unknown): void;
+  setCustomParamValues?(values: Record<string, unknown>): void;
+  setBindingStates?(states: Record<string, boolean>): void;
+  getParams?(): Record<string, unknown>;
+  getCustomParamValues?(): Record<string, unknown>;
   extraWrapperLines?: number;
 }
 
@@ -282,6 +286,21 @@ export async function compileShader(): Promise<void> {
     // Compile using the active renderer
     renderer.compile(source);
 
+    // compile() resets all params to their @param defaults — restore the
+    // slot's saved values when this tab belongs to a grid slot (names the
+    // new source no longer declares are ignored by setCustomParamValues)
+    const slotIndex = getActiveTab()?.slotIndex ?? null;
+    const slot = slotIndex !== null
+      ? (state.gridSlots[slotIndex] as {
+          customParams?: Record<string, unknown>;
+          bindingStates?: Record<string, boolean>;
+        } | null)
+      : null;
+    if (slot?.customParams && state.renderMode !== 'scene') {
+      renderer.setCustomParamValues?.(slot.customParams);
+      if (slot.bindingStates) renderer.setBindingStates?.(slot.bindingStates);
+    }
+
     const modeLabel = state.renderMode === 'scene' ? 'Scene' : 'Shader';
     log.info('Editor', modeLabel, 'compiled successfully');
     setStatus(`${modeLabel} compiled successfully`, 'success');
@@ -365,10 +384,12 @@ export async function compileShader(): Promise<void> {
       }
     }
 
-    // Sync to fullscreen window
+    // Sync to fullscreen window — params ride with the shader so the
+    // fullscreen compile+apply is atomic (mirrors the preview renderer)
     window.electronAPI.sendShaderUpdate({
       shaderCode: source,
       renderMode: state.renderMode,
+      params: renderer.getParams?.() ?? renderer.getCustomParamValues?.(),
     });
   } catch (err: unknown) {
     const compileErr = err as CompileError;

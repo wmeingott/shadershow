@@ -905,6 +905,8 @@ export class ShaderRenderer {
     } else if (Object.prototype.hasOwnProperty.call(this.params, name)) {
       this.params[name] = value as number;
       this._paramsDirty = true;
+    } else {
+      log.debug('setParam: unknown param dropped:', name);
     }
     // Mark static shader texture channels as dirty on any param change
     for (const stc of this.shaderTextureChannels.values()) {

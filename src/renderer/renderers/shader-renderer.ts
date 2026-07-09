@@ -36,6 +36,7 @@ import {
   setCustomUniforms,
   loadTextureFromDataUrl,
   createBuiltinTexture,
+  createChannelTexture,
   VERTEX_SHADER_SOURCE,
   buildShaderExtras,
 } from './gl-utils.js';
@@ -471,16 +472,11 @@ export class ShaderRenderer {
 
     // Create default black textures for all channels
     for (let i = 0; i < 4; i++) {
-      const texture = gl.createTexture();
-      gl.bindTexture(gl.TEXTURE_2D, texture);
+      const texture = createChannelTexture(gl, 'repeat');
       gl.texImage2D(
         gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
         BLACK_PIXEL,
       );
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
       this.channelTextures[i] = texture;
     }
   }
@@ -532,12 +528,7 @@ export class ShaderRenderer {
           return;
         }
         // Create texture for video
-        const texture = gl.createTexture();
-        gl.bindTexture(gl.TEXTURE_2D, texture);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        const texture = createChannelTexture(gl, 'clamp');
 
         // Initialize with empty data
         gl.texImage2D(
@@ -589,12 +580,7 @@ export class ShaderRenderer {
       await video.play();
 
       // Create texture for camera
-      const texture = gl.createTexture();
-      gl.bindTexture(gl.TEXTURE_2D, texture);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      const texture = createChannelTexture(gl, 'clamp');
 
       // Initialize with empty data
       gl.texImage2D(
@@ -647,12 +633,7 @@ export class ShaderRenderer {
       const timeDomainData = new Uint8Array(bins);
 
       // Create texture (bins x 2: row 0 = FFT, row 1 = waveform)
-      const texture = gl.createTexture();
-      gl.bindTexture(gl.TEXTURE_2D, texture);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      const texture = createChannelTexture(gl, 'clamp');
 
       // Initialize with empty data
       gl.texImage2D(
@@ -736,16 +717,11 @@ export class ShaderRenderer {
       gl.deleteTexture(this.channelTextures[channel]);
     }
 
-    const texture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, texture);
+    const texture = createChannelTexture(gl, 'repeat');
     gl.texImage2D(
       gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
       BLACK_PIXEL,
     );
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
 
     this.channelTextures[channel] = texture;
     this.channelResolutions[channel] = [0, 0, 1];
@@ -769,12 +745,7 @@ export class ShaderRenderer {
     this.cleanupChannel(channel);
 
     // Create texture for NDI
-    const texture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const texture = createChannelTexture(gl, 'clamp');
 
     // Initialize with 1x1 black texture until first frame arrives
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, BLACK_PIXEL);

@@ -4,6 +4,7 @@
 
 import { state } from '../core/state.js';
 import type { ParamValues } from '@shared/types/params.js';
+import { basename } from '@shared/paths.js';
 import {
   tileState,
   tilePresets,
@@ -292,7 +293,7 @@ function createTilePreviewSlot(index: number): HTMLDivElement {
     shaderName.className = 'tile-shader-name';
     const slotData = gridSlots()[tile.gridSlotIndex!];
     shaderName.textContent = slotData?.filePath
-      ? slotData.filePath.split('/').pop()!.split('\\').pop()!
+      ? basename(slotData.filePath)
       : `Slot ${tile.gridSlotIndex! + 1}`;
     slot.appendChild(shaderName);
 

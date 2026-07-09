@@ -2,6 +2,7 @@
 // Typed version of js/tabs.js.
 
 import { state } from '../core/state.js';
+import { basename } from '@shared/paths.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -88,7 +89,7 @@ function generateTabId(): string {
 /** Extract filename from a file path. */
 function getFileName(filePath: string | null | undefined): string | null {
   if (!filePath) return null;
-  return filePath.split('/').pop()!.split('\\').pop()!;
+  return basename(filePath);
 }
 
 /** Return an icon string for a given tab type. */

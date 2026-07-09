@@ -11,6 +11,7 @@ import { hideMixerOverlay, recallMixState, snapshotMixerState } from './mixer.js
 import { hideAssetOverlay } from '../core/render-loop.js';
 import { loadParamsToSliders, generateCustomParamUI } from './params.js';
 import { tilingValues, isTilingFixed, setOnTilingChanged } from './tiling.js';
+import { rgbToHex, hexToRgb } from './color-utils.js';
 
 import type { ParamDef, ParamValue } from '@shared/types/params.js';
 import { parseShaderParams } from '@shared/param-parser.js';
@@ -308,9 +309,7 @@ function applyTiling(t: TilingSnapshot): void {
 
 function tilingFromParams(params: Record<string, ParamValue>): TilingSnapshot {
   const bgHex = (params.tilingBg as unknown as string) || '#000000';
-  const r = parseInt(bgHex.slice(1, 3), 16) / 255 || 0;
-  const g = parseInt(bgHex.slice(3, 5), 16) / 255 || 0;
-  const b = parseInt(bgHex.slice(5, 7), 16) / 255 || 0;
+  const [r, g, b] = hexToRgb(bgHex, [0, 0, 0]);
   return {
     cols: (params.cols as number) || 1,
     rows: (params.rows as number) || 1,
@@ -819,10 +818,7 @@ function restoreTargetSideParams(side: 'a' | 'b'): void {
     mergedParams.rows = target.tiling.rows;
     mergedParams.spaceX = target.tiling.spaceX;
     mergedParams.spaceY = target.tiling.spaceY;
-    mergedParams.tilingBg = '#' +
-      Math.round(target.tiling.bgR * 255).toString(16).padStart(2, '0') +
-      Math.round(target.tiling.bgG * 255).toString(16).padStart(2, '0') +
-      Math.round(target.tiling.bgB * 255).toString(16).padStart(2, '0');
+    mergedParams.tilingBg = rgbToHex(target.tiling.bgR, target.tiling.bgG, target.tiling.bgB);
   }
 
   // Load speed, custom params, and tiling to sliders

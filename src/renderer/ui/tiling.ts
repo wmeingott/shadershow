@@ -3,6 +3,7 @@
 
 import { state } from '../core/state.js';
 import { saveGridState } from '../grid/grid-persistence.js';
+import { rgbToHex, hexToRgb } from './color-utils.js';
 import { makeValueEditable } from './params.js';
 
 // ---------------------------------------------------------------------------
@@ -58,25 +59,6 @@ function syncToActiveSlot(key: string, value: unknown): void {
   if (!slot.params) slot.params = {};
   slot.params[key] = value;
   debouncedSave();
-}
-
-// ---------------------------------------------------------------------------
-// Color helpers
-// ---------------------------------------------------------------------------
-
-function hexToRgb(hex: string): [number, number, number] {
-  const r = parseInt(hex.slice(1, 3), 16) / 255;
-  const g = parseInt(hex.slice(3, 5), 16) / 255;
-  const b = parseInt(hex.slice(5, 7), 16) / 255;
-  return [r, g, b];
-}
-
-function rgbToHex(r: number, g: number, b: number): string {
-  const toHex = (v: number) => {
-    const h = Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16);
-    return h.length === 1 ? '0' + h : h;
-  };
-  return '#' + toHex(r) + toHex(g) + toHex(b);
 }
 
 /** Return tiling values in the format used by slot.params (for preset save/recall). */

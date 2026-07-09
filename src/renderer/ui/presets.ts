@@ -6,6 +6,7 @@ import { state } from '../core/state.js';
 import { tileState } from '../tiles/tile-state.js';
 
 import { setStatus } from './utils.js';
+import { showContextMenu } from './context-menu.js';
 import { saveGridState } from '../grid/grid-persistence.js';
 import { loadParamsToSliders, generateCustomParamUI } from './params.js';
 import { resetTiling, getTilingParams } from './tiling.js';
@@ -281,63 +282,11 @@ function showPresetContextMenu(
   index: number,
   btn: HTMLElement,
 ): void {
-  hidePresetContextMenu();
-
-  const menu: HTMLDivElement = document.createElement('div');
-  menu.className = 'context-menu';
-  menu.id = 'preset-context-menu';
-
-  // Update option
-  const updateItem: HTMLDivElement = document.createElement('div');
-  updateItem.className = 'context-menu-item';
-  updateItem.textContent = 'Update';
-  updateItem.addEventListener('click', () => {
-    hidePresetContextMenu();
-    updateLocalPreset(index);
-  });
-  menu.appendChild(updateItem);
-
-  // Rename option
-  const renameItem: HTMLDivElement = document.createElement('div');
-  renameItem.className = 'context-menu-item';
-  renameItem.textContent = 'Rename...';
-  renameItem.addEventListener('click', () => {
-    hidePresetContextMenu();
-    showRenamePresetDialog(index, btn);
-  });
-  menu.appendChild(renameItem);
-
-  // Delete option
-  const deleteItem: HTMLDivElement = document.createElement('div');
-  deleteItem.className = 'context-menu-item';
-  deleteItem.textContent = 'Delete';
-  deleteItem.addEventListener('click', () => {
-    hidePresetContextMenu();
-    deleteLocalPreset(index, btn);
-  });
-  menu.appendChild(deleteItem);
-
-  menu.style.left = `${x}px`;
-  menu.style.top = `${y}px`;
-  document.body.appendChild(menu);
-
-  // Adjust position if menu goes off screen
-  const rect: DOMRect = menu.getBoundingClientRect();
-  if (rect.right > window.innerWidth) {
-    menu.style.left = `${window.innerWidth - rect.width - 5}px`;
-  }
-  if (rect.bottom > window.innerHeight) {
-    menu.style.top = `${window.innerHeight - rect.height - 5}px`;
-  }
-
-  setTimeout(() => {
-    document.addEventListener('click', hidePresetContextMenu, { once: true });
-  }, 0);
-}
-
-function hidePresetContextMenu(): void {
-  const menu = document.getElementById('preset-context-menu');
-  if (menu) menu.remove();
+  showContextMenu(x, y, [
+    { label: 'Update', action: () => updateLocalPreset(index) },
+    { label: 'Rename...', action: () => showRenamePresetDialog(index, btn) },
+    { label: 'Delete', action: () => deleteLocalPreset(index, btn) },
+  ], { menuId: 'preset-context-menu' });
 }
 
 function showRenamePresetDialog(index: number, btn: HTMLElement): void {

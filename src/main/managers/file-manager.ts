@@ -122,6 +122,23 @@ export class FileManager {
     return this._writeQueue;
   }
 
+  /** Read + parse a JSON file, returning `fallback` when missing/malformed. */
+  private async readJson<T>(filePath: string, fallback: T): Promise<T> {
+    try {
+      const raw = await this.readFileOrNull(filePath);
+      if (raw) return JSON.parse(raw) as T;
+    } catch (err) {
+      log.error(`Failed to parse ${filePath}:`, err);
+    }
+    return fallback;
+  }
+
+  /** Atomically write `data` as pretty-printed JSON. */
+  private async writeJson(filePath: string, data: unknown): Promise<void> {
+    await this.ensureDataDir();
+    await this.writeFileAtomic(filePath, JSON.stringify(data, null, 2));
+  }
+
   // ── Grid state ──────────────────────────────────────────────────────
 
   /**
@@ -281,114 +298,46 @@ export class FileManager {
   // ── Presets ─────────────────────────────────────────────────────────
 
   async savePresets(data: unknown): Promise<void> {
-    await this.ensureDataDir();
-    await this.writeFileAtomic(this.presetsFile, JSON.stringify(data, null, 2));
+    await this.writeJson(this.presetsFile, data);
   }
 
   async loadPresets(): Promise<any[]> {
-    try {
-      const raw = await this.readFileOrNull(this.presetsFile);
-      if (raw) return JSON.parse(raw);
-    } catch (err) {
-      log.error('Failed to load presets:', err);
-    }
-    return [];
+    return this.readJson<any[]>(this.presetsFile, []);
   }
 
   // ── View state ──────────────────────────────────────────────────────
 
   async saveViewState(data: unknown): Promise<void> {
-    await this.ensureDataDir();
-    await this.writeFileAtomic(this.viewStateFile, JSON.stringify(data, null, 2));
+    await this.writeJson(this.viewStateFile, data);
   }
 
   async loadViewState(): Promise<any | null> {
-    try {
-      const raw = await this.readFileOrNull(this.viewStateFile);
-      if (raw) return JSON.parse(raw);
-    } catch (err) {
-      log.debug('Failed to load view state:', err);
-    }
-    return null;
+    return this.readJson<any | null>(this.viewStateFile, null);
   }
 
   // ── Tile state ──────────────────────────────────────────────────────
 
   async saveTileState(data: unknown): Promise<void> {
-    await this.ensureDataDir();
-    try {
-      await fsPromises.writeFile(this.tileStateFile, JSON.stringify(data, null, 2), 'utf-8');
-    } catch (err) {
-      log.error('Failed to save tile state:', err);
-    }
+    await this.writeJson(this.tileStateFile, data);
   }
 
   async loadTileState(): Promise<any | null> {
-    try {
-      const raw = await this.readFileOrNull(this.tileStateFile);
-      if (raw) return JSON.parse(raw);
-    } catch (err) {
-      log.error('Failed to load tile state:', err);
-    }
-    return null;
+    return this.readJson<any | null>(this.tileStateFile, null);
   }
 
   // ── Tile presets ────────────────────────────────────────────────────
 
   async saveTilePresets(data: unknown): Promise<void> {
-    await this.ensureDataDir();
-    try {
-      await fsPromises.writeFile(this.tilePresetsFile, JSON.stringify(data, null, 2), 'utf-8');
-    } catch (err) {
-      log.error('Failed to save tile presets:', err);
-    }
+    await this.writeJson(this.tilePresetsFile, data);
   }
 
   async loadTilePresets(): Promise<any | null> {
-    try {
-      const raw = await this.readFileOrNull(this.tilePresetsFile);
-      if (raw) return JSON.parse(raw);
-    } catch (err) {
-      log.error('Failed to load tile presets:', err);
-    }
-    return null;
+    return this.readJson<any | null>(this.tilePresetsFile, null);
   }
 
   // ── Settings ────────────────────────────────────────────────────────
-
-  /**
-   * Merge `data` into the settings file on disk, preserving any existing
-   * keys that are not overwritten.
-   */
-  async saveSettings(data: Record<string, unknown>): Promise<void> {
-    await this.ensureDataDir();
-    try {
-      let existingData: Record<string, unknown> = {};
-      const raw = await this.readFileOrNull(this.settingsFile);
-      if (raw) {
-        existingData = JSON.parse(raw);
-      }
-      const merged = { ...existingData, ...data };
-      await fsPromises.writeFile(this.settingsFile, JSON.stringify(merged, null, 2), 'utf-8');
-    } catch (err) {
-      log.error('Failed to save settings:', err);
-    }
-  }
-
-  /**
-   * Load settings from disk.  Returns `null` when the file does not
-   * exist or is malformed.
-   */
-  async loadSettings(): Promise<any | null> {
-    log.debug('Loading settings...');
-    try {
-      const raw = await this.readFileOrNull(this.settingsFile);
-      if (raw) return JSON.parse(raw);
-    } catch (err) {
-      log.error('Failed to load settings:', err);
-    }
-    return null;
-  }
+  // settings.json is owned exclusively by SettingsManager (atomic writer).
+  // FileManager keeps only the canonical `settingsFile` path.
 
   // ── File textures ───────────────────────────────────────────────────
 

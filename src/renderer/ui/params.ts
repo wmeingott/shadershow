@@ -2,6 +2,7 @@
 // Typed version of js/params.js.
 
 import { state } from '../core/state.js';
+import { rgbToHex, hexToRgb } from './color-utils.js';
 import type { ParamDef, ParamValue, ParamArrayValue } from '@shared/types/params.js';
 import type { AssetParamDef } from '../renderers/asset-renderer.js';
 import { tileState } from '../tiles/tile-state.js';
@@ -297,30 +298,6 @@ export function makeValueEditable(
     });
     input.addEventListener('blur', commit);
   });
-}
-
-// ---------------------------------------------------------------------------
-// Color conversion
-// ---------------------------------------------------------------------------
-
-function rgbToHex(r: number, g: number, b: number): string {
-  const toHex = (v: number) => {
-    const hex = Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16);
-    return hex.length === 1 ? '0' + hex : hex;
-  };
-  return '#' + toHex(r) + toHex(g) + toHex(b);
-}
-
-function hexToRgb(hex: string): number[] {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  if (result) {
-    return [
-      parseInt(result[1], 16) / 255,
-      parseInt(result[2], 16) / 255,
-      parseInt(result[3], 16) / 255
-    ];
-  }
-  return [1, 1, 1];
 }
 
 // ---------------------------------------------------------------------------
@@ -735,30 +712,44 @@ function createParamControl(
     ? (values[paramName] as ParamArrayValue)[index]
     : values[paramName];
 
-  switch (param.type) {
-    case 'int':
-    case 'float':
-      createSliderControl(row, param, currentValue as number, paramName, index);
-      break;
-    case 'vec2':
-      createVec2Control(row, param, currentValue as number[], paramName, index);
-      break;
-    case 'color':
-      createColorControl(row, param, currentValue as number[], paramName, index);
-      break;
-    case 'vec3':
-      createVec3Control(row, param, currentValue as number[], paramName, index);
-      break;
-    case 'vec4':
-      createVec4Control(row, param, currentValue as number[], paramName, index);
-      break;
-  }
+  dispatchParamControl(row, param, currentValue as ParamValue, paramName, index);
 
   return row;
 }
 
 type ValueChangeFn = (paramName: string, value: ParamValue, arrayIndex: number | null) => void;
 type GetFullValueFn = () => number[];
+
+/** Build the type-appropriate control widget for a param into `row`. Shared by
+ *  the per-shader, struct-field, and mixer-channel param builders. */
+function dispatchParamControl(
+  row: HTMLDivElement,
+  param: ParamDef,
+  currentValue: ParamValue,
+  paramName: string,
+  arrayIndex: number | null,
+  onValueChange?: ValueChangeFn,
+  getFullValue?: GetFullValueFn
+): void {
+  switch (param.type) {
+    case 'int':
+    case 'float':
+      createSliderControl(row, param, currentValue as number, paramName, arrayIndex, onValueChange);
+      break;
+    case 'vec2':
+      createVec2Control(row, param, currentValue as number[], paramName, arrayIndex, onValueChange, getFullValue);
+      break;
+    case 'color':
+      createColorControl(row, param, currentValue as number[], paramName, arrayIndex, onValueChange, getFullValue);
+      break;
+    case 'vec3':
+      createVec3Control(row, param, currentValue as number[], paramName, arrayIndex, onValueChange, getFullValue);
+      break;
+    case 'vec4':
+      createVec4Control(row, param, currentValue as number[], paramName, arrayIndex, onValueChange, getFullValue);
+      break;
+  }
+}
 
 function createSliderControl(
   row: HTMLDivElement,
@@ -865,12 +856,15 @@ function createSliderControl(
   }
 }
 
-function createVec2Control(
+// Generic N-component vector control (vec2/vec3/vec4). The per-arity wrappers
+// below just pass componentCount; vec2 uses slightly wider sliders (60px).
+function createVecControl(
   row: HTMLDivElement,
   param: ParamDef,
   value: number[],
   paramName: string,
   arrayIndex: number | null,
+  componentCount: number,
   onValueChange?: ValueChangeFn,
   getFullValue?: GetFullValueFn
 ): void {
@@ -883,9 +877,10 @@ function createVec2Control(
   });
 
   // Coerce value elements to numbers (VP presets may store non-numeric types)
-  const safeValue = Array.isArray(value) ? value.map(Number) : [0, 0];
+  const safeValue = Array.isArray(value) ? value.map(Number) : new Array(componentCount).fill(0);
+  const sliderWidth = componentCount === 2 ? '60px' : '50px';
 
-  ['X', 'Y'].forEach((axis, i) => {
+  ['X', 'Y', 'Z', 'W'].slice(0, componentCount).forEach((axis, i) => {
     const subLabel = document.createElement('label');
     subLabel.textContent = axis;
     subLabel.style.minWidth = '12px';
@@ -897,7 +892,7 @@ function createVec2Control(
     slider.max = String(max);
     slider.step = '0.01';
     slider.value = String(safeValue[i]);
-    slider.style.width = '60px';
+    slider.style.width = sliderWidth;
 
     const valueDisplay = document.createElement('span');
     valueDisplay.className = 'param-value';
@@ -924,6 +919,13 @@ function createVec2Control(
     row.appendChild(slider);
     row.appendChild(valueDisplay);
   });
+}
+
+function createVec2Control(
+  row: HTMLDivElement, param: ParamDef, value: number[], paramName: string,
+  arrayIndex: number | null, onValueChange?: ValueChangeFn, getFullValue?: GetFullValueFn
+): void {
+  createVecControl(row, param, value, paramName, arrayIndex, 2, onValueChange, getFullValue);
 }
 
 function createColorControl(
@@ -1099,125 +1101,17 @@ function createColorControl(
 }
 
 function createVec3Control(
-  row: HTMLDivElement,
-  param: ParamDef,
-  value: number[],
-  paramName: string,
-  arrayIndex: number | null,
-  onValueChange?: ValueChangeFn,
-  getFullValue?: GetFullValueFn
+  row: HTMLDivElement, param: ParamDef, value: number[], paramName: string,
+  arrayIndex: number | null, onValueChange?: ValueChangeFn, getFullValue?: GetFullValueFn
 ): void {
-  const min = param.min !== null ? param.min : 0;
-  const max = param.max !== null ? param.max : 1;
-  const update = onValueChange || ((name: string, val: ParamValue, idx: number | null) => updateCustomParamValue(name, val, idx));
-  const getVal = getFullValue || (() => {
-    const vals = getCurrentParamValues();
-    return arrayIndex !== null ? [...(vals[paramName] as number[][])[arrayIndex]] : [...(vals[paramName] as number[])];
-  });
-
-  // Coerce value elements to numbers (VP presets may store non-numeric types)
-  const safeValue = Array.isArray(value) ? value.map(Number) : [0, 0, 0];
-
-  ['X', 'Y', 'Z'].forEach((axis, i) => {
-    const subLabel = document.createElement('label');
-    subLabel.textContent = axis;
-    subLabel.style.minWidth = '12px';
-    row.appendChild(subLabel);
-
-    const slider = document.createElement('input');
-    slider.type = 'range';
-    slider.min = String(min);
-    slider.max = String(max);
-    slider.step = '0.01';
-    slider.value = String(safeValue[i]);
-    slider.style.width = '50px';
-
-    const valueDisplay = document.createElement('span');
-    valueDisplay.className = 'param-value';
-    valueDisplay.textContent = (safeValue[i] || 0).toFixed(2);
-
-    slider.addEventListener('input', () => {
-      const newValue = parseFloat(slider.value);
-      valueDisplay.textContent = newValue.toFixed(2);
-      const fullValue = getVal();
-      fullValue[i] = newValue;
-      update(paramName, fullValue, arrayIndex);
-    });
-
-    makeValueEditable(valueDisplay, slider, {
-      isInt: false,
-      onCommit(newValue: number) {
-        valueDisplay.textContent = newValue.toFixed(2);
-        const fullValue = getVal();
-        fullValue[i] = newValue;
-        update(paramName, fullValue, arrayIndex);
-      }
-    });
-
-    row.appendChild(slider);
-    row.appendChild(valueDisplay);
-  });
+  createVecControl(row, param, value, paramName, arrayIndex, 3, onValueChange, getFullValue);
 }
 
 function createVec4Control(
-  row: HTMLDivElement,
-  param: ParamDef,
-  value: number[],
-  paramName: string,
-  arrayIndex: number | null,
-  onValueChange?: ValueChangeFn,
-  getFullValue?: GetFullValueFn
+  row: HTMLDivElement, param: ParamDef, value: number[], paramName: string,
+  arrayIndex: number | null, onValueChange?: ValueChangeFn, getFullValue?: GetFullValueFn
 ): void {
-  const min = param.min !== null ? param.min : 0;
-  const max = param.max !== null ? param.max : 1;
-  const update = onValueChange || ((name: string, val: ParamValue, idx: number | null) => updateCustomParamValue(name, val, idx));
-  const getVal = getFullValue || (() => {
-    const vals = getCurrentParamValues();
-    return arrayIndex !== null ? [...(vals[paramName] as number[][])[arrayIndex]] : [...(vals[paramName] as number[])];
-  });
-
-  // Coerce value elements to numbers (VP presets may store non-numeric types)
-  const safeValue = Array.isArray(value) ? value.map(Number) : [0, 0, 0, 0];
-
-  ['X', 'Y', 'Z', 'W'].forEach((axis, i) => {
-    const subLabel = document.createElement('label');
-    subLabel.textContent = axis;
-    subLabel.style.minWidth = '12px';
-    row.appendChild(subLabel);
-
-    const slider = document.createElement('input');
-    slider.type = 'range';
-    slider.min = String(min);
-    slider.max = String(max);
-    slider.step = '0.01';
-    slider.value = String(safeValue[i]);
-    slider.style.width = '50px';
-
-    const valueDisplay = document.createElement('span');
-    valueDisplay.className = 'param-value';
-    valueDisplay.textContent = (safeValue[i] || 0).toFixed(2);
-
-    slider.addEventListener('input', () => {
-      const newValue = parseFloat(slider.value);
-      valueDisplay.textContent = newValue.toFixed(2);
-      const fullValue = getVal();
-      fullValue[i] = newValue;
-      update(paramName, fullValue, arrayIndex);
-    });
-
-    makeValueEditable(valueDisplay, slider, {
-      isInt: false,
-      onCommit(newValue: number) {
-        valueDisplay.textContent = newValue.toFixed(2);
-        const fullValue = getVal();
-        fullValue[i] = newValue;
-        update(paramName, fullValue, arrayIndex);
-      }
-    });
-
-    row.appendChild(slider);
-    row.appendChild(valueDisplay);
-  });
+  createVecControl(row, param, value, paramName, arrayIndex, 4, onValueChange, getFullValue);
 }
 
 function createStructFieldControl(param: ParamDef): HTMLDivElement {
@@ -1236,24 +1130,7 @@ function createStructFieldControl(param: ParamDef): HTMLDivElement {
   const values = abParamValuesOverride || getRenderer().getCustomParamValues();
   const currentValue = values[param.name];
 
-  switch (param.type) {
-    case 'int':
-    case 'float':
-      createSliderControl(row, param, currentValue as number, param.name, null);
-      break;
-    case 'vec2':
-      createVec2Control(row, param, currentValue as number[], param.name, null);
-      break;
-    case 'color':
-      createColorControl(row, param, currentValue as number[], param.name, null);
-      break;
-    case 'vec3':
-      createVec3Control(row, param, currentValue as number[], param.name, null);
-      break;
-    case 'vec4':
-      createVec4Control(row, param, currentValue as number[], param.name, null);
-      break;
-  }
+  dispatchParamControl(row, param, currentValue as ParamValue, param.name, null);
 
   return row;
 }
@@ -1583,24 +1460,7 @@ function createMixerParamControl(
   const onValueChange: ValueChangeFn = (name, val, idx) => updateMixerChannelParamDirect(channelIndex, name, val, idx);
   const getFullValueFn: GetFullValueFn = () => getMixerParamValue(ch, paramName, arrayIndex);
 
-  switch (param.type) {
-    case 'int':
-    case 'float':
-      createSliderControl(row, param, currentValue as number, paramName, arrayIndex, onValueChange);
-      break;
-    case 'vec2':
-      createVec2Control(row, param, currentValue as number[], paramName, arrayIndex, onValueChange, getFullValueFn);
-      break;
-    case 'color':
-      createColorControl(row, param, currentValue as number[], paramName, arrayIndex, onValueChange, getFullValueFn);
-      break;
-    case 'vec3':
-      createVec3Control(row, param, currentValue as number[], paramName, arrayIndex, onValueChange, getFullValueFn);
-      break;
-    case 'vec4':
-      createVec4Control(row, param, currentValue as number[], paramName, arrayIndex, onValueChange, getFullValueFn);
-      break;
-  }
+  dispatchParamControl(row, param, currentValue, paramName, arrayIndex, onValueChange, getFullValueFn);
 
   return row;
 }

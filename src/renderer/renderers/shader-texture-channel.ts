@@ -10,6 +10,7 @@ import {
   cacheStandardUniforms,
   cacheCustomParamUniforms,
   setCustomUniforms,
+  createChannelTexture,
 } from './gl-utils.js';
 import type { StandardUniforms, CustomParamUniforms } from './gl-utils.js';
 import {
@@ -151,16 +152,11 @@ export class ShaderTextureChannel {
     }
 
     // Create new texture
-    this.texture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    this.texture = createChannelTexture(gl, 'repeat');
     gl.texImage2D(
       gl.TEXTURE_2D, 0, gl.RGBA, this.texWidth, this.texHeight,
       0, gl.RGBA, gl.UNSIGNED_BYTE, null,
     );
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
 
     // Attach to FBO
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);

@@ -6,6 +6,13 @@
 import { state, notifyRemoteStateChanged } from '../core/state.js';
 import { createTaggedLogger, LOG_LEVEL } from '../../shared/logger.js';
 import type { ParamValue } from '@shared/types/params.js';
+import { basename } from '@shared/paths.js';
+import { inlineRename } from '../ui/inline-rename.js';
+import {
+  showContextMenu as showContextMenuHelper,
+  hideContextMenu as hideContextMenuHelper,
+  type ContextMenuItem,
+} from '../ui/context-menu.js';
 import { MiniShaderRenderer } from '../renderers/mini-shader-renderer.js';
 import { tileState, assignTile } from '../tiles/tile-state.js';
 import {
@@ -423,147 +430,60 @@ function createAddButton(): HTMLDivElement {
 
   btn.addEventListener('contextmenu', (e: MouseEvent) => {
     e.preventDefault();
-    hideContextMenu();
 
-    const menu = document.createElement('div');
-    menu.className = 'context-menu';
-    menu.id = 'grid-context-menu';
-
-    // Open file option
-    const openItem = document.createElement('div');
-    openItem.className = 'context-menu-item';
-    openItem.textContent = 'Open File...';
-    openItem.addEventListener('click', async () => {
-      hideContextMenu();
-      await addNewGridSlot();
-    });
-    menu.appendChild(openItem);
-
-    // Add current shader option
-    const addCurrentItem = document.createElement('div');
-    addCurrentItem.className = 'context-menu-item';
     const code = (state.editor as { getValue(): string } | null)?.getValue() ?? '';
-    const hasCode = code && code.trim();
-    if (!hasCode) addCurrentItem.classList.add('disabled');
-    addCurrentItem.textContent = 'Add Current Shader';
-    addCurrentItem.addEventListener('click', () => {
-      hideContextMenu();
-      if (!hasCode) return;
+    const hasCode = !!(code && code.trim());
 
-      const newIndex = state.gridSlots.length;
-      state.gridSlots.push(null);
-
-      const container = document.getElementById('shader-grid-container')!;
-      const slotEl = createGridSlotElement(newIndex);
-      container.insertBefore(slotEl, btn);
-
-      if (gridIntersectionObserver) {
-        gridIntersectionObserver.observe(slotEl);
-      }
-
-      assignCurrentShaderToSlot(newIndex);
-
-      if (!state.gridSlots[newIndex]) {
-        removeGridSlotElement(newIndex);
-      }
-    });
-    menu.appendChild(addCurrentItem);
-
-    // Add shader from clipboard option
-    const addShaderClipItem = document.createElement('div');
-    addShaderClipItem.className = 'context-menu-item';
-    addShaderClipItem.textContent = 'Add Shader from Clipboard';
-    addShaderClipItem.addEventListener('click', async () => {
-      hideContextMenu();
-      const clipText = await navigator.clipboard.readText();
-      if (!clipText || !clipText.trim()) {
-        setStatus('Clipboard is empty', 'error');
-        return;
-      }
+    // Append a fresh empty slot element before the add button and return its index.
+    const insertNewSlot = (): number => {
       const newIndex = state.gridSlots.length;
       state.gridSlots.push(null);
       const container = document.getElementById('shader-grid-container')!;
       const slotEl = createGridSlotElement(newIndex);
       container.insertBefore(slotEl, btn);
       if (gridIntersectionObserver) gridIntersectionObserver.observe(slotEl);
-      try {
-        await assignShaderToSlot(newIndex, clipText, null);
-      } catch {
-        if (!state.gridSlots[newIndex]) removeGridSlotElement(newIndex);
-      }
-    });
-    menu.appendChild(addShaderClipItem);
+      return newIndex;
+    };
 
-    // Add scene from clipboard option
-    const addSceneClipItem = document.createElement('div');
-    addSceneClipItem.className = 'context-menu-item';
-    addSceneClipItem.textContent = 'Add Scene from Clipboard';
-    addSceneClipItem.addEventListener('click', async () => {
-      hideContextMenu();
+    const addFromClipboard = async (
+      assign: (index: number, code: string, filePath: string | null) => Promise<unknown>,
+    ): Promise<void> => {
       const clipText = await navigator.clipboard.readText();
       if (!clipText || !clipText.trim()) {
         setStatus('Clipboard is empty', 'error');
         return;
       }
-      const newIndex = state.gridSlots.length;
-      state.gridSlots.push(null);
-      const container = document.getElementById('shader-grid-container')!;
-      const slotEl = createGridSlotElement(newIndex);
-      container.insertBefore(slotEl, btn);
-      if (gridIntersectionObserver) gridIntersectionObserver.observe(slotEl);
+      const newIndex = insertNewSlot();
       try {
-        await assignSceneToSlot(newIndex, clipText, null);
+        await assign(newIndex, clipText, null);
       } catch {
         if (!state.gridSlots[newIndex]) removeGridSlotElement(newIndex);
       }
-    });
-    menu.appendChild(addSceneClipItem);
+    };
 
-    // Import shader option
-    const importItem = document.createElement('div');
-    importItem.className = 'context-menu-item';
-    importItem.textContent = 'Import Shader...';
-    importItem.addEventListener('click', async () => {
-      hideContextMenu();
-
-      const newIndex = state.gridSlots.length;
-      state.gridSlots.push(null);
-
-      const container = document.getElementById('shader-grid-container')!;
-      const slotEl = createGridSlotElement(newIndex);
-      container.insertBefore(slotEl, btn);
-
-      if (gridIntersectionObserver) {
-        gridIntersectionObserver.observe(slotEl);
-      }
-
-      await importShaderSlot(newIndex);
-
-      // Remove slot if import was canceled or failed
-      if (!state.gridSlots[newIndex]) {
-        removeGridSlotElement(newIndex);
-      }
-    });
-    menu.appendChild(importItem);
-
-    // Position menu
-    menu.style.left = `${e.clientX}px`;
-    menu.style.top = `${e.clientY}px`;
-    document.body.appendChild(menu);
-
-    const rect = menu.getBoundingClientRect();
-    if (rect.right > window.innerWidth) menu.style.left = `${window.innerWidth - rect.width - 5}px`;
-    if (rect.bottom > window.innerHeight) menu.style.top = `${window.innerHeight - rect.height - 5}px`;
-
-    setTimeout(() => {
-      const handler = (ev: MouseEvent): void => {
-        if (!menu.contains(ev.target as Node)) {
-          hideContextMenu();
-          document.removeEventListener('click', handler);
-        }
-      };
-      document.addEventListener('click', handler);
-    }, 0);
+    showContextMenuHelper(e.clientX, e.clientY, [
+      { label: 'Open File...', action: () => { void addNewGridSlot(); } },
+      {
+        label: 'Add Current Shader',
+        disabled: !hasCode,
+        action: () => {
+          const newIndex = insertNewSlot();
+          assignCurrentShaderToSlot(newIndex);
+          if (!state.gridSlots[newIndex]) removeGridSlotElement(newIndex);
+        },
+      },
+      { label: 'Add Shader from Clipboard', action: () => { void addFromClipboard(assignShaderToSlot); } },
+      { label: 'Add Scene from Clipboard', action: () => { void addFromClipboard(assignSceneToSlot); } },
+      {
+        label: 'Import Shader...',
+        action: async () => {
+          const newIndex = insertNewSlot();
+          await importShaderSlot(newIndex);
+          // Remove slot if import was canceled or failed
+          if (!state.gridSlots[newIndex]) removeGridSlotElement(newIndex);
+        },
+      },
+    ], { menuId: 'grid-context-menu' });
   });
 
   return btn;
@@ -675,7 +595,7 @@ export function rebuildGridDOM(): void {
       if (state.activeGridSlot === i) slotEl.classList.add('active');
 
       const fileName = data.filePath
-        ? data.filePath.split('/').pop()!.split('\\').pop()!
+        ? basename(data.filePath)
         : `Slot ${i + 1}`;
       const typeLabel = data.type === 'scene' ? ' (scene)' : '';
       slotEl.title = `Slot ${i + 1}: ${fileName}${typeLabel}`;
@@ -729,139 +649,52 @@ export function rebuildGridDOM(): void {
  * rename, clear, remove, export/import, move/copy tab, tile, and mixer.
  */
 function showGridContextMenu(x: number, y: number, slotIndex: number): void {
-  hideContextMenu();
-
-  const menu = document.createElement('div');
-  menu.className = 'context-menu';
-  menu.id = 'grid-context-menu';
-
   const hasShader = state.gridSlots[slotIndex] !== null;
 
-  // Load shader option
-  const loadItem = document.createElement('div');
-  loadItem.className = 'context-menu-item';
-  loadItem.textContent = 'Load Shader...';
-  loadItem.addEventListener('click', async () => {
-    hideContextMenu();
-    await loadShaderToSlot(slotIndex);
-  });
-  menu.appendChild(loadItem);
-
-  // Assign current shader option
-  const assignItem = document.createElement('div');
-  assignItem.className = 'context-menu-item';
-  assignItem.textContent = 'Assign Current Shader';
-  assignItem.addEventListener('click', () => {
-    hideContextMenu();
-    assignCurrentShaderToSlot(slotIndex);
-  });
-  menu.appendChild(assignItem);
-
-  // Set current params as default option (only if has shader)
-  const setParamsItem = document.createElement('div');
-  setParamsItem.className = `context-menu-item${hasShader ? '' : ' disabled'}`;
-  setParamsItem.textContent = 'Set Current Params as Default';
-  if (hasShader) {
-    setParamsItem.addEventListener('click', () => {
-      hideContextMenu();
-      setCurrentParamsAsDefault(slotIndex);
-    });
-  }
-  menu.appendChild(setParamsItem);
-
-  // Rename label option (only if has shader)
-  const renameItem = document.createElement('div');
-  renameItem.className = `context-menu-item${hasShader ? '' : ' disabled'}`;
-  renameItem.textContent = 'Rename';
-  if (hasShader) {
-    renameItem.addEventListener('click', () => {
-      hideContextMenu();
-      renameGridSlot(slotIndex);
-    });
-  }
-  menu.appendChild(renameItem);
-
-  // Clear option (only if has shader)
-  const clearItem = document.createElement('div');
-  clearItem.className = `context-menu-item${hasShader ? '' : ' disabled'}`;
-  clearItem.textContent = 'Clear Slot';
-  if (hasShader) {
-    clearItem.addEventListener('click', () => {
-      hideContextMenu();
-      clearGridSlot(slotIndex);
-    });
-  }
-  menu.appendChild(clearItem);
-
-  // Remove slot option
-  const removeItem = document.createElement('div');
-  removeItem.className = 'context-menu-item';
-  removeItem.textContent = 'Remove Slot';
-  removeItem.addEventListener('click', () => {
-    hideContextMenu();
-    removeGridSlotElement(slotIndex);
-    saveGridState();
-    setStatus(`Removed slot ${slotIndex + 1}`, 'success');
-  });
-  menu.appendChild(removeItem);
-
-  // Export/Import separator
-  const exportSep = document.createElement('div');
-  exportSep.className = 'context-menu-separator';
-  menu.appendChild(exportSep);
-
-  // Export Shader
-  const exportItem = document.createElement('div');
-  exportItem.className = `context-menu-item${hasShader ? '' : ' disabled'}`;
-  exportItem.textContent = 'Export Shader...';
-  if (hasShader) {
-    exportItem.addEventListener('click', () => {
-      hideContextMenu();
-      exportShaderSlot(slotIndex);
-    });
-  }
-  menu.appendChild(exportItem);
-
-  // Import Shader
-  const importItem = document.createElement('div');
-  importItem.className = 'context-menu-item';
-  importItem.textContent = 'Import Shader...';
-  importItem.addEventListener('click', () => {
-    hideContextMenu();
-    importShaderSlot(slotIndex);
-  });
-  menu.appendChild(importItem);
+  const items: ContextMenuItem[] = [
+    { label: 'Load Shader...', action: () => { void loadShaderToSlot(slotIndex); } },
+    { label: 'Assign Current Shader', action: () => assignCurrentShaderToSlot(slotIndex) },
+    { label: 'Set Current Params as Default', disabled: !hasShader, action: () => setCurrentParamsAsDefault(slotIndex) },
+    { label: 'Rename', disabled: !hasShader, action: () => renameGridSlot(slotIndex) },
+    { label: 'Clear Slot', disabled: !hasShader, action: () => clearGridSlot(slotIndex) },
+    {
+      label: 'Remove Slot',
+      action: () => {
+        removeGridSlotElement(slotIndex);
+        saveGridState();
+        setStatus(`Removed slot ${slotIndex + 1}`, 'success');
+      },
+    },
+    { separator: true },
+    { label: 'Export Shader...', disabled: !hasShader, action: () => exportShaderSlot(slotIndex) },
+    { label: 'Import Shader...', action: () => { void importShaderSlot(slotIndex); } },
+  ];
 
   // A/B mode: Send to A / Send to B
   if (state.abEnabled && hasShader) {
-    const abSep = document.createElement('div');
-    abSep.className = 'context-menu-separator';
-    menu.appendChild(abSep);
-
+    items.push({ separator: true });
     for (const side of ['a', 'b'] as const) {
-      const abItem = document.createElement('div');
-      abItem.className = 'context-menu-item';
-      abItem.textContent = `Send to ${side.toUpperCase()}`;
-      abItem.addEventListener('click', () => {
-        hideContextMenu();
-        const slotData = state.gridSlots[slotIndex] as GridSlotData | null;
-        if (!slotData?.shaderCode) return;
-        const isScene = slotData.type === 'scene';
-        const mainRenderer = state.renderer as MiniRendererLike;
-        const customParams = slotData.customParams || mainRenderer.getCustomParamValues?.() || {};
-        loadShaderToSide(
-          side,
-          slotData.shaderCode,
-          (slotData.params || {}) as Record<string, ParamValue>,
-          customParams as Record<string, ParamValue>,
-          isScene ? 'scene' : 'shader',
-          slotIndex,
-          state.activeShaderTab,
-        );
-        const slotName = slotData.filePath?.split('/').pop()?.split('\\').pop() || `Slot ${slotIndex + 1}`;
-        setStatus(`A/B ${side.toUpperCase()}: ${slotName}`, 'success');
+      items.push({
+        label: `Send to ${side.toUpperCase()}`,
+        action: () => {
+          const slotData = state.gridSlots[slotIndex] as GridSlotData | null;
+          if (!slotData?.shaderCode) return;
+          const isScene = slotData.type === 'scene';
+          const mainRenderer = state.renderer as MiniRendererLike;
+          const customParams = slotData.customParams || mainRenderer.getCustomParamValues?.() || {};
+          loadShaderToSide(
+            side,
+            slotData.shaderCode,
+            (slotData.params || {}) as Record<string, ParamValue>,
+            customParams as Record<string, ParamValue>,
+            isScene ? 'scene' : 'shader',
+            slotIndex,
+            state.activeShaderTab,
+          );
+          const slotName = slotData.filePath ? basename(slotData.filePath) : `Slot ${slotIndex + 1}`;
+          setStatus(`A/B ${side.toUpperCase()}: ${slotName}`, 'success');
+        },
       });
-      menu.appendChild(abItem);
     }
   }
 
@@ -876,217 +709,75 @@ function showGridContextMenu(x: number, y: number, slotIndex: number): void {
     }
 
     if (otherShaderTabs.length > 0) {
-      const separator1 = document.createElement('div');
-      separator1.className = 'context-menu-separator';
-      menu.appendChild(separator1);
-
-      // Move to Tab
-      const moveSubmenu = document.createElement('div');
-      moveSubmenu.className = 'context-menu-item has-submenu';
-      moveSubmenu.textContent = 'Move to Tab';
-      const moveArrow = document.createElement('span');
-      moveArrow.className = 'submenu-arrow';
-      moveArrow.textContent = '\u25b6';
-      moveSubmenu.appendChild(moveArrow);
-
-      const moveContent = document.createElement('div');
-      moveContent.className = 'context-submenu';
-      for (const i of otherShaderTabs) {
-        const item = document.createElement('div');
-        item.className = 'context-menu-item';
-        item.textContent = state.shaderTabs[i].name;
-        item.addEventListener('click', () => {
-          hideContextMenu();
-          moveShaderToTab(slotIndex, i);
-        });
-        moveContent.appendChild(item);
-      }
-      moveSubmenu.appendChild(moveContent);
-      menu.appendChild(moveSubmenu);
-
-      // Copy to Tab
-      const copySubmenu = document.createElement('div');
-      copySubmenu.className = 'context-menu-item has-submenu';
-      copySubmenu.textContent = 'Copy to Tab';
-      const copyArrow = document.createElement('span');
-      copyArrow.className = 'submenu-arrow';
-      copyArrow.textContent = '\u25b6';
-      copySubmenu.appendChild(copyArrow);
-
-      const copyContent = document.createElement('div');
-      copyContent.className = 'context-submenu';
-      for (const i of otherShaderTabs) {
-        const item = document.createElement('div');
-        item.className = 'context-menu-item';
-        item.textContent = state.shaderTabs[i].name;
-        item.addEventListener('click', () => {
-          hideContextMenu();
-          copyShaderToTab(slotIndex, i);
-        });
-        copyContent.appendChild(item);
-      }
-      copySubmenu.appendChild(copyContent);
-      menu.appendChild(copySubmenu);
+      items.push({ separator: true });
+      items.push({
+        label: 'Move to Tab',
+        submenu: otherShaderTabs.map((i) => ({
+          label: state.shaderTabs[i].name,
+          action: () => moveShaderToTab(slotIndex, i),
+        })),
+      });
+      items.push({
+        label: 'Copy to Tab',
+        submenu: otherShaderTabs.map((i) => ({
+          label: state.shaderTabs[i].name,
+          action: () => copyShaderToTab(slotIndex, i),
+        })),
+      });
     }
   }
 
   // Send to Tile submenu (only if has shader and tiles are configured)
   if (hasShader && tileState.tiles.length > 0) {
-    const separator = document.createElement('div');
-    separator.className = 'context-menu-separator';
-    menu.appendChild(separator);
-
     const { rows, cols } = tileState.layout;
-    const tileCount = rows * cols;
-
-    // Create "Send to Tile" submenu container
-    const tileSubmenu = document.createElement('div');
-    tileSubmenu.className = 'context-menu-item has-submenu';
-    tileSubmenu.textContent = 'Send to Tile';
-
-    const submenuArrow = document.createElement('span');
-    submenuArrow.className = 'submenu-arrow';
-    submenuArrow.textContent = '\u25b6';
-    tileSubmenu.appendChild(submenuArrow);
-
-    const submenuContent = document.createElement('div');
-    submenuContent.className = 'context-submenu';
-
-    for (let i = 0; i < tileCount; i++) {
-      const tileItem = document.createElement('div');
-      tileItem.className = 'context-menu-item';
-      const currentSlot = tileState.tiles[i]?.gridSlotIndex;
-      const tileLabel =
-        currentSlot !== null && currentSlot !== undefined
-          ? `Tile ${i + 1} (Slot ${currentSlot + 1})`
-          : `Tile ${i + 1} (Empty)`;
-      tileItem.textContent = tileLabel;
-
-      tileItem.addEventListener('click', () => {
-        hideContextMenu();
-        assignShaderToTile(slotIndex, i);
-      });
-
-      submenuContent.appendChild(tileItem);
-    }
-
-    tileSubmenu.appendChild(submenuContent);
-    menu.appendChild(tileSubmenu);
+    items.push({ separator: true });
+    items.push({
+      label: 'Send to Tile',
+      submenu: Array.from({ length: rows * cols }, (_, i) => {
+        const currentSlot = tileState.tiles[i]?.gridSlotIndex;
+        return {
+          label:
+            currentSlot !== null && currentSlot !== undefined
+              ? `Tile ${i + 1} (Slot ${currentSlot + 1})`
+              : `Tile ${i + 1} (Empty)`,
+          action: () => assignShaderToTile(slotIndex, i),
+        };
+      }),
+    });
   }
 
   // Send to Mix Channel submenu (only if has shader)
   if (hasShader) {
-    const mixSeparator = document.createElement('div');
-    mixSeparator.className = 'context-menu-separator';
-    menu.appendChild(mixSeparator);
-
-    const mixSubmenu = document.createElement('div');
-    mixSubmenu.className = 'context-menu-item has-submenu';
-    mixSubmenu.textContent = 'Send to Mix Channel';
-
-    const mixArrow = document.createElement('span');
-    mixArrow.className = 'submenu-arrow';
-    mixArrow.textContent = '\u25b6';
-    mixSubmenu.appendChild(mixArrow);
-
-    const mixContent = document.createElement('div');
-    mixContent.className = 'context-submenu';
-
-    for (let i = 0; i < state.mixerChannels.length; i++) {
-      const ch = state.mixerChannels[i];
-      const mixItem = document.createElement('div');
-      mixItem.className = 'context-menu-item';
-      const chLabel =
-        ch.slotIndex !== null
-          ? `Ch ${i + 1} (Slot ${ch.slotIndex + 1})`
-          : `Ch ${i + 1} (Empty)`;
-      mixItem.textContent = chLabel;
-
-      mixItem.addEventListener('click', () => {
-        hideContextMenu();
-        assignShaderToMixer(i, slotIndex);
-      });
-      mixContent.appendChild(mixItem);
-    }
+    const mixItems: ContextMenuItem[] = state.mixerChannels.map((ch, i) => ({
+      label: ch.slotIndex !== null ? `Ch ${i + 1} (Slot ${ch.slotIndex + 1})` : `Ch ${i + 1} (Empty)`,
+      action: () => assignShaderToMixer(i, slotIndex),
+    }));
 
     // Add "New Channel" option if under the max
     if (state.mixerChannels.length < 8) {
-      const newChItem = document.createElement('div');
-      newChItem.className = 'context-menu-item';
-      newChItem.textContent = '+ New Channel';
-      newChItem.addEventListener('click', () => {
-        hideContextMenu();
-        const newIndex = addMixerChannel();
-        if (newIndex !== null) {
-          assignShaderToMixer(newIndex, slotIndex);
-        }
+      mixItems.push({
+        label: '+ New Channel',
+        action: () => {
+          const newIndex = addMixerChannel();
+          if (newIndex !== null) {
+            assignShaderToMixer(newIndex, slotIndex);
+          }
+        },
       });
-      mixContent.appendChild(newChItem);
     }
 
-    mixSubmenu.appendChild(mixContent);
-    menu.appendChild(mixSubmenu);
+    items.push({ separator: true });
+    items.push({ label: 'Send to Mix Channel', submenu: mixItems });
   }
 
-  menu.style.left = `${x}px`;
-  menu.style.top = `${y}px`;
-  document.body.appendChild(menu);
-
-  // Adjust position if menu goes off screen
-  const rect = menu.getBoundingClientRect();
-  if (rect.right > window.innerWidth) {
-    menu.style.left = `${window.innerWidth - rect.width - 5}px`;
-  }
-  if (rect.bottom > window.innerHeight) {
-    const newTop = Math.max(5, window.innerHeight - rect.height - 5);
-    menu.style.top = `${newTop}px`;
-    // If menu is taller than viewport, make it scrollable
-    if (rect.height > window.innerHeight - 10) {
-      menu.style.maxHeight = `${window.innerHeight - 10}px`;
-      menu.style.overflowY = 'auto';
-    }
-  }
-
-  // Reposition submenus on hover to stay within viewport
-  menu.querySelectorAll('.has-submenu').forEach((item) => {
-    item.addEventListener('mouseenter', () => {
-      const sub = item.querySelector('.context-submenu') as HTMLElement | null;
-      if (!sub) return;
-      // Reset positioning before measuring
-      sub.style.left = '100%';
-      sub.style.right = '';
-      sub.style.top = '-4px';
-      sub.style.maxHeight = '';
-      sub.style.overflowY = '';
-
-      const subRect = sub.getBoundingClientRect();
-      // Flip to left side if overflowing right
-      if (subRect.right > window.innerWidth) {
-        sub.style.left = '';
-        sub.style.right = '100%';
-      }
-      // Shift up if overflowing bottom
-      if (subRect.bottom > window.innerHeight) {
-        const shift = subRect.bottom - window.innerHeight + 5;
-        sub.style.top = `${-4 - shift}px`;
-      }
-      // Make scrollable if taller than viewport
-      if (subRect.height > window.innerHeight - 10) {
-        sub.style.maxHeight = `${window.innerHeight - 10}px`;
-        sub.style.overflowY = 'auto';
-      }
-    });
-  });
+  showContextMenuHelper(x, y, items, { menuId: 'grid-context-menu' });
 }
 
 /**
  * Remove the grid context menu from the DOM if present.
  */
 export function hideContextMenu(): void {
-  const menu = document.getElementById('grid-context-menu');
-  if (menu) {
-    menu.remove();
-  }
+  hideContextMenuHelper('grid-context-menu');
 }
 
 // ---------------------------------------------------------------------------
@@ -1330,7 +1021,7 @@ function updateSlotVisualState(index: number, slot: HTMLElement): void {
     slot.classList.toggle('is-scene', data.type === 'scene');
     const typeLabel = data.type === 'scene' ? ' (scene)' : '';
     slot.title = data.filePath
-      ? `Slot ${index + 1}: ${data.filePath.split('/').pop()!.split('\\').pop()!}${typeLabel}`
+      ? `Slot ${index + 1}: ${basename(data.filePath)}${typeLabel}`
       : `Slot ${index + 1}: Current ${data.type === 'scene' ? 'scene' : 'shader'}`;
   } else {
     slot.classList.remove('has-shader', 'is-scene');
@@ -1371,7 +1062,7 @@ async function exportShaderSlot(slotIndex: number): Promise<void> {
   const result = await window.electronAPI.exportButtonData('shadershow-shader', exportData, defaultName);
   if (result.success) {
     setStatus(
-      `Exported shader to ${result.filePath!.split('/').pop()!.split('\\').pop()!}`,
+      `Exported shader to ${basename(result.filePath!)}`,
       'success',
     );
   } else if (result.error) {
@@ -1544,7 +1235,7 @@ export async function assignShaderToSlot(
     slot.classList.add('has-shader');
     slot.classList.remove('has-error', 'is-scene');
     const displayName = filePath
-      ? filePath.split('/').pop()!.split('\\').pop()!
+      ? basename(filePath)
       : 'Current shader';
     slot.title = `Slot ${slotIndex + 1}: ${displayName}`;
 
@@ -1641,7 +1332,7 @@ export async function assignSceneToSlot(
   slot.classList.add('has-shader', 'is-scene');
   slot.classList.remove('has-error');
   slot.title = filePath
-    ? `Slot ${slotIndex + 1}: ${filePath.split('/').pop()!.split('\\').pop()!} (scene)`
+    ? `Slot ${slotIndex + 1}: ${basename(filePath)} (scene)`
     : `Slot ${slotIndex + 1}: Current scene`;
 
   if (!skipSave) {
@@ -1690,7 +1381,7 @@ export function assignFailedShaderToSlot(
   slot.classList.add('has-shader');
   slot.classList.add('has-error');
   const fileName = filePath
-    ? filePath.split('/').pop()!.split('\\').pop()!
+    ? basename(filePath)
     : 'shader';
   slot.title = `Slot ${slotIndex + 1}: ${fileName} (ERROR - click to edit)`;
 }
@@ -1713,41 +1404,19 @@ export function renameGridSlot(slotIndex: number): void {
   const currentName =
     data.label ||
     (data.filePath
-      ? data.filePath.split('/').pop()!.split('\\').pop()!.replace(/\.glsl$/i, '')
+      ? basename(data.filePath).replace(/\.glsl$/i, '')
       : `Slot ${slotIndex + 1}`);
 
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'shader-tab-rename-input';
-  input.value = currentName;
-  input.style.width = '90%';
-
-  const finishRename = (): void => {
-    const newName = input.value.trim() || currentName;
-    data.label = newName;
-    labelEl.textContent = newName;
-    if (input.parentNode === labelEl) {
-      labelEl.removeChild(input);
-    }
-    labelEl.textContent = newName;
-    saveGridState();
-  };
-
-  input.addEventListener('blur', finishRename);
-  input.addEventListener('keydown', (e: KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      input.blur();
-    } else if (e.key === 'Escape') {
-      input.value = currentName;
-      input.blur();
-    }
-  });
-
-  labelEl.textContent = '';
-  labelEl.appendChild(input);
-  input.focus();
-  input.select();
+  inlineRename(
+    labelEl,
+    currentName,
+    (newName) => {
+      data.label = newName;
+      labelEl.textContent = newName;
+      saveGridState();
+    },
+    { width: '90%' },
+  );
 }
 
 /**
@@ -1926,7 +1595,7 @@ export async function loadGridShaderToEditor(slotIndex: number): Promise<void> {
   const isScene = slotData.type === 'scene' || detectedType === 'scene';
   if (isScene && slotData.type !== 'scene') slotData.type = 'scene';
   const slotName = slotData.filePath
-    ? slotData.filePath.split('/').pop()!.split('\\').pop()!
+    ? basename(slotData.filePath)
     : `Slot ${slotIndex + 1}`;
   const typeLabel = isScene ? 'scene' : 'shader';
 
@@ -2062,7 +1731,7 @@ export async function selectGridSlot(slotIndex: number): Promise<void> {
 
   const isScene = slotData.type === 'scene';
   const slotName = slotData.filePath
-    ? slotData.filePath.split('/').pop()!.split('\\').pop()!
+    ? basename(slotData.filePath)
     : `Slot ${slotIndex + 1}`;
 
   // Switch render mode if needed

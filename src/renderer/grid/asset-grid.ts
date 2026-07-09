@@ -3,6 +3,7 @@
 // Typed version of js/shader-grid.js lines 1500-1955.
 
 import { state } from '../core/state.js';
+import { basename } from '@shared/paths.js';
 import { AssetRenderer } from '../renderers/asset-renderer.js';
 import { assignAssetToMixer } from '../ui/mixer.js';
 import { createTaggedLogger, LOG_LEVEL } from '../../shared/logger.js';
@@ -72,7 +73,8 @@ interface ListenerEntry {
 
 import { buildTabBar } from './grid-tabs.js';
 import { cleanupGridVisibilityObserver, initGridVisibilityObserver, applyMaxContainerHeight } from './grid-renderer.js';
-import { hideContextMenu, swapGridSlots, renameGridSlot, dragSourceIndex, setDragSourceIndex, slotEventListeners } from './shader-grid.js';
+import { swapGridSlots, renameGridSlot, dragSourceIndex, setDragSourceIndex, slotEventListeners } from './shader-grid.js';
+import { showContextMenu as showContextMenuHelper, type ContextMenuItem } from '../ui/context-menu.js';
 import { saveGridState } from './grid-persistence.js';
 import { setStatus } from '../ui/utils.js';
 import { generateCustomParamUI } from '../ui/params.js';
@@ -347,7 +349,7 @@ export async function assignAssetToSlot(
     renderer.setParams(savedParams);
   }
 
-  const fileName = mediaPath.split('/').pop()!.split('\\').pop()!;
+  const fileName = basename(mediaPath);
   state.gridSlots[slotIndex] = {
     type: assetType === 'video' ? 'asset-video' : 'asset-image',
     mediaPath,
@@ -440,165 +442,73 @@ export async function selectAssetSlot(index: number): Promise<void> {
 
 /**
  * Show a context menu for the given asset slot.
- * Builds the menu DOM manually (rather than using the shared helper) because
- * the "Send to Mixer" item requires a submenu which the helper does not support.
  */
 function showAssetContextMenu(x: number, y: number, slotIndex: number): void {
-  hideContextMenu();
-
-  const menu = document.createElement('div');
-  menu.className = 'context-menu';
-  menu.id = 'grid-context-menu';
-
   const hasAsset = state.gridSlots[slotIndex] !== null;
 
-  // ---- Load Image ----
-  const loadImgItem = document.createElement('div');
-  loadImgItem.className = 'context-menu-item';
-  loadImgItem.textContent = 'Load Image...';
-  loadImgItem.addEventListener('click', async () => {
-    hideContextMenu();
+  const loadMedia = async (type: 'image' | 'video'): Promise<void> => {
     const result = await window.electronAPI.openMediaForAsset();
-    if (result && !result.canceled && result.type === 'image') {
+    if (result && !result.canceled && result.type === type) {
       // Ensure slot exists
       while (state.gridSlots.length <= slotIndex) state.gridSlots.push(null);
       try {
-        await assignAssetToSlot(slotIndex, result.filePath, 'image', result.dataUrl);
+        await assignAssetToSlot(slotIndex, result.filePath, type, type === 'image' ? result.dataUrl : undefined);
         rebuildAssetGridDOM();
       } catch (err: unknown) {
-        setStatus(`Failed to load image: ${(err as Error).message}`, 'error');
+        setStatus(`Failed to load ${type}: ${(err as Error).message}`, 'error');
       }
     }
-  });
-  menu.appendChild(loadImgItem);
+  };
 
-  // ---- Load Video ----
-  const loadVidItem = document.createElement('div');
-  loadVidItem.className = 'context-menu-item';
-  loadVidItem.textContent = 'Load Video...';
-  loadVidItem.addEventListener('click', async () => {
-    hideContextMenu();
-    const result = await window.electronAPI.openMediaForAsset();
-    if (result && !result.canceled && result.type === 'video') {
-      while (state.gridSlots.length <= slotIndex) state.gridSlots.push(null);
-      try {
-        await assignAssetToSlot(slotIndex, result.filePath, 'video');
-        rebuildAssetGridDOM();
-      } catch (err: unknown) {
-        setStatus(`Failed to load video: ${(err as Error).message}`, 'error');
-      }
-    }
-  });
-  menu.appendChild(loadVidItem);
+  const items: ContextMenuItem[] = [
+    { label: 'Load Image...', action: () => { void loadMedia('image'); } },
+    { label: 'Load Video...', action: () => { void loadMedia('video'); } },
+  ];
 
-  // ---- Rename ----
   if (hasAsset) {
-    const renameItem = document.createElement('div');
-    renameItem.className = 'context-menu-item';
-    renameItem.textContent = 'Rename';
-    renameItem.addEventListener('click', () => {
-      hideContextMenu();
-      renameGridSlot(slotIndex);
+    items.push({ label: 'Rename', action: () => renameGridSlot(slotIndex) });
+    items.push({ separator: true });
+    items.push({
+      label: 'Send to Mixer',
+      submenu: state.mixerChannels.map((_, i) => ({
+        label: `Channel ${i + 1}`,
+        action: () => assignAssetToMixer(i, slotIndex),
+      })),
     });
-    menu.appendChild(renameItem);
+    items.push({ separator: true });
+    items.push({
+      label: 'Clear Slot',
+      action: () => {
+        const slotData = state.gridSlots[slotIndex] as AssetSlotData | null;
+        if (slotData?.renderer) {
+          slotData.renderer.dispose();
+        }
+        state.gridSlots[slotIndex] = null;
+        rebuildAssetGridDOM();
+        saveGridState();
+        setStatus(`Cleared asset slot ${slotIndex + 1}`, 'success');
+      },
+    });
   }
 
-  // ---- Send to Mixer channel submenu ----
-  if (hasAsset) {
-    const separator = document.createElement('div');
-    separator.className = 'context-menu-separator';
-    menu.appendChild(separator);
-
-    const mixerItem = document.createElement('div');
-    mixerItem.className = 'context-menu-item has-submenu';
-    mixerItem.textContent = 'Send to Mixer';
-    const mixerArrow = document.createElement('span');
-    mixerArrow.className = 'submenu-arrow';
-    mixerArrow.textContent = '\u25b6';
-    mixerItem.appendChild(mixerArrow);
-
-    const mixerContent = document.createElement('div');
-    mixerContent.className = 'context-submenu';
-    for (let i = 0; i < state.mixerChannels.length; i++) {
-      const item = document.createElement('div');
-      item.className = 'context-menu-item';
-      item.textContent = `Channel ${i + 1}`;
-      item.addEventListener('click', () => {
-        hideContextMenu();
-        assignAssetToMixer(i, slotIndex);
-      });
-      mixerContent.appendChild(item);
-    }
-    mixerItem.appendChild(mixerContent);
-    menu.appendChild(mixerItem);
-  }
-
-  // ---- Clear Slot ----
-  if (hasAsset) {
-    const separator2 = document.createElement('div');
-    separator2.className = 'context-menu-separator';
-    menu.appendChild(separator2);
-
-    const clearItem = document.createElement('div');
-    clearItem.className = 'context-menu-item';
-    clearItem.textContent = 'Clear Slot';
-    clearItem.addEventListener('click', () => {
-      hideContextMenu();
+  items.push({
+    label: 'Remove Slot',
+    action: () => {
       const slotData = state.gridSlots[slotIndex] as AssetSlotData | null;
       if (slotData?.renderer) {
         slotData.renderer.dispose();
       }
-      state.gridSlots[slotIndex] = null;
+      state.gridSlots.splice(slotIndex, 1);
+      if (state.activeGridSlot === slotIndex) {
+        state.activeGridSlot = null;
+      } else if (state.activeGridSlot !== null && state.activeGridSlot > slotIndex) {
+        state.activeGridSlot--;
+      }
       rebuildAssetGridDOM();
       saveGridState();
-      setStatus(`Cleared asset slot ${slotIndex + 1}`, 'success');
-    });
-    menu.appendChild(clearItem);
-  }
-
-  // ---- Remove Slot ----
-  const removeItem = document.createElement('div');
-  removeItem.className = 'context-menu-item';
-  removeItem.textContent = 'Remove Slot';
-  removeItem.addEventListener('click', () => {
-    hideContextMenu();
-    const slotData = state.gridSlots[slotIndex] as AssetSlotData | null;
-    if (slotData?.renderer) {
-      slotData.renderer.dispose();
-    }
-    state.gridSlots.splice(slotIndex, 1);
-    if (state.activeGridSlot === slotIndex) {
-      state.activeGridSlot = null;
-    } else if (state.activeGridSlot !== null && state.activeGridSlot > slotIndex) {
-      state.activeGridSlot--;
-    }
-    rebuildAssetGridDOM();
-    saveGridState();
-    setStatus(`Removed asset slot ${slotIndex + 1}`, 'success');
+      setStatus(`Removed asset slot ${slotIndex + 1}`, 'success');
+    },
   });
-  menu.appendChild(removeItem);
 
-  // ---- Position menu ----
-  menu.style.left = `${x}px`;
-  menu.style.top = `${y}px`;
-  document.body.appendChild(menu);
-
-  const rect = menu.getBoundingClientRect();
-  if (rect.right > window.innerWidth) {
-    menu.style.left = `${window.innerWidth - rect.width - 5}px`;
-  }
-  if (rect.bottom > window.innerHeight) {
-    menu.style.top = `${window.innerHeight - rect.height - 5}px`;
-  }
-
-  // Close on click outside
-  setTimeout(() => {
-    const handler = (e: MouseEvent): void => {
-      if (!menu.contains(e.target as Node)) {
-        hideContextMenu();
-        document.removeEventListener('click', handler);
-      }
-    };
-    document.addEventListener('click', handler);
-  }, 0);
+  showContextMenuHelper(x, y, items, { menuId: 'grid-context-menu' });
 }

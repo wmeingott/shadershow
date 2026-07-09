@@ -6,6 +6,7 @@ import type { ParamValue } from '@shared/types/params.js';
 import type { MixPreset } from '../ui/mixer.js';
 import { isMixerActive, captureMixerThumbnail, recallMixState, resetMixer } from '../ui/mixer.js';
 import { showContextMenu as showContextMenuHelper } from '../ui/context-menu.js';
+import { inlineRename } from '../ui/inline-rename.js';
 import { saveViewState } from '../ui/view-state.js';
 import { createTaggedLogger } from '@shared/logger.js';
 
@@ -70,16 +71,17 @@ interface SerializedMixerChannel {
 }
 
 /** Runtime mixer channel shape as stored in state.mixerChannels */
-interface MixerChannelLike {
+export interface MixerChannelLike {
   slotIndex: number | null;
   tabIndex?: number | null;
   alpha: number;
   params: Record<string, unknown>;
   customParams: Record<string, unknown>;
   renderer: unknown | null;
-  shaderCode: string | null;
+  shaderCode?: string | null;
   assetType?: string | null;
   mediaPath?: string;
+  enabled?: boolean;
 }
 
 /** Runtime shape of a shader tab stored in state.shaderTabs */
@@ -156,41 +158,58 @@ function captureVisualPresetThumbnail(): string | null {
 // Mixer channel serialization
 // ---------------------------------------------------------------------------
 
-export function serializeMixerChannels(): (SerializedMixerChannel | null)[] {
-  const channels = state.mixerChannels as MixerChannelLike[];
-  return channels.map((ch) => {
-    if (ch.slotIndex === null && ch.tabIndex == null && !ch.renderer) return null;
+/**
+ * Serialize one live mixer channel into its persistable shape, resolving
+ * grid-assigned channels through their source slot. Returns null for empty
+ * channels or shader channels with no code. `includeEnabled` adds the
+ * `enabled` flag used by mix presets (visual presets omit it).
+ *
+ * Shared by serializeMixerChannels (VP), saveMixPreset and updateMixPreset (CMP).
+ */
+export function serializeMixChannel(
+  ch: MixerChannelLike,
+  includeEnabled: boolean,
+): (SerializedMixerChannel & { enabled?: boolean }) | null {
+  if (ch.slotIndex === null && ch.tabIndex == null && !ch.renderer) return null;
 
-    let slotData: ShaderTabLike['slots'][number] = null;
-    if (ch.slotIndex !== null && ch.tabIndex != null) {
-      const srcTab = (state.shaderTabs as ShaderTabLike[])[ch.tabIndex];
-      slotData = srcTab?.slots?.[ch.slotIndex] || null;
-    }
+  let slotData: ShaderTabLike['slots'][number] = null;
+  if (ch.slotIndex !== null && ch.tabIndex != null) {
+    const srcTab = (state.shaderTabs as ShaderTabLike[])[ch.tabIndex];
+    slotData = srcTab?.slots?.[ch.slotIndex] || null;
+  }
 
-    const isAsset = ch.assetType || slotData?.type?.startsWith('asset-');
-    if (isAsset) {
-      return {
-        assetType: ch.assetType || slotData?.type,
-        mediaPath: slotData?.mediaPath || ch.mediaPath,
-        alpha: ch.alpha,
-        params: { ...ch.params },
-        customParams: { ...ch.customParams },
-      };
-    }
+  const enabled = includeEnabled ? { enabled: ch.enabled !== false } : {};
 
-    let shaderCode = ch.shaderCode;
-    if (!shaderCode && slotData) {
-      shaderCode = slotData.shaderCode || null;
-    }
-    if (!shaderCode) return null;
-
+  const isAsset = ch.assetType || slotData?.type?.startsWith('asset-');
+  if (isAsset) {
     return {
-      shaderCode,
+      assetType: ch.assetType || slotData?.type,
+      mediaPath: slotData?.mediaPath || ch.mediaPath,
       alpha: ch.alpha,
       params: { ...ch.params },
       customParams: { ...ch.customParams },
+      ...enabled,
     };
-  });
+  }
+
+  let shaderCode = ch.shaderCode;
+  if (!shaderCode && slotData) {
+    shaderCode = slotData.shaderCode || null;
+  }
+  if (!shaderCode) return null;
+
+  return {
+    shaderCode,
+    alpha: ch.alpha,
+    params: { ...ch.params },
+    customParams: { ...ch.customParams },
+    ...enabled,
+  };
+}
+
+export function serializeMixerChannels(): (SerializedMixerChannel | null)[] {
+  const channels = state.mixerChannels as MixerChannelLike[];
+  return channels.map((ch) => serializeMixChannel(ch, false));
 }
 
 // ---------------------------------------------------------------------------
@@ -288,28 +307,11 @@ function renameVpTab(index: number): void {
   const tabEl = tabBar?.children[index] as HTMLElement | undefined;
   if (!tabEl) return;
 
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'shader-tab-rename-input';
-  input.value = state.vpTabs[index].name;
-
-  const finishRename = (): void => {
-    const newName = input.value.trim() || state.vpTabs[index].name;
+  inlineRename(tabEl, state.vpTabs[index].name, (newName) => {
     state.vpTabs[index].name = newName;
     rebuildVpTabBar();
     saveGridState();
-  };
-
-  input.addEventListener('blur', finishRename);
-  input.addEventListener('keydown', (e: KeyboardEvent) => {
-    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-    else if (e.key === 'Escape') { input.value = state.vpTabs[index].name; input.blur(); }
   });
-
-  tabEl.textContent = '';
-  tabEl.appendChild(input);
-  input.focus();
-  input.select();
 }
 
 function showVpTabContextMenu(x: number, y: number, index: number): void {
@@ -644,34 +646,16 @@ function renameVisualPreset(presetIndex: number): void {
   const btn = vpContainer?.querySelector(`[data-preset-index="${presetIndex}"]`);
   if (!btn) return;
 
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'shader-tab-rename-input';
-  input.value = preset.name;
-  input.style.width = '90%';
-
-  const finishRename = (): void => {
-    const newName = input.value.trim() || preset.name;
-    preset.name = newName;
-    rebuildVisualPresetsDOM();
-    saveGridState();
-  };
-
-  input.addEventListener('blur', finishRename);
-  input.addEventListener('keydown', (e: KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      input.blur();
-    } else if (e.key === 'Escape') {
-      input.value = preset.name;
-      input.blur();
-    }
-  });
-
-  btn.innerHTML = '';
-  btn.appendChild(input);
-  input.focus();
-  input.select();
+  inlineRename(
+    btn as HTMLElement,
+    preset.name,
+    (newName) => {
+      preset.name = newName;
+      rebuildVisualPresetsDOM();
+      saveGridState();
+    },
+    { width: '90%' },
+  );
 }
 
 function deleteVisualPreset(presetIndex: number): void {

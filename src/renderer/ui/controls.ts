@@ -454,86 +454,67 @@ export function resetTime(): void {
   });
 }
 
-export function togglePreview(): void {
-  state.previewEnabled = !state.previewEnabled;
-  log.debug('Controls', 'Preview:', state.previewEnabled ? 'shown' : 'hidden');
-  const btnPreview = document.getElementById('btn-preview') as HTMLElement;
-  const previewPanel = document.getElementById('preview-panel') as HTMLElement;
+interface TogglePanelOptions {
+  stateKey: 'previewEnabled' | 'gridEnabled' | 'editorEnabled' | 'paramsEnabled';
+  label: string;
+  btnId: string;
+  panelId: string;
+  titleWhenOn: string;  // shown while the panel is visible (the "hide" action)
+  titleWhenOff: string; // shown while the panel is hidden (the "show" action)
+  onShow?: () => void;
+  onHide?: () => void;
+}
 
-  if (state.previewEnabled) {
-    btnPreview.classList.add('active');
-    btnPreview.title = 'Disable Preview';
-    previewPanel.classList.remove('hidden');
+function togglePanel(opts: TogglePanelOptions): void {
+  const enabled = !state[opts.stateKey];
+  state[opts.stateKey] = enabled;
+  log.debug('Controls', `${opts.label}:`, enabled ? 'shown' : 'hidden');
+  const btn = document.getElementById(opts.btnId) as HTMLElement;
+  const panel = document.getElementById(opts.panelId) as HTMLElement;
+
+  if (enabled) {
+    btn.classList.add('active');
+    btn.title = opts.titleWhenOn;
+    panel.classList.remove('hidden');
+    opts.onShow?.();
   } else {
-    btnPreview.classList.remove('active');
-    btnPreview.title = 'Enable Preview';
-    previewPanel.classList.add('hidden');
+    btn.classList.remove('active');
+    btn.title = opts.titleWhenOff;
+    panel.classList.add('hidden');
+    opts.onHide?.();
   }
 
   updatePanelVisibility();
   saveViewState();
+}
+
+export function togglePreview(): void {
+  togglePanel({
+    stateKey: 'previewEnabled', label: 'Preview', btnId: 'btn-preview', panelId: 'preview-panel',
+    titleWhenOn: 'Disable Preview', titleWhenOff: 'Enable Preview',
+  });
 }
 
 export function toggleGrid(): void {
-  state.gridEnabled = !state.gridEnabled;
-  log.debug('Controls', 'Grid:', state.gridEnabled ? 'shown' : 'hidden');
-  const btnGrid = document.getElementById('btn-grid') as HTMLElement;
-  const gridPanel = document.getElementById('grid-panel') as HTMLElement;
-
-  if (state.gridEnabled) {
-    btnGrid.classList.add('active');
-    btnGrid.title = 'Hide Shader Grid';
-    gridPanel.classList.remove('hidden');
-    startGridAnimation();
-  } else {
-    btnGrid.classList.remove('active');
-    btnGrid.title = 'Show Shader Grid';
-    gridPanel.classList.add('hidden');
-    stopGridAnimation();
-  }
-
-  updatePanelVisibility();
-  saveViewState();
+  togglePanel({
+    stateKey: 'gridEnabled', label: 'Grid', btnId: 'btn-grid', panelId: 'grid-panel',
+    titleWhenOn: 'Hide Shader Grid', titleWhenOff: 'Show Shader Grid',
+    onShow: startGridAnimation, onHide: stopGridAnimation,
+  });
 }
 
 export function toggleEditor(): void {
-  state.editorEnabled = !state.editorEnabled;
-  log.debug('Controls', 'Editor:', state.editorEnabled ? 'shown' : 'hidden');
-  const btnEditor = document.getElementById('btn-editor') as HTMLElement;
-  const editorPanel = document.getElementById('editor-panel') as HTMLElement;
-
-  if (state.editorEnabled) {
-    btnEditor.classList.add('active');
-    btnEditor.title = 'Hide Editor';
-    editorPanel.classList.remove('hidden');
-  } else {
-    btnEditor.classList.remove('active');
-    btnEditor.title = 'Show Editor';
-    editorPanel.classList.add('hidden');
-  }
-
-  updatePanelVisibility();
-  saveViewState();
+  togglePanel({
+    stateKey: 'editorEnabled', label: 'Editor', btnId: 'btn-editor', panelId: 'editor-panel',
+    titleWhenOn: 'Hide Editor', titleWhenOff: 'Show Editor',
+  });
 }
 
 export function toggleParams(): void {
-  state.paramsEnabled = !state.paramsEnabled;
-  log.debug('Controls', 'Params:', state.paramsEnabled ? 'shown' : 'hidden');
-  const btnParams = document.getElementById('btn-params') as HTMLElement;
-  const paramsPanel = document.getElementById('params-panel') as HTMLElement;
-
-  if (state.paramsEnabled) {
-    btnParams.classList.add('active');
-    btnParams.title = 'Hide Parameters';
-    paramsPanel.classList.remove('hidden');
-  } else {
-    btnParams.classList.remove('active');
-    btnParams.title = 'Show Parameters';
-    paramsPanel.classList.add('hidden');
-  }
-
-  updatePanelVisibility();
-  saveViewState();
+  togglePanel({
+    stateKey: 'paramsEnabled', label: 'Params', btnId: 'btn-params', panelId: 'params-panel',
+    titleWhenOn: 'Hide Parameters', titleWhenOff: 'Show Parameters',
+  });
 }
 
 export function updatePanelVisibility(): void {

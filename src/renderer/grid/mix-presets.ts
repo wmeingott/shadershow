@@ -4,7 +4,9 @@
 
 import { state } from '../core/state.js';
 import { showContextMenu as showContextMenuHelper } from '../ui/context-menu.js';
+import { inlineRename } from '../ui/inline-rename.js';
 import { isMixerActive, captureMixerThumbnail, recallMixState } from '../ui/mixer.js';
+import { serializeMixChannel, type MixerChannelLike } from './visual-presets.js';
 import { loadCompositionToSide, getActiveSide } from '../ui/ab-preview.js';
 import { createTaggedLogger } from '@shared/logger.js';
 
@@ -66,18 +68,6 @@ interface MixPresetChannel {
   enabled?: boolean;
 }
 
-interface MixerChannelLike {
-  slotIndex: number | null;
-  tabIndex?: number | null;
-  alpha: number;
-  params: Record<string, unknown>;
-  customParams: Record<string, unknown>;
-  renderer: unknown;
-  shaderCode?: string | null;
-  assetType?: string;
-  mediaPath?: string;
-  enabled?: boolean;
-}
 
 // ---------------------------------------------------------------------------
 // Helpers — typed access to the loosely-typed global state
@@ -197,46 +187,7 @@ function saveMixPreset(): void {
 
   const channels: (MixPresetChannel | null)[] = (
     state.mixerChannels as MixerChannelLike[]
-  ).map((ch) => {
-    if (ch.slotIndex === null && ch.tabIndex == null && !ch.renderer) return null;
-
-    // Look up slot data for grid-assigned channels
-    let slotData: Record<string, unknown> | null = null;
-    if (ch.slotIndex !== null && ch.tabIndex != null) {
-      const srcTab = (state.shaderTabs as ShaderTabLike[])[ch.tabIndex];
-      slotData = (srcTab?.slots?.[ch.slotIndex] as Record<string, unknown>) || null;
-    }
-
-    // Check if this is an asset channel
-    const isAsset =
-      ch.assetType ||
-      (typeof slotData?.type === 'string' && (slotData.type as string).startsWith('asset-'));
-    if (isAsset) {
-      return {
-        assetType: ch.assetType || (slotData?.type as string | undefined),
-        mediaPath: (slotData?.mediaPath as string | undefined) || ch.mediaPath,
-        alpha: ch.alpha,
-        params: { ...ch.params },
-        customParams: { ...ch.customParams },
-        enabled: ch.enabled !== false,
-      };
-    }
-
-    // Shader channel — get shader code
-    let shaderCode = ch.shaderCode;
-    if (!shaderCode && slotData) {
-      shaderCode = slotData.shaderCode as string | null | undefined;
-    }
-    if (!shaderCode) return null;
-
-    return {
-      shaderCode,
-      alpha: ch.alpha,
-      params: { ...ch.params },
-      customParams: { ...ch.customParams },
-      enabled: ch.enabled !== false,
-    };
-  });
+  ).map((ch) => serializeMixChannel(ch, true));
 
   const presetName = `Mix ${(tab.mixPresets || []).length + 1}`;
   const thumbnail = captureMixerThumbnail();
@@ -319,25 +270,7 @@ function updateMixPreset(presetIndex: number): void {
 
   const channels: (MixPresetChannel | null)[] = (
     state.mixerChannels as MixerChannelLike[]
-  ).map((ch) => {
-    if (ch.slotIndex === null && ch.tabIndex == null && !ch.renderer) return null;
-
-    let shaderCode = ch.shaderCode;
-    if (!shaderCode && ch.slotIndex !== null && ch.tabIndex != null) {
-      const srcTab = (state.shaderTabs as ShaderTabLike[])[ch.tabIndex];
-      const slotData = srcTab?.slots?.[ch.slotIndex] as Record<string, unknown> | undefined;
-      shaderCode = slotData?.shaderCode as string | undefined;
-    }
-    if (!shaderCode) return null;
-
-    return {
-      shaderCode,
-      alpha: ch.alpha,
-      params: { ...ch.params },
-      customParams: { ...ch.customParams },
-      enabled: ch.enabled !== false,
-    };
-  });
+  ).map((ch) => serializeMixChannel(ch, true));
 
   preset.blendMode = state.mixerBlendMode;
   preset.channels = channels;
@@ -362,34 +295,16 @@ function renameMixPreset(presetIndex: number): void {
   const btn = grid?.querySelector(`[data-preset-index="${presetIndex}"]`) as HTMLElement | null;
   if (!btn) return;
 
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'shader-tab-rename-input';
-  input.value = preset.name;
-  input.style.width = '90%';
-
-  const finishRename = (): void => {
-    const newName = input.value.trim() || preset.name;
-    preset.name = newName;
-    rebuildMixPanelDOM();
-    saveGridState();
-  };
-
-  input.addEventListener('blur', finishRename);
-  input.addEventListener('keydown', (e: KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      input.blur();
-    } else if (e.key === 'Escape') {
-      input.value = preset.name;
-      input.blur();
-    }
-  });
-
-  btn.innerHTML = '';
-  btn.appendChild(input);
-  input.focus();
-  input.select();
+  inlineRename(
+    btn,
+    preset.name,
+    (newName) => {
+      preset.name = newName;
+      rebuildMixPanelDOM();
+      saveGridState();
+    },
+    { width: '90%' },
+  );
 }
 
 /**

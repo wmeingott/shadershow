@@ -282,6 +282,26 @@ export function setCustomUniforms(
   }
 }
 
+/**
+ * Create a channel texture, bind it to TEXTURE_2D, and set the standard
+ * MIN/MAG/WRAP parameters. The texture is left bound so the caller can
+ * immediately `texImage2D` its data. Used for the dynamic channel textures
+ * (video/camera/audio/NDI/black-default) which share this exact setup.
+ */
+export function createChannelTexture(
+  gl: WebGL2RenderingContext,
+  wrap: 'repeat' | 'clamp' = 'repeat',
+): WebGLTexture {
+  const texture = gl.createTexture()!;
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  const w = wrap === 'clamp' ? gl.CLAMP_TO_EDGE : gl.REPEAT;
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, w);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, w);
+  return texture;
+}
+
 export function loadTextureFromDataUrl(
   gl: WebGL2RenderingContext,
   dataUrl: string,

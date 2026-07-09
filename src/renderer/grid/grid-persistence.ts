@@ -4,6 +4,7 @@
 
 import { state } from '../core/state.js';
 import { createTaggedLogger, LOG_LEVEL } from '../../shared/logger.js';
+import { basename } from '@shared/paths.js';
 import { AssetRenderer } from '../renderers/asset-renderer.js';
 
 // ---------------------------------------------------------------------------
@@ -88,6 +89,23 @@ interface MixChannelData {
   shaderCode?: string;
   assetType?: string;
   mediaPath?: string;
+}
+
+/** Re-copy an already-serialized mix channel into its on-disk shape. */
+function serializePresetChannel(ch: MixChannelData | null): Record<string, unknown> | null {
+  if (!ch) return null;
+  const saved: Record<string, unknown> = {
+    alpha: ch.alpha,
+    params: ch.params,
+    customParams: ch.customParams || {},
+  };
+  if (ch.assetType) {
+    saved.assetType = ch.assetType;
+    saved.mediaPath = ch.mediaPath;
+  } else {
+    saved.shaderCode = ch.shaderCode;
+  }
+  return saved;
 }
 
 /** Runtime shape of a mix-preset stored in a mix tab. */
@@ -185,21 +203,7 @@ export function saveGridStateNow(): void {
           name: preset.name,
           blendMode: preset.blendMode,
           thumbnail: preset.thumbnail || null,
-          channels: preset.channels.map((ch) => {
-            if (!ch) return null;
-            const saved: Record<string, unknown> = {
-              alpha: ch.alpha,
-              params: ch.params,
-              customParams: ch.customParams || {},
-            };
-            if (ch.assetType) {
-              saved.assetType = ch.assetType;
-              saved.mediaPath = ch.mediaPath;
-            } else {
-              saved.shaderCode = ch.shaderCode;
-            }
-            return saved;
-          }),
+          channels: preset.channels.map(serializePresetChannel),
         })),
       };
     }
@@ -259,21 +263,7 @@ export function saveGridStateNow(): void {
       };
       if (preset.mixerEnabled) {
         saved.mixerBlendMode = preset.mixerBlendMode;
-        saved.mixerChannels = (preset.mixerChannels || []).map((ch) => {
-          if (!ch) return null;
-          const chSaved: Record<string, unknown> = {
-            alpha: ch.alpha,
-            params: ch.params,
-            customParams: ch.customParams || {},
-          };
-          if (ch.assetType) {
-            chSaved.assetType = ch.assetType;
-            chSaved.mediaPath = ch.mediaPath;
-          } else {
-            chSaved.shaderCode = ch.shaderCode;
-          }
-          return chSaved;
-        });
+        saved.mixerChannels = (preset.mixerChannels || []).map(serializePresetChannel);
       }
       return saved;
     });
@@ -723,7 +713,7 @@ export async function loadGridPresetsFromData(
     }
   }
 
-  const fileName = filePath.split('/').pop()!.split('\\').pop()!;
+  const fileName = basename(filePath);
   if (loadedCount > 0) {
     setStatus(
       `Loaded ${loadedCount} shader${loadedCount > 1 ? 's' : ''} from ${fileName}`,

@@ -2,6 +2,7 @@
 // Typed version of js/utils.js.
 
 import { logMessage } from './console-panel.js';
+import { basename } from '@shared/paths.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,7 +54,7 @@ export function updateChannelSlot(
   slot.classList.remove('has-texture', 'has-video', 'has-camera', 'has-audio', 'has-ndi');
   (slot as HTMLElement).style.backgroundImage = '';
 
-  const fileName: string = source ? source.split('/').pop()!.split('\\').pop()! : '';
+  const fileName: string = source ? basename(source) : '';
 
   switch (type) {
     case 'image':

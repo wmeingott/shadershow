@@ -2,6 +2,7 @@
 // Merges js/ndi.js, js/syphon.js, and js/recording.js into a single class.
 
 import { state } from '../core/state.js';
+import { basename } from '@shared/paths.js';
 import { getABOverlayCanvas } from '../ui/ab-preview.js';
 
 // ---------------------------------------------------------------------------
@@ -342,7 +343,7 @@ async function startRecordingCapture(setStatus: (msg: string, type: 'success' | 
       btnRecord.title = 'Stop Recording (Cmd+Shift+R)';
     }
 
-    const fileName = result.filePath!.split('/').pop()!.split('\\').pop();
+    const fileName = basename(result.filePath!);
     setStatus(`Recording to ${fileName} (${result.width}x${result.height})`, 'success');
   } catch (err: unknown) {
     setStatus(`Recording failed: ${(err as Error).message}`, 'error');

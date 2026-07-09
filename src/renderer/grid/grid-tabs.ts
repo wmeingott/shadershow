@@ -5,6 +5,7 @@
 import { state, notifyRemoteStateChanged } from '../core/state.js';
 import { createTaggedLogger, LOG_LEVEL } from '../../shared/logger.js';
 import { showContextMenu as showContextMenuHelper } from '../ui/context-menu.js';
+import { inlineRename } from '../ui/inline-rename.js';
 import { fileTextureCache } from './grid-renderer.js';
 
 // ---------------------------------------------------------------------------
@@ -408,33 +409,11 @@ function renameShaderTab(tabIndex: number): void {
   const tabEl = tabBar.querySelector(`[data-tab-index="${tabIndex}"]`) as HTMLElement | null;
   if (!tabEl) return;
 
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'shader-tab-rename-input';
-  input.value = tab.name;
-
-  const finishRename = (): void => {
-    const newName = input.value.trim() || tab.name;
+  inlineRename(tabEl, tab.name, (newName) => {
     tab.name = newName;
     buildTabBar();
     saveGridState();
-  };
-
-  input.addEventListener('blur', finishRename);
-  input.addEventListener('keydown', (e: KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      input.blur();
-    } else if (e.key === 'Escape') {
-      input.value = tab.name;
-      input.blur();
-    }
   });
-
-  tabEl.textContent = '';
-  tabEl.appendChild(input);
-  input.focus();
-  input.select();
 }
 
 // ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@ import type {
 } from '@shared/types/index.js';
 import type { SettingsDialogData } from '@shared/types/settings.js';
 import type { TileLayout } from '@shared/types/state.js';
+import { basename } from '@shared/paths.js';
 import { createTaggedLogger } from '@shared/logger.js';
 
 // ---------------------------------------------------------------------------
@@ -635,7 +636,7 @@ export async function initIPC(): Promise<void> {
   });
 
   window.electronAPI.onGridPresetsSaved(({ filePath }: { filePath: string }) => {
-    const fileName: string = filePath.split('/').pop()!.split('\\').pop()!;
+    const fileName: string = basename(filePath);
     setStatus(`Grid presets saved to ${fileName}`, 'success');
   });
 
@@ -703,7 +704,7 @@ export async function initIPC(): Promise<void> {
         log.error('IPC', 'Recording error:', error);
         setStatus(`Recording error: ${error}`, 'error');
       } else if (filePath && exitCode === 0) {
-        const fileName: string = filePath.split('/').pop()!.split('\\').pop()!;
+        const fileName: string = basename(filePath);
         log.debug('IPC', 'Recording saved:', fileName);
         setStatus(`Recording saved: ${fileName}`, 'success');
       } else if (exitCode !== 0 && exitCode !== undefined) {
@@ -859,7 +860,7 @@ export async function initIPC(): Promise<void> {
 
 function buildRemoteStateSnapshot(): RemoteStateSnapshot {
   const filename = (fp: string | null): string | null =>
-    fp ? fp.split('/').pop()!.split('\\').pop()! : null;
+    fp ? basename(fp) : null;
 
   const shaderTabs = state.shaderTabs as ShaderTabRuntime[];
   const mixerChannels = state.mixerChannels as Array<MixerChannel & { tabIndex?: number | null }>;

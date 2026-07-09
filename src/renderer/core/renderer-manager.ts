@@ -27,6 +27,7 @@ declare const window: Window & {
 import { compileShader } from '../ui/editor.js';
 import { cacheRenderLoopElements, renderLoop } from './render-loop.js';
 import { setStatus } from '../ui/utils.js';
+import { reconcileMediaPlayback } from './media-playback.js';
 
 // ---------------------------------------------------------------------------
 // Minimal Ace editor interface (only what setRenderMode needs)
@@ -178,6 +179,7 @@ export async function setRenderMode(mode: RenderMode): Promise<void> {
   if (canvas) {
     (state.renderer as ShaderRenderer | ThreeSceneRenderer).setResolution(canvas.width, canvas.height);
   }
+  reconcileMediaPlayback();
 }
 
 /**

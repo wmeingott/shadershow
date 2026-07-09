@@ -451,9 +451,6 @@ export class ThreeSceneRenderer implements IRenderer {
       this.fpsLastTime = now;
     }
 
-    // Update video/audio textures
-    this.updateChannelTextures();
-
     // Update beat detector from first active audio channel
     let bpmValue = 1.0;
     for (let i = 0; i < 4; i++) {
@@ -519,20 +516,6 @@ export class ThreeSceneRenderer implements IRenderer {
       frame: this.frameCount,
       bpm: bpmValue
     };
-  }
-
-  private updateChannelTextures(): void {
-    for (let i = 0; i < 4; i++) {
-      // Update video/camera textures
-      if (this.channelVideoSources[i] && this.channelVideoSources[i]!.readyState >= 2) {
-        if (this.channelThreeTextures[i]) {
-          this.channelThreeTextures[i].needsUpdate = true;
-        }
-      }
-
-      // Update audio textures (would need special handling for Three.js)
-      // Audio data could be passed to scene via params or separate mechanism
-    }
   }
 
   // Parameter methods (same interface as ShaderRenderer)
@@ -715,6 +698,19 @@ export class ThreeSceneRenderer implements IRenderer {
       return { width: video.videoWidth, height: video.videoHeight, type: 'camera' };
     } catch (err: any) {
       throw new Error(`Camera access denied: ${err.message}`);
+    }
+  }
+
+  /** Pause/resume channel videos and enable/disable camera tracks. Idempotent. */
+  setMediaActive(active: boolean): void {
+    for (let i = 0; i < 4; i++) {
+      const video = this.channelVideoSources[i];
+      if (!video) continue;
+      if (video.srcObject) {
+        for (const t of (video.srcObject as MediaStream).getTracks()) t.enabled = active;
+      }
+      if (active) { if (video.paused) video.play().catch(() => {}); }
+      else if (!video.paused) video.pause();
     }
   }
 

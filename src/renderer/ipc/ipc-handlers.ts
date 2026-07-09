@@ -2,6 +2,7 @@
 // Registers all main→renderer IPC listeners and manages remote control state.
 
 import { state } from '../core/state.js';
+import { reconcileMediaPlayback } from '../core/media-playback.js';
 import type { ChannelState, MixerChannel, RenderMode, BlendMode } from '../core/state.js';
 import type {
   ParamValue,
@@ -802,8 +803,10 @@ export async function initIPC(): Promise<void> {
   window.electronAPI.onFullscreenFps((fps: number) => {
     // Update state for adaptive preview framerate
     state.fullscreenFps = fps;
+    const wasActive = state.fullscreenActive;
     state.fullscreenActive = true;
     updatePreviewFrameLimit();
+    if (!wasActive) reconcileMediaPlayback();
 
     // Update UI display
     const fpsDisplay = document.getElementById('fullscreen-fps') as HTMLElement | null;
@@ -825,6 +828,7 @@ export async function initIPC(): Promise<void> {
     state.fullscreenActive = false;
     state.fullscreenFps = 0;
     state.previewFrameInterval = 0; // Remove frame limiting
+    reconcileMediaPlayback();
 
     // Reset FPS display
     const fpsDisplay = document.getElementById('fullscreen-fps') as HTMLElement | null;

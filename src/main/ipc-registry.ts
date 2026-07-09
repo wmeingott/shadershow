@@ -232,6 +232,13 @@ export class IPCRegistry {
       settingsManager.save();
     });
 
+    // 11f. set-midi-mappings — persist MIDI mappings (renderer owns the MIDI runtime)
+    ipcMain.on('set-midi-mappings', (_event, mappings: unknown) => {
+      if (!Array.isArray(mappings)) return;
+      settingsManager.midiMappings = mappings;
+      settingsManager.save();
+    });
+
     // 13. toggle-syphon
     ipcMain.on('toggle-syphon', () => {
       void syphonManager.toggle();
@@ -825,6 +832,14 @@ export class IPCRegistry {
       } else {
         artnetManager.stop();
       }
+    }
+
+    // 4c. MIDI settings (renderer owns the MIDI runtime; main only persists)
+    if (typeof settings.midiEnabled === 'boolean') {
+      settingsManager.midiEnabled = settings.midiEnabled;
+    }
+    if (typeof settings.midiInputId === 'string') {
+      settingsManager.midiInputId = settings.midiInputId;
     }
 
     // 5. Save all settings including param ranges and grid slot width

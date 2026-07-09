@@ -246,6 +246,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onArtNetStatus: (callback: (data: any) => void) => onIPC('artnet-status', (_event: any, data: any) => callback(data)),
   onArtNetDmxUpdate: (callback: (data: any) => void) => onIPC('artnet-dmx-update', (_event: any, data: any) => callback(data)),
 
+  // MIDI (runtime lives in the renderer via Web MIDI; main only persists mappings)
+  setMidiMappings: (mappings: any[]) => ipcRenderer.send('set-midi-mappings', mappings),
+
   // AI Assistant
   sendClaudePrompt: (data: any) => ipcRenderer.send('stream-claude-prompt', data),
   onClaudeStreamChunk: (callback: (data: any) => void) => onIPC('claude-stream-chunk', (_event: any, data: any) => callback(data)),

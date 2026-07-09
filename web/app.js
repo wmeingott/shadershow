@@ -152,12 +152,16 @@
           renderPlayback();
         }
         break;
-      case 'invalidate-thumbnail':
+      case 'invalidate-thumbnail': {
         if (msg.data) {
           bumpSlotThumbnail(msg.data.tab, msg.data.slot);
-          renderGrid(); // re-create imgs so the bumped URL is picked up
+          const thumbImg = document.querySelector(
+            `.slot-thumb[data-tab="${msg.data.tab}"][data-slot="${msg.data.slot}"]`);
+          if (thumbImg) thumbImg.src = getThumbnailUrl(msg.data.tab, msg.data.slot);
+          else renderGrid();
         }
         break;
+      }
     }
   }
 
@@ -1100,6 +1104,19 @@
     document.getElementById('btn-preview').addEventListener('click', togglePreview);
     document.getElementById('preview-close').addEventListener('click', () => {
       if (previewActive) togglePreview();
+    });
+
+    // Pause stream + poll while page is hidden (tab backgrounded / phone locked)
+    document.addEventListener('visibilitychange', () => {
+      const streamImg = document.getElementById('preview-stream');
+      if (document.hidden) {
+        if (previewActive && streamImg) streamImg.src = '';
+        clearInterval(displayRefreshTimer);
+      } else {
+        if (previewActive && streamImg) streamImg.src = `/api/preview/stream?token=${authToken}`;
+        startDisplayRefresh();
+        fetchDisplays();
+      }
     });
   }
 

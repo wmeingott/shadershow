@@ -285,6 +285,13 @@ export class AssetRenderer {
   // No-op — assets don't compile
   compile(): void {}
 
+  /** Pause/resume the backing <video>. Idempotent; no-op for images. */
+  setDecodeActive(active: boolean): void {
+    if (this.assetType !== 'video' || !this.video) return;
+    if (active && this.video.paused) this.video.play().catch(() => {});
+    else if (!active && !this.video.paused) this.video.pause();
+  }
+
   // Dispose resources
   dispose(): void {
     if (this.video) {

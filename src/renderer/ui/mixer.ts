@@ -2,6 +2,7 @@
 // Typed version of js/mixer.js.
 
 import { state, notifyRemoteStateChanged } from '../core/state.js';
+import { reconcileMediaPlayback } from '../core/media-playback.js';
 import type { ParamValue } from '@shared/types/params.js';
 
 // ---------------------------------------------------------------------------
@@ -288,6 +289,7 @@ function createChannelElement(index: number): HTMLDivElement {
       enabled: ch.enabled,
     });
     syncMixerToABComposition();
+    reconcileMediaPlayback();
 
     setStatus(`Mixer channel ${index + 1} ${ch.enabled ? 'enabled' : 'disabled'}`, 'success');
   });
@@ -648,6 +650,7 @@ export function assignShaderToMixer(channelIndex: number, slotIndex: number): vo
   const name = slotData?.filePath?.split('/').pop()?.split('\\').pop() || `Slot ${slotIndex + 1}`;
   setStatus(`Mixer ${channelIndex + 1} \u2190 ${name}`, 'success');
   notifyRemoteStateChanged();
+  reconcileMediaPlayback();
 }
 
 export function assignAssetToMixer(channelIndex: number, slotIndex: number): void {
@@ -711,6 +714,7 @@ export function assignAssetToMixer(channelIndex: number, slotIndex: number): voi
   const name = slotData?.label || slotData?.mediaPath || `Asset ${slotIndex + 1}`;
   setStatus(`Mixer ${channelIndex + 1} \u2190 ${name}`, 'success');
   notifyRemoteStateChanged();
+  reconcileMediaPlayback();
 }
 
 export function clearMixerChannel(channelIndex: number): void {
@@ -754,6 +758,7 @@ export function clearMixerChannel(channelIndex: number): void {
 
     setStatus(`Mixer channel ${channelIndex + 1} removed`, 'success');
     notifyRemoteStateChanged();
+    reconcileMediaPlayback();
     return;
   }
 
@@ -790,6 +795,7 @@ export function clearMixerChannel(channelIndex: number): void {
 
   setStatus(`Mixer channel ${channelIndex + 1} cleared`, 'success');
   notifyRemoteStateChanged();
+  reconcileMediaPlayback();
 }
 
 export function isMixerActive(): boolean {
@@ -1102,4 +1108,5 @@ export function recallMixState(preset: MixPreset): void {
 
   setStatus(`Recalled mix preset: ${preset.name}`, 'success');
   notifyRemoteStateChanged();
+  reconcileMediaPlayback();
 }

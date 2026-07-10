@@ -148,7 +148,8 @@ function handleMessage(e: MIDIMessageEvent): void {
     if (isThresholdTarget(m.target)) {
       const threshold = (m.target as { threshold?: number }).threshold ?? 127;
       const wasHigh = triggerState.get(i) ?? false;
-      const isHigh = dmxValue > threshold;
+      // Notes trigger on press regardless of velocity; CC uses the scaled threshold
+      const isHigh = kind === 'note' ? value > 0 : dmxValue > threshold;
       triggerState.set(i, isHigh);
       if (isHigh && !wasHigh) changes.push({ target: m.target as { type: string; [k: string]: unknown }, dmxValue });
       continue;

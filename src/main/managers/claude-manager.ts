@@ -10,8 +10,17 @@ import type { AISettings, AIProvider, ClaudeModel } from '@shared/types/settings
 const fsPromises = fs.promises;
 const log = new Logger('AI');
 
-const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-4-20250514';
-const DEFAULT_OPENROUTER_MODEL = 'anthropic/claude-sonnet-4';
+const DEFAULT_ANTHROPIC_MODEL = 'claude-opus-4-8';
+const DEFAULT_OPENROUTER_MODEL = 'anthropic/claude-sonnet-5';
+
+// Models that no longer exist at the API — migrate persisted settings on load
+const DEAD_ANTHROPIC_MODELS = new Set([
+  'claude-sonnet-4-20250514',
+  'claude-opus-4-20250514',
+  'claude-3-5-haiku-20241022',
+  'claude-3-5-sonnet-20241022',
+  'claude-3-7-sonnet-20250219',
+]);
 
 const ANTHROPIC_HOSTNAME = 'api.anthropic.com';
 const OPENROUTER_HOSTNAME = 'openrouter.ai';
@@ -83,9 +92,11 @@ export class ClaudeManager {
         const data: KeyFileData = JSON.parse(raw);
         this.apiKey = data.apiKey || null;
         this.model = data.model || DEFAULT_ANTHROPIC_MODEL;
+        if (DEAD_ANTHROPIC_MODELS.has(this.model)) this.model = DEFAULT_ANTHROPIC_MODEL;
         this.provider = data.provider || 'anthropic';
         this.openrouterApiKey = data.openrouterApiKey || null;
         this.openrouterModel = data.openrouterModel || DEFAULT_OPENROUTER_MODEL;
+        if (data.openrouterModel === 'anthropic/claude-sonnet-4') this.openrouterModel = DEFAULT_OPENROUTER_MODEL;
       }
     } catch (err) {
       log.error('Failed to load AI settings:', err);
@@ -183,19 +194,13 @@ export class ClaudeManager {
         return;
       }
 
-      const postData = JSON.stringify({
-        model: 'claude-3-5-haiku-20241022',
-        max_tokens: 10,
-        messages: [{ role: 'user', content: 'Hi' }],
-      });
-
+      // Model-independent auth check: GET /v1/models never rots when model IDs retire
       const options: https.RequestOptions = {
         hostname: ANTHROPIC_HOSTNAME,
         port: 443,
-        path: '/v1/messages',
-        method: 'POST',
+        path: '/v1/models',
+        method: 'GET',
         headers: {
-          'Content-Type': 'application/json',
           'x-api-key': testKey,
           'anthropic-version': API_VERSION,
         },
@@ -220,7 +225,6 @@ export class ClaudeManager {
 
       req.on('error', (err: Error) => resolve({ success: false, error: err.message }));
       req.setTimeout(REQUEST_TIMEOUT, () => { req.destroy(); resolve({ success: false, error: 'Request timeout' }); });
-      req.write(postData);
       req.end();
     });
   }

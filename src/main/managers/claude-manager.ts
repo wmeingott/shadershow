@@ -17,6 +17,7 @@ const ANTHROPIC_HOSTNAME = 'api.anthropic.com';
 const OPENROUTER_HOSTNAME = 'openrouter.ai';
 const API_VERSION = '2023-06-01';
 const REQUEST_TIMEOUT = 10000;
+const STREAM_IDLE_TIMEOUT = 60000; // no bytes for 60s → treat as stalled
 
 /** An image/video-frame attachment sent with a prompt */
 export interface AIAttachment {
@@ -385,7 +386,7 @@ export class ClaudeManager {
     context: ClaudePromptContext | undefined,
     renderMode: RenderMode,
     onChunk: (text: string) => void,
-    onEnd: () => void,
+    onEnd: (info?: { truncated?: boolean }) => void,
     onError: (error: string) => void,
     attachments?: AIAttachment[],
   ): void {
@@ -402,7 +403,7 @@ export class ClaudeManager {
     context: ClaudePromptContext | undefined,
     renderMode: RenderMode,
     onChunk: (text: string) => void,
-    onEnd: () => void,
+    onEnd: (info?: { truncated?: boolean }) => void,
     onError: (error: string) => void,
     attachments?: AIAttachment[],
   ): void {
@@ -431,7 +432,7 @@ export class ClaudeManager {
 
     const postData = JSON.stringify({
       model: this.model,
-      max_tokens: 8192,
+      max_tokens: 16384,
       stream: true,
       system: systemPrompt,
       messages: [{ role: 'user', content: userContent }],
@@ -449,6 +450,9 @@ export class ClaudeManager {
       },
     };
 
+    let finished = false;
+    let truncated = false;
+
     const req = https.request(options, (res) => {
       if (res.statusCode !== 200) {
         let errorData = '';
@@ -456,9 +460,9 @@ export class ClaudeManager {
         res.on('end', () => {
           try {
             const parsed = JSON.parse(errorData);
-            onError(parsed.error?.message || `HTTP ${res.statusCode}`);
+            if (!finished) { finished = true; onError(parsed.error?.message || `HTTP ${res.statusCode}`); }
           } catch {
-            onError(`HTTP ${res.statusCode}`);
+            if (!finished) { finished = true; onError(`HTTP ${res.statusCode}`); }
           }
         });
         return;
@@ -481,11 +485,13 @@ export class ClaudeManager {
               if (parsed.type === 'content_block_delta') {
                 const text = parsed.delta?.text;
                 if (text) onChunk(text);
+              } else if (parsed.type === 'message_delta') {
+                if (parsed.delta?.stop_reason === 'max_tokens') truncated = true;
               } else if (parsed.type === 'message_stop') {
                 streamEndSent = true;
-                onEnd();
+                if (!finished) { finished = true; onEnd({ truncated }); }
               } else if (parsed.type === 'error') {
-                onError(parsed.error?.message || 'Stream error');
+                if (!finished) { finished = true; onError(parsed.error?.message || 'Stream error'); }
               }
             } catch {
               // Ignore parse errors for incomplete chunks
@@ -503,12 +509,15 @@ export class ClaudeManager {
             }
           } catch { /* Ignore */ }
         }
-        if (!streamEndSent) onEnd();
+        if (!streamEndSent && !finished) { finished = true; onEnd({ truncated }); }
         this.activeRequest = null;
       });
     });
 
-    req.on('error', (err: Error) => { onError(err.message); this.activeRequest = null; });
+    req.on('error', (err: Error) => { if (!finished) { finished = true; onError(err.message); } this.activeRequest = null; });
+    req.setTimeout(STREAM_IDLE_TIMEOUT, () => {
+      if (!finished) { finished = true; req.destroy(); this.activeRequest = null; onError('AI request stalled (no data for 60s)'); }
+    });
     this.activeRequest = req;
     req.write(postData);
     req.end();
@@ -520,7 +529,7 @@ export class ClaudeManager {
     context: ClaudePromptContext | undefined,
     renderMode: RenderMode,
     onChunk: (text: string) => void,
-    onEnd: () => void,
+    onEnd: (info?: { truncated?: boolean }) => void,
     onError: (error: string) => void,
     attachments?: AIAttachment[],
   ): void {
@@ -548,7 +557,7 @@ export class ClaudeManager {
 
     const postData = JSON.stringify({
       model: this.openrouterModel,
-      max_tokens: 8192,
+      max_tokens: 16384,
       stream: true,
       messages: [
         { role: 'system', content: systemPrompt },
@@ -567,6 +576,9 @@ export class ClaudeManager {
       },
     };
 
+    let finished = false;
+    let truncated = false;
+
     const req = https.request(options, (res) => {
       if (res.statusCode !== 200) {
         let errorData = '';
@@ -574,9 +586,9 @@ export class ClaudeManager {
         res.on('end', () => {
           try {
             const parsed = JSON.parse(errorData);
-            onError(parsed.error?.message || `HTTP ${res.statusCode}`);
+            if (!finished) { finished = true; onError(parsed.error?.message || `HTTP ${res.statusCode}`); }
           } catch {
-            onError(`HTTP ${res.statusCode}`);
+            if (!finished) { finished = true; onError(`HTTP ${res.statusCode}`); }
           }
         });
         return;
@@ -594,13 +606,14 @@ export class ClaudeManager {
           if (line.startsWith('data: ')) {
             const jsonStr = line.slice(6).trim();
             if (jsonStr === '[DONE]') {
-              if (!streamEndSent) { streamEndSent = true; onEnd(); }
+              if (!streamEndSent && !finished) { streamEndSent = true; finished = true; onEnd({ truncated }); }
               continue;
             }
             try {
               const parsed = JSON.parse(jsonStr);
               const content = parsed.choices?.[0]?.delta?.content;
               if (content) onChunk(content);
+              if (parsed.choices?.[0]?.finish_reason === 'length') truncated = true;
             } catch {
               // Ignore parse errors for incomplete chunks
             }
@@ -613,21 +626,25 @@ export class ClaudeManager {
         if (buffer.startsWith('data: ')) {
           const jsonStr = buffer.slice(6).trim();
           if (jsonStr === '[DONE]') {
-            if (!streamEndSent) { streamEndSent = true; onEnd(); }
+            if (!streamEndSent && !finished) { streamEndSent = true; finished = true; onEnd({ truncated }); }
           } else {
             try {
               const parsed = JSON.parse(jsonStr);
               const content = parsed.choices?.[0]?.delta?.content;
               if (content) onChunk(content);
+              if (parsed.choices?.[0]?.finish_reason === 'length') truncated = true;
             } catch { /* Ignore */ }
           }
         }
-        if (!streamEndSent) onEnd();
+        if (!streamEndSent && !finished) { finished = true; onEnd({ truncated }); }
         this.activeRequest = null;
       });
     });
 
-    req.on('error', (err: Error) => { onError(err.message); this.activeRequest = null; });
+    req.on('error', (err: Error) => { if (!finished) { finished = true; onError(err.message); } this.activeRequest = null; });
+    req.setTimeout(STREAM_IDLE_TIMEOUT, () => {
+      if (!finished) { finished = true; req.destroy(); this.activeRequest = null; onError('AI request stalled (no data for 60s)'); }
+    });
     this.activeRequest = req;
     req.write(postData);
     req.end();

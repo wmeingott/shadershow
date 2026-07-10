@@ -62,6 +62,7 @@ let streamingResponse: string = '';
 let isStreaming: boolean = false;
 let ipcListenersSetup: boolean = false;
 let attachments: AIAttachment[] = [];
+let renderScheduled: boolean = false;
 
 const MAX_ATTACHMENTS = 5;
 const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
@@ -209,6 +210,10 @@ export async function showAIAssistantDialog(): Promise<void> {
 
 /** Close and clean up the AI assistant dialog */
 export function closeAIAssistantDialog(): void {
+  if (isStreaming) {
+    window.electronAPI.cancelClaudeRequest();
+  }
+
   const overlay: HTMLElement | null = document.getElementById('claude-ai-overlay');
   if (overlay) {
     overlay.remove();
@@ -410,9 +415,30 @@ function capturePreview(): void {
   addAttachment({ dataUrl, name: 'Preview Capture', mediaType: 'image/png' });
 }
 
+const MAX_ATTACHMENT_DIM = 1568; // Anthropic vision sweet spot — larger is downsized server-side anyway
+
+function normalizeAttachment(att: AIAttachment): Promise<AIAttachment> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = MAX_ATTACHMENT_DIM / Math.max(img.width, img.height);
+      if (scale >= 1) { resolve(att); return; }
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve({ dataUrl: canvas.toDataURL('image/jpeg', 0.85), name: att.name, mediaType: 'image/jpeg' });
+    };
+    img.onerror = () => resolve(att); // ponytail: on decode failure send the original
+    img.src = att.dataUrl;
+  });
+}
+
 function addAttachment(att: AIAttachment): void {
-  attachments.push(att);
-  renderAttachments();
+  void normalizeAttachment(att).then((normalized) => {
+    attachments.push(normalized);
+    renderAttachments();
+  });
 }
 
 function removeAttachment(index: number): void {
@@ -554,21 +580,39 @@ function sendPrompt(): void {
 
 function handleStreamChunk(data: { text: string }): void {
   if (!isStreaming) return;
-
   streamingResponse += data.text;
-
-  const responseContent: HTMLElement | null = document.getElementById('response-content');
-  if (responseContent) {
-    // Render with syntax highlighting for code blocks
-    responseContent.innerHTML = renderMarkdown(streamingResponse);
-    responseContent.scrollTop = responseContent.scrollHeight;
-  }
+  if (renderScheduled) return;
+  renderScheduled = true;
+  requestAnimationFrame(() => {
+    renderScheduled = false;
+    if (!isStreaming) return; // a terminal handler already did the final render
+    const responseContent: HTMLElement | null = document.getElementById('response-content');
+    if (responseContent) {
+      responseContent.innerHTML = renderMarkdown(streamingResponse);
+      responseContent.scrollTop = responseContent.scrollHeight;
+    }
+  });
 }
 
-function handleStreamEnd(_data: unknown): void {
+function handleStreamEnd(rawData: unknown): void {
+  const data = rawData as { truncated?: boolean };
   if (!isStreaming) return;
 
   isStreaming = false;
+
+  // Guaranteed final render — a pending rAF may not have fired yet
+  const responseContent: HTMLElement | null = document.getElementById('response-content');
+  if (responseContent) {
+    responseContent.innerHTML = renderMarkdown(streamingResponse);
+    responseContent.scrollTop = responseContent.scrollHeight;
+  }
+
+  if (data?.truncated) {
+    setStatus('Response was truncated at the length limit — code may be incomplete', 'error');
+    if (responseContent) {
+      responseContent.insertAdjacentHTML('afterbegin', '<div class="error-message">⚠ Response truncated — do not Replace All without checking</div>');
+    }
+  }
 
   const sendBtn = document.getElementById('claude-send-btn') as HTMLButtonElement | null;
   const cancelBtn = document.getElementById('claude-cancel-btn') as HTMLButtonElement | null;
@@ -582,7 +626,7 @@ function handleStreamEnd(_data: unknown): void {
     if (actions) actions.classList.remove('hidden');
   }
 
-  setStatus('Response complete', 'success');
+  if (!data?.truncated) setStatus('Response complete', 'success');
 }
 
 function handleError(data: { error: string }): void {

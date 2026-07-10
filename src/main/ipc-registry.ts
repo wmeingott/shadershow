@@ -734,7 +734,7 @@ export class IPCRegistry {
         context,
         renderMode || 'shader',
         (text) => { event.sender.send('claude-stream-chunk', { text }); },
-        () => { event.sender.send('claude-stream-end', { complete: true }); },
+        (info) => { event.sender.send('claude-stream-end', { complete: true, truncated: info?.truncated ?? false }); },
         (error) => { event.sender.send('claude-error', { error }); },
         attachments,
       );

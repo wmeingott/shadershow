@@ -80,6 +80,9 @@ export interface AISettings {
   maskedOpenrouterKey: string;
   openrouterModel: string;
   openrouterModels: ClaudeModel[];
+  // System prompt (effective value — custom if set, otherwise the default)
+  systemPrompt: string;
+  defaultSystemPrompt: string;
 }
 
 /** @deprecated Use AISettings — kept as alias for backward compatibility */

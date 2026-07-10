@@ -726,6 +726,11 @@ export class IPCRegistry {
       await claudeManager.setModel(provider as import('@shared/types/settings.js').AIProvider, model);
     });
 
+    // 35f. set-ai-system-prompt — custom system prompt (empty text reverts to default)
+    ipcMain.handle('set-ai-system-prompt', async (_event, text: string) => {
+      await claudeManager.setSystemPrompt(text);
+    });
+
     // 36. stream-claude-prompt
     ipcMain.on('stream-claude-prompt', (event, data: { prompt: string; context?: ClaudePromptContext; renderMode?: 'shader' | 'scene'; attachments?: Array<{ dataUrl: string; name: string; mediaType: string }>; history?: Array<{ role: 'user' | 'assistant'; content: string }> }) => {
       const { prompt, context, renderMode, attachments, history } = data;

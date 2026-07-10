@@ -44,6 +44,7 @@ declare const window: Window & {
     getClaudeModels(): Promise<ClaudeModel[]>;
     saveSettings(data: SettingsData): void;
     setAIProvider(provider: string): Promise<void>;
+    setAISystemPrompt(text: string): Promise<void>;
     setArtNetMappings(mappings: ArtNetMapping[]): void;
     getArtNetStatus(): Promise<ArtNetStatus>;
     getArtNetDmxValues(): Promise<number[]>;
@@ -243,6 +244,14 @@ export async function showSettingsDialog(): Promise<void> {
             <button class="btn-secondary" id="settings-test-openrouter-key">Test</button>
             <span id="openrouter-test-result" class="test-result"></span>
           </div>
+          <div class="setting-row ai-system-prompt-row">
+            <label>System Prompt:</label>
+            <textarea id="settings-ai-system-prompt" rows="10" spellcheck="false"></textarea>
+          </div>
+          <div class="setting-row">
+            <label></label>
+            <button class="btn-secondary" id="settings-ai-prompt-reset">Reset to Default</button>
+          </div>
           <div class="setting-row">
             <label>Shortcut:</label>
             <span style="color: var(--text-secondary)">Ctrl+Shift+A opens AI assistant</span>
@@ -354,6 +363,13 @@ export async function showSettingsDialog(): Promise<void> {
     if (e.key === 'Escape') closeSettingsDialog();
   };
   document.addEventListener('keydown', settingsKeyHandler);
+
+  // AI system prompt — set via .value (not innerHTML) so no escaping is needed
+  const sysPromptTextarea = document.getElementById('settings-ai-system-prompt') as HTMLTextAreaElement;
+  sysPromptTextarea.value = aiSettings.systemPrompt;
+  (document.getElementById('settings-ai-prompt-reset') as HTMLButtonElement).addEventListener('click', () => {
+    sysPromptTextarea.value = aiSettings.defaultSystemPrompt;
+  });
 
   // Test key buttons
   (document.getElementById('settings-test-anthropic-key') as HTMLButtonElement).addEventListener('click', testAnthropicKey);
@@ -538,6 +554,10 @@ async function applySettings(): Promise<void> {
   if (openrouterKey) {
     await window.electronAPI.saveOpenRouterKey(openrouterKey);
   }
+
+  // Save system prompt (main process reverts to default if empty/unchanged)
+  const systemPrompt = (document.getElementById('settings-ai-system-prompt') as HTMLTextAreaElement).value;
+  await window.electronAPI.setAISystemPrompt(systemPrompt);
 
   closeSettingsDialog();
   setStatus('Settings saved', 'success');

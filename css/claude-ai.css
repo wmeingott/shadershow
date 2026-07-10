@@ -520,6 +520,29 @@
   font-family: inherit;
 }
 
+.ai-system-prompt-row {
+  align-items: flex-start;
+}
+
+.ai-system-prompt-row textarea {
+  flex: 1;
+  min-height: 160px;
+  resize: vertical;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+}
+
+.ai-system-prompt-row textarea:focus {
+  outline: none;
+  border-color: var(--accent-color);
+}
+
 .test-result {
   font-size: 12px;
   min-width: 60px;

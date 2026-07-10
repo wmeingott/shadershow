@@ -264,5 +264,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getClaudeModels: () => ipcRenderer.invoke('get-claude-models'),
   setAIProvider: (provider: string) => ipcRenderer.invoke('set-ai-provider', provider),
   setAIModel: (provider: string, model: string) => ipcRenderer.invoke('set-ai-model', provider, model),
+  setAISystemPrompt: (text: string) => ipcRenderer.invoke('set-ai-system-prompt', text),
   getAIModels: (provider: string) => ipcRenderer.invoke('get-ai-models', provider),
 });

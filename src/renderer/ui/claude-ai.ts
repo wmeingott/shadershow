@@ -166,6 +166,7 @@ export async function showAIAssistantDialog(prefill?: string | Event): Promise<v
           </div>
           <div class="response-content" id="response-content"></div>
           <div class="response-actions" id="response-actions">
+            <button class="btn-primary hidden" id="claude-apply-edits-btn">Apply Edits</button>
             <button class="btn-primary" id="claude-replace-btn">Replace All Code</button>
             <button class="btn-secondary" id="claude-insert-btn">Insert at Cursor</button>
           </div>
@@ -299,6 +300,9 @@ function setupDialogEventListeners(overlay: HTMLDivElement): void {
 
   // Copy button
   (document.getElementById('claude-copy-btn') as HTMLElement).addEventListener('click', copyResponse);
+
+  // Apply Edits button
+  (document.getElementById('claude-apply-edits-btn') as HTMLElement).addEventListener('click', applyEdits);
 
   // Replace button
   (document.getElementById('claude-replace-btn') as HTMLElement).addEventListener('click', replaceCode);
@@ -655,11 +659,22 @@ function handleStreamEnd(rawData: unknown): void {
   if (sendBtn) sendBtn.disabled = false;
   if (cancelBtn) cancelBtn.disabled = true;
 
-  // Show action buttons if code was detected
-  const codeBlocks: string[] = extractCodeBlocks(streamingResponse);
-  if (codeBlocks.length > 0) {
-    const actions: HTMLElement | null = document.getElementById('response-actions');
-    if (actions) actions.classList.remove('hidden');
+  const edits = extractEdits(streamingResponse);
+  const codeBlocks = extractCodeBlocks(streamingResponse);
+  const applyBtn = document.getElementById('claude-apply-edits-btn');
+  const replaceBtn = document.getElementById('claude-replace-btn');
+  const insertBtn = document.getElementById('claude-insert-btn');
+  if (edits.length > 0) {
+    applyBtn?.classList.remove('hidden');
+    replaceBtn?.classList.add('hidden');   // a response of edit blocks is not a valid whole file
+    insertBtn?.classList.add('hidden');
+  } else {
+    applyBtn?.classList.add('hidden');
+    replaceBtn?.classList.remove('hidden');
+    insertBtn?.classList.remove('hidden');
+  }
+  if (edits.length > 0 || codeBlocks.length > 0) {
+    document.getElementById('response-actions')?.classList.remove('hidden');
   }
 
   // Commit this exchange to history (only successful completions enter history)
@@ -721,6 +736,10 @@ function copyResponse(): void {
 }
 
 function replaceCode(): void {
+  if (extractEdits(streamingResponse).length > 0) {
+    setStatus('This response contains edits — use Apply Edits', 'error');
+    return;
+  }
   const codeBlocks: string[] = extractCodeBlocks(streamingResponse);
   if (codeBlocks.length === 0) {
     setStatus('No code block found in response', 'error');
@@ -749,6 +768,33 @@ function insertCode(): void {
 
   closeAIAssistantDialog();
   setStatus('Code inserted at cursor', 'success');
+}
+
+function applyEdits(): void {
+  const edits = extractEdits(streamingResponse);
+  if (edits.length === 0) return;
+
+  const editor = state.editor as EditorLike;
+  let code = editor.getValue();
+
+  // Validate every edit before touching the editor (all-or-nothing)
+  for (let i = 0; i < edits.length; i++) {
+    const first = code.indexOf(edits[i].search);
+    if (first === -1) {
+      setStatus(`Edit ${i + 1}/${edits.length} does not match the current code — not applied. Ask the AI to regenerate, or use a full rewrite.`, 'error');
+      return;
+    }
+    if (code.indexOf(edits[i].search, first + 1) !== -1) {
+      setStatus(`Edit ${i + 1}/${edits.length} matches more than once — not applied. Ask the AI for a more specific edit.`, 'error');
+      return;
+    }
+    code = code.replace(edits[i].search, edits[i].replace);
+  }
+
+  editor.setValue(code, -1);
+  compileShader();
+  closeAIAssistantDialog();
+  setStatus(`Applied ${edits.length} edit${edits.length === 1 ? '' : 's'} and compiled`, 'success');
 }
 
 // ---------------------------------------------------------------------------
@@ -788,6 +834,18 @@ function describeParamValues(): string {
   const values = renderer?.getCustomParamValues?.();
   if (!values || Object.keys(values).length === 0) return '';
   return JSON.stringify(values);
+}
+
+interface SearchReplaceEdit { search: string; replace: string; }
+
+function extractEdits(markdown: string): SearchReplaceEdit[] {
+  const editRegex = /<<<<<<< SEARCH\n([\s\S]*?)\n?=======\n([\s\S]*?)\n?>>>>>>> REPLACE/g;
+  const edits: SearchReplaceEdit[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = editRegex.exec(markdown)) !== null) {
+    edits.push({ search: m[1], replace: m[2] });
+  }
+  return edits;
 }
 
 function extractCodeBlocks(markdown: string): string[] {

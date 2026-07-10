@@ -24,6 +24,10 @@ planned per the skill's non-interactive default.
 | 008  | Quiet main window during fullscreen: steady 30fps preview cap + paused grid thumbnails (residual stutter) | P1 | S | 007 | DONE — merged to ts-cleanup @ 11508aa (live-tested: residual stutter resolved) |
 | 009  | Atomic shader+param propagation: params travel with every shader message, FS applies in-handler (fixes preview/fullscreen param divergence) | P1 | S | — | DONE — committed 7f02ad8, live-verified via CDP (slot select / dblclick-edit / debounced recompile / live tweak all keep params in FS). Note: param restore keys off the active *tab's* slotIndex, not `state.activeGridSlot`, per the plan's STOP-condition remedy |
 | 010  | Collapsible mixer channel sections in PAR: sticky colored headers + caret collapse, auto-expand on assign, slot-label fix | P2 | S | — | DONE — live-verified via CDP (3 channels: collapse/expand, title-click select, auto-expand on reassign, labels "Slot N") |
+| 011  | Grid-state thumbnail sidecar: stop rewriting 293 KB of base64 thumbnails per debounced save; slim hot file, change-gated `thumbnails.json` (+ relay debug-string micro) | P1 | M | — | DONE — merged to ts-cleanup @ 7a7ecd3 (ff); live-verified via CDP: save shrinks grid-state.json 632→339 KB (0 inline thumbs), thumbnails.json created (46 thumbs), change gate holds (param save leaves sidecar untouched; idle restart never rewrites it), thumbnails + VP thumbs render after restart |
+| 012  | Remote client: targeted img swap on `invalidate-thumbnail` (no full grid rebuild); pause MJPEG stream + display poll while page hidden | P1 | S | — | DONE — merged to ts-cleanup @ 87bd95b; live-verified in a real browser: invalidate-thumbnail keeps element identity (no grid rebuild) and bumps rev 0.0→0.1; hidden tab blanks MJPEG stream, visible restores it |
+| 013  | Pause unwatched media decode: disabled mixer channels, grid asset videos during fullscreen, scene camera/video after mode switch (+ scene `needsUpdate` micro) | P2 | M | — | DONE — merged to ts-cleanup @ bc4af1d; live-checked: fullscreen open/close + tab/slot/param flows error-free with reconcile on all transitions (FS output correct incl. live params). Video/camera pause matrix NOT yet exercised — no video assets or camera scenes in saved state; check during next show prep with a video in a mixer channel |
+| 014  | MIDI parameter mapping analogous to Art-Net: Web MIDI in renderer (zero deps), CC/note → same control targets, settings-dialog MIDI section + mapping dialog with Learn | P2 | M | — | DONE — live-verified: Settings MIDI section renders between Art-Net DMX and AI Assistant with Enable/Device/Configure(N)/Status; Mappings dialog adds rows (CH=Any, CC, num, target type incl. Parameter+param-name dropdown); midiEnabled+midiMappings persist to settings.json and reload after restart; no requestMIDIAccess errors (Linux: "Midi Through Port-0" device enumerated). Hardware smoke test (physical controller Learn/map/fire) pending user. |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
@@ -56,6 +60,43 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
   003 removes the redundant render; moving the encode to a worker (OffscreenCanvas) is the
   next step if preview cost still shows with many remote clients.
 
+## Second audit round (2026-07-10, commit `9da3824`) — plans 011–013
+
+A follow-up perf audit swept the territory the first round didn't: renderer
+hot paths outside the shader pipeline, main process/IPC, fullscreen process,
+web remote client, persistence, startup. Plans 011–013 cover the selected
+findings. Verified-open but NOT planned (backlog additions):
+
+- **NDI input frames uncapped** — full uncompressed RGBA (~8 MB @1080p) is
+  structured-cloned main→renderer per source frame per channel with no
+  frame-skip, plus a redundant double Buffer wrap (`ndi-manager.ts:303-310`,
+  `app.ts:87-95`). The output side got plans 001/002; input still has the old
+  cost shape. Plan it if NDI inputs are used in real shows: latest-frame-wins
+  coalescing + input frame-skip mirroring `ndiFrameSkip`.
+- **A/B preview micro-churn** — 3–4 uncached `getElementById` per preview
+  frame (`ab-preview.ts:491,578-593,606`) + both sides re-rendered at 80×45
+  every 10th frame on top of the full-res renders (`:623-649`). Cache the
+  handles like `cacheRenderLoopElements`; downscale thumbs from the existing
+  output instead of re-rendering.
+- **Ace JS/JSX modes load as blocking startup scripts** (`index.html:422-426`)
+  though scene-only; lazy-load them with the existing Three.js/Babel deferred
+  pattern (~56 KB blocking parse saved).
+- **KWin fullscreen positioning blocks main** with `writeFileSync` + up to 3×
+  `execSync` (2 s timeout each) on fullscreen open (`window-manager.ts:92-109`)
+  — KDE-only, one-shot, but it stalls IPC exactly when output goes live.
+  Async `exec` rework if it annoys in practice.
+- **Fullscreen 2D mixer overlay canvas allocated but unused on the GL path**
+  (~33 MB backing store @4K; `fullscreen-renderer.ts:1236-1250`, gate at
+  `:1027`) — memory only; make the fallback overlay lazy when next touching
+  that file.
+- **Opaque-top mixer stack never occlusion-culled** (`fullscreen-renderer.ts:1091-1116`)
+  — lower channels render fully even under an opaque `source-over` top; rare
+  in practice (`lighter` dominates), S effort if ever wanted.
+- **`onABCompositionUpdate` recompiles every channel on any structural
+  change** (`fullscreen-renderer.ts:2170-2216`) — investigate sender cadence
+  first; only worth a plan if full-composition messages fire per single-channel
+  edit.
+
 ## Findings considered and rejected
 
 - **Gating re-upload of unchanged pp/tiling/resolution uniforms**
@@ -74,6 +115,14 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
   hidden-gate) — no action.
 - **Beat detector per-frame cost**: a few hundred simple operations/frame; negligible next to
   a 4K fragment shader.
+- **(2026-07-10) `SettingsManager.save()` double-save + on-disk re-read for in-memory values**
+  (`settings-manager.ts:125-155,218-224`, `ipc-registry.ts:195-202,800-841`): real but not on
+  any hot path; coalesce when that file is next touched.
+- **(2026-07-10) Fullscreen A/B crossfade `drawImage` readback** (`fullscreen-renderer.ts:1341-1353,
+  1457-1483`): real (N+M shader renders + N+M+2 full-canvas syncs per mid-crossfade frame) but
+  already tracked as plan 004's named follow-up — not a new finding.
+- **(2026-07-10) Mixer thumbnail interval runs for app lifetime** (`mixer.ts:203`): early-outs
+  when empty, fullscreen-gated by plan 007, 2 s cadence — negligible.
 
 ## Execution review notes (2026-07-03)
 
@@ -126,6 +175,31 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
   and Step 5 FPS numbers.** The 2D fallback is only auto-triggered on compositor construction
   failure; a visually-wrong blend mode would need a revert — check parity before relying on it
   in a show.
+
+## Execution review notes — plans 011/012/013 (2026-07-10)
+
+- Pending working-tree refactor (readJson/writeJson helpers, `@shared/paths` basename) was
+  committed as `045528e` before dispatch so worktrees and plans agreed; plans 011/013 were
+  re-stamped to that SHA.
+- **012 APPROVED** (`advisor/012-remote-targeted-updates-visibility` @ 84b6435, based on
+  9da3824 — `web/app.js` unchanged since, merges clean). All done criteria re-verified.
+  Pending: browser smoke (no grid flash on slider drag; stream/poll stop while tab hidden).
+- **011 APPROVED** (`advisor/011-grid-state-thumbnail-sidecar` @ 7a7ecd3). Reviewer re-ran
+  typecheck + the split/merge round-trip harness (esbuild-compiled module — the main bundle
+  emits no per-file dist output, executor's documented adaptation). Pending: live smoke
+  (slim `grid-state.json`, `data/thumbnails.json` appears, thumbnails survive restart).
+- **013 APPROVED** (`advisor/013-pause-unwatched-media-decode` @ 3395f10). One documented
+  deviation accepted as a correct fix to the plan's own snippet: grid-assigned mixer
+  channels keep `ch.renderer = null` (the composite loop resolves `tab.slots[i].renderer`
+  at render time), so the referenced set also includes slot-resolved renderers of enabled
+  channels — without it, mixer-referenced grid videos would freeze in the preview during
+  fullscreen. Known benign edge (executor-flagged): `recallMixState` loads owned videos in
+  async IIFEs after the end-of-function reconcile, so a video recalled into a *disabled*
+  channel plays until the next reconcile trigger; add a post-load reconcile in that IIFE if
+  it ever matters. Pending: live smoke matrix (plan Step 6).
+- Merge note: all three branches carry only their in-scope files; 011/013 are based on
+  `045528e`, 012 on `9da3824`. Before merging in any worktree/checkout, `git checkout --
+  '*.tsbuildinfo' data/` first (tracked-artifact gotcha).
 
 ## Correctness aside found during the perf audit
 

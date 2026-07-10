@@ -10,6 +10,9 @@ import type {
 } from '@shared/types/settings.js';
 import type { ArtNetMapping, ArtNetStatus } from '@shared/types/artnet.js';
 import { showArtNetMappingDialog } from './artnet-dialog.js';
+import type { MidiMapping } from '@shared/types/midi.js';
+import { showMidiMappingDialog } from './midi-dialog.js';
+import { configureMidi, setMidiMappings, listMidiInputs } from './midi.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -25,6 +28,8 @@ interface SettingsData {
   recordingResolution?: Resolution;
   artnetEnabled: boolean;
   artnetUniverse: number;
+  midiEnabled: boolean;
+  midiInputId: string;
 }
 
 /** Minimal electronAPI surface used by this module */
@@ -43,6 +48,7 @@ declare const window: Window & {
     getArtNetStatus(): Promise<ArtNetStatus>;
     getArtNetDmxValues(): Promise<number[]>;
     toggleArtNet(): void;
+    setMidiMappings(mappings: MidiMapping[]): void;
   };
 };
 
@@ -190,6 +196,28 @@ export async function showSettingsDialog(): Promise<void> {
           </div>
         </div>
 
+        <div class="settings-section">
+          <h3>MIDI</h3>
+          <div class="setting-row">
+            <label>Enable:</label>
+            <input type="checkbox" id="settings-midi-enabled" ${settings.midiEnabled ? 'checked' : ''}>
+          </div>
+          <div class="setting-row">
+            <label>Device:</label>
+            <select id="settings-midi-device" style="max-width: 220px">
+              <option value="">All devices</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label>Mappings:</label>
+            <button class="btn-secondary" id="settings-midi-mappings-btn">Configure (${settings.midiMappings?.length ?? 0})</button>
+          </div>
+          <div class="setting-row">
+            <label>Status:</label>
+            <span id="settings-midi-status" style="color: var(--text-secondary)">${settings.midiEnabled ? 'Active' : 'Inactive'}</span>
+          </div>
+        </div>
+
         <div class="settings-section claude-settings-section">
           <h3>AI Assistant</h3>
           <div class="setting-row">
@@ -281,6 +309,24 @@ export async function showSettingsDialog(): Promise<void> {
     showArtNetMappingDialog(settings.artnetMappings ?? [], (mappings) => {
       window.electronAPI.setArtNetMappings(mappings);
       artnetMappingsBtn.textContent = `Configure (${mappings.length})`;
+    });
+  });
+
+  // MIDI — populate device list asynchronously (needs Web MIDI access)
+  const midiDeviceSel = document.getElementById('settings-midi-device') as HTMLSelectElement;
+  void listMidiInputs().then((inputs) => {
+    midiDeviceSel.innerHTML = '<option value="">All devices</option>'
+      + inputs.map(i => `<option value="${i.id}" ${i.id === settings.midiInputId ? 'selected' : ''}>${i.name}</option>`).join('');
+  });
+
+  // MIDI mapping button
+  const midiMappingsBtn = document.getElementById('settings-midi-mappings-btn');
+  midiMappingsBtn?.addEventListener('click', () => {
+    showMidiMappingDialog(settings.midiMappings ?? [], (mappings) => {
+      window.electronAPI.setMidiMappings(mappings); // persist (main)
+      setMidiMappings(mappings);                    // apply live (renderer)
+      settings.midiMappings = mappings;
+      midiMappingsBtn.textContent = `Configure (${mappings.length})`;
     });
   });
 
@@ -458,12 +504,19 @@ async function applySettings(): Promise<void> {
   const artnetEnabled = (document.getElementById('settings-artnet-enabled') as HTMLInputElement).checked;
   const artnetUniverse = parseInt((document.getElementById('settings-artnet-universe') as HTMLInputElement).value) || 0;
 
+  // Parse MIDI settings
+  const midiEnabled = (document.getElementById('settings-midi-enabled') as HTMLInputElement).checked;
+  const midiInputId = (document.getElementById('settings-midi-device') as HTMLSelectElement).value;
+
   // Save to file
-  const settingsData: SettingsData = { ndiResolution, ndiFrameSkip, gridSlotWidth, remoteEnabled, remotePort, artnetEnabled, artnetUniverse };
+  const settingsData: SettingsData = { ndiResolution, ndiFrameSkip, gridSlotWidth, remoteEnabled, remotePort, artnetEnabled, artnetUniverse, midiEnabled, midiInputId };
   if (recordingResolution) {
     settingsData.recordingResolution = recordingResolution;
   }
   window.electronAPI.saveSettings(settingsData);
+
+  // Apply MIDI immediately (runtime lives in this process)
+  void configureMidi(midiEnabled, midiInputId);
 
   // Apply grid slot width immediately
   applyGridSlotWidth(gridSlotWidth);

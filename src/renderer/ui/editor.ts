@@ -301,6 +301,8 @@ export async function compileShader(): Promise<void> {
       if (slot.bindingStates) renderer.setBindingStates?.(slot.bindingStates);
     }
 
+    state.lastAIError = null;
+
     const modeLabel = state.renderMode === 'scene' ? 'Scene' : 'Shader';
     log.info('Editor', modeLabel, 'compiled successfully');
     setStatus(`${modeLabel} compiled successfully`, 'success');
@@ -395,6 +397,12 @@ export async function compileShader(): Promise<void> {
     const compileErr = err as CompileError;
     const message: string = compileErr.message || compileErr.raw || String(err);
     log.error('Editor', 'Compile error:', message);
+    state.lastAIError = {
+      message,
+      line: compileErr.line ?? null,
+      raw: compileErr.raw ?? null,
+      source: 'compile',
+    };
 
     // Build status message with line number
     const lineInfo = compileErr.line ? ` (line ${compileErr.line})` : '';

@@ -13,7 +13,7 @@ import type { SettingsManager } from './managers/settings-manager.js';
 import type { NDIManager } from './managers/ndi-manager.js';
 import type { SyphonManager } from './managers/syphon-manager.js';
 import type { RecordingManager } from './managers/recording-manager.js';
-import type { ClaudeManager } from './managers/claude-manager.js';
+import type { ClaudeManager, ClaudePromptContext } from './managers/claude-manager.js';
 import type { WindowManager, DisplayInfo } from './managers/window-manager.js';
 import type { ExportManager } from './managers/export-manager.js';
 import type { MenuBuilder } from './managers/menu-builder.js';
@@ -727,7 +727,7 @@ export class IPCRegistry {
     });
 
     // 36. stream-claude-prompt
-    ipcMain.on('stream-claude-prompt', (event, data: { prompt: string; context?: { currentCode?: string; customParams?: string }; renderMode?: 'shader' | 'scene'; attachments?: Array<{ dataUrl: string; name: string; mediaType: string }> }) => {
+    ipcMain.on('stream-claude-prompt', (event, data: { prompt: string; context?: ClaudePromptContext; renderMode?: 'shader' | 'scene'; attachments?: Array<{ dataUrl: string; name: string; mediaType: string }> }) => {
       const { prompt, context, renderMode, attachments } = data;
       claudeManager.streamPrompt(
         prompt,

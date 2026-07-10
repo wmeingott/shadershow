@@ -19,6 +19,9 @@ interface ClaudePromptData {
   context: {
     currentCode: string;
     customParams: string;
+    compileError?: string;
+    channels?: string;
+    paramValues?: string;
   };
   renderMode: string;
   attachments?: AIAttachment[];
@@ -73,7 +76,7 @@ const ACCEPTED_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/ogg'];
 // ---------------------------------------------------------------------------
 
 /** Show the AI assistant dialog */
-export async function showAIAssistantDialog(): Promise<void> {
+export async function showAIAssistantDialog(prefill?: string | Event): Promise<void> {
   // Check if API key is configured
   const hasKey: boolean = await window.electronAPI.hasClaudeKey();
   if (!hasKey) {
@@ -127,6 +130,7 @@ export async function showAIAssistantDialog(): Promise<void> {
             <span class="context-arrow">&#9658;</span>
             <span>Current Code Context</span>
             <span class="context-lines">${currentCode.split('\n').length} lines</span>
+            ${state.lastAIError ? `<span class="context-error" style="color:var(--error-color,#e66)">&#9888; ${escapeHtml(state.lastAIError.message)}</span>` : ''}
           </div>
           <div class="context-body hidden" id="context-body">
             <pre>${escapeHtml(truncateCode(currentCode, 50))}</pre>
@@ -205,7 +209,11 @@ export async function showAIAssistantDialog(): Promise<void> {
   setupDialogEventListeners(overlay);
 
   // Focus the input
-  (document.getElementById('claude-prompt-input') as HTMLTextAreaElement).focus();
+  const promptInput = document.getElementById('claude-prompt-input') as HTMLTextAreaElement;
+  promptInput.focus();
+  if (typeof prefill === 'string') {
+    promptInput.value = prefill;
+  }
 }
 
 /** Close and clean up the AI assistant dialog */
@@ -524,9 +532,9 @@ function sendPrompt(): void {
   }
 
   const overlay = document.getElementById('claude-ai-overlay') as HTMLElement;
-  const currentCode: string = overlay.dataset.currentCode ?? '';
+  const currentCode: string = (state.editor as EditorLike).getValue();
   const renderMode: string = overlay.dataset.renderMode ?? '';
-  const customParams: string = overlay.dataset.customParams ?? '';
+  const customParams: string = extractParamComments(currentCode);
 
   // Update UI for streaming
   isStreaming = true;
@@ -572,6 +580,11 @@ function sendPrompt(): void {
     context: {
       currentCode,
       customParams,
+      compileError: state.lastAIError
+        ? `${state.lastAIError.message}${state.lastAIError.line ? ` (line ${state.lastAIError.line})` : ''}${state.lastAIError.raw ? `\nRaw log:\n${state.lastAIError.raw}` : ''}`
+        : undefined,
+      channels: describeChannels(),
+      paramValues: describeParamValues() || undefined,
     },
     renderMode,
     attachments: currentAttachments,
@@ -725,6 +738,23 @@ function extractParamComments(code: string): string {
   const paramRegex: RegExp = /\/\/\s*@param\s+.+/g;
   const matches: RegExpMatchArray | null = code.match(paramRegex);
   return matches ? matches.join('\n') : '';
+}
+
+function describeChannels(): string {
+  const parts = state.channelState.map((ch, i) => {
+    if (!ch) return `iChannel${i}: empty`;
+    const src = (ch as { source?: string; filePath?: string }).filePath
+      ?? (typeof ch.source === 'string' && !ch.source.startsWith('data:') ? ch.source : '');
+    return `iChannel${i}: ${ch.type}${src ? ` (${src})` : ''}`;
+  });
+  return parts.join('\n');
+}
+
+function describeParamValues(): string {
+  const renderer = state.renderer as { getCustomParamValues?: () => Record<string, unknown> } | null;
+  const values = renderer?.getCustomParamValues?.();
+  if (!values || Object.keys(values).length === 0) return '';
+  return JSON.stringify(values);
 }
 
 function extractCodeBlocks(markdown: string): string[] {

@@ -90,6 +90,9 @@ export const state = {
   // Channel state for fullscreen sync
   channelState: [null, null, null, null] as (ChannelState | null)[],
 
+  // Last compile or scene runtime error — read by AI context builder
+  lastAIError: null as { message: string; line: number | null; raw: string | null; source: 'compile' | 'scene' } | null,
+
   // Shader grid state
   gridSlots: [] as unknown[],
   gridAnimationId: null as number | null,

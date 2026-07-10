@@ -193,6 +193,17 @@ function renderMessage(entry: ConsoleMessage): void {
   row.appendChild(ts);
   row.appendChild(type);
   row.appendChild(text);
+
+  if (entry.type === 'error') {
+    const fixBtn = document.createElement('button');
+    fixBtn.className = 'btn-small console-fix-ai';
+    fixBtn.textContent = 'Fix with AI';
+    fixBtn.addEventListener('click', () => {
+      void import('./claude-ai.js').then(m => m.showAIAssistantDialog('Fix the current error.'));
+    });
+    row.appendChild(fixBtn);
+  }
+
   messagesElement.appendChild(row);
 }
 
@@ -212,6 +223,7 @@ export function initConsolePanel(): void {
   window.addEventListener('scene-runtime-error', ((e: CustomEvent<{ message: string; source: string }>) => {
     const { message, source } = e.detail;
     logMessage(`Scene ${source} error: ${message}`, 'warning');
+    state.lastAIError = { message: `Scene ${source} error: ${message}`, line: null, raw: null, source: 'scene' };
   }) as EventListener);
 }
 

@@ -30,6 +30,9 @@ export interface AIAttachment {
 export interface ClaudePromptContext {
   currentCode?: string;
   customParams?: string;
+  compileError?: string;
+  channels?: string;
+  paramValues?: string;
 }
 
 /** Render mode determines the system prompt flavour */
@@ -708,8 +711,11 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     fragColor = vec4(color, 1.0);
 }
 
+${context?.channels ? `\nCHANNEL BINDINGS (live session state):\n${context.channels}` : ''}
+${context?.paramValues ? `\nCURRENT PARAM VALUES (as dialed in by the user):\n${context.paramValues}` : ''}
 ${context?.customParams ? `\nCURRENT CUSTOM PARAMS:\n${context.customParams}` : ''}
-${context?.currentCode ? `\nCURRENT CODE:\n${context.currentCode}` : ''}`;
+${context?.currentCode ? `\nCURRENT CODE:\n${context.currentCode}` : ''}
+${context?.compileError ? `\nCURRENT ERROR (the code above currently fails with this — if the user asks for a fix, fix exactly this):\n${context.compileError}` : ''}`;
     } else {
       return basePrompt + `CURRENT MODE: Three.js Scene (JavaScript)
 
@@ -748,8 +754,11 @@ function animate(time, deltaTime, params, objects) {
   objects.mesh.rotation.y = time * params.rotationSpeed;
 }
 
+${context?.channels ? `\nCHANNEL BINDINGS (live session state):\n${context.channels}` : ''}
+${context?.paramValues ? `\nCURRENT PARAM VALUES (as dialed in by the user):\n${context.paramValues}` : ''}
 ${context?.customParams ? `\nCURRENT CUSTOM PARAMS:\n${context.customParams}` : ''}
-${context?.currentCode ? `\nCURRENT CODE:\n${context.currentCode}` : ''}`;
+${context?.currentCode ? `\nCURRENT CODE:\n${context.currentCode}` : ''}
+${context?.compileError ? `\nCURRENT ERROR (the code above currently fails with this — if the user asks for a fix, fix exactly this):\n${context.compileError}` : ''}`;
     }
   }
 

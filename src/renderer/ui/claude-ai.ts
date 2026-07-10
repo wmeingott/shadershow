@@ -25,6 +25,7 @@ interface ClaudePromptData {
   };
   renderMode: string;
   attachments?: AIAttachment[];
+  history?: Array<{ role: 'user' | 'assistant'; content: string }>;
 }
 
 /** Minimal electronAPI surface used by this module */
@@ -60,12 +61,17 @@ interface EditorLike {
 // Module state
 // ---------------------------------------------------------------------------
 
+interface ChatTurn { role: 'user' | 'assistant'; content: string; }
+
 let aiDialogKeyHandler: ((e: KeyboardEvent) => void) | null = null;
 let streamingResponse: string = '';
 let isStreaming: boolean = false;
 let ipcListenersSetup: boolean = false;
 let attachments: AIAttachment[] = [];
 let renderScheduled: boolean = false;
+let chatHistory: ChatTurn[] = [];
+let pendingUserPrompt: string | null = null;
+const MAX_HISTORY_TURNS = 12; // ponytail: hard cap, oldest dropped; token budgeting if it ever matters
 
 const MAX_ATTACHMENTS = 5;
 const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
@@ -100,8 +106,10 @@ export async function showAIAssistantDialog(prefill?: string | Event): Promise<v
   const activeModel = aiSettings.provider === 'anthropic' ? aiSettings.model : aiSettings.openrouterModel;
   const modelOptionsHtml = buildModelOptions(activeModels, activeModel);
 
-  // Reset attachments
+  // Reset attachments and conversation history
   attachments = [];
+  chatHistory = [];
+  pendingUserPrompt = null;
 
   // Create dialog overlay
   const overlay: HTMLDivElement = document.createElement('div');
@@ -235,6 +243,8 @@ export function closeAIAssistantDialog(): void {
   isStreaming = false;
   streamingResponse = '';
   attachments = [];
+  chatHistory = [];
+  pendingUserPrompt = null;
 }
 
 /** Register the global keyboard shortcut to open the AI dialog */
@@ -536,6 +546,16 @@ function sendPrompt(): void {
   const renderMode: string = overlay.dataset.renderMode ?? '';
   const customParams: string = extractParamComments(currentCode);
 
+  // Archive previous streaming response into the chat log before appending the new user
+  // message — must run BEFORE streamingResponse is reset below
+  const chat = document.getElementById('claude-ai-chat') as HTMLElement;
+  if (streamingResponse) {
+    const aiMsg = document.createElement('div');
+    aiMsg.className = 'chat-message assistant';
+    aiMsg.innerHTML = `<div class="message-content">${renderMarkdown(streamingResponse)}</div>`;
+    chat.appendChild(aiMsg);
+  }
+
   // Update UI for streaming
   isStreaming = true;
   streamingResponse = '';
@@ -554,7 +574,6 @@ function sendPrompt(): void {
   (document.getElementById('response-actions') as HTMLElement).classList.add('hidden');
 
   // Add user message to chat (with attachment indicators)
-  const chat = document.getElementById('claude-ai-chat') as HTMLElement;
   const welcomeMsg: Element | null = chat.querySelector('.chat-welcome');
   if (welcomeMsg) welcomeMsg.remove();
 
@@ -574,6 +593,9 @@ function sendPrompt(): void {
   attachments = [];
   renderAttachments();
 
+  // Record the outgoing prompt so handleStreamEnd can commit the pair
+  pendingUserPrompt = prompt;
+
   // Send to main process
   window.electronAPI.sendClaudePrompt({
     prompt,
@@ -588,6 +610,7 @@ function sendPrompt(): void {
     },
     renderMode,
     attachments: currentAttachments,
+    history: chatHistory,
   });
 }
 
@@ -639,11 +662,20 @@ function handleStreamEnd(rawData: unknown): void {
     if (actions) actions.classList.remove('hidden');
   }
 
+  // Commit this exchange to history (only successful completions enter history)
+  if (pendingUserPrompt !== null) {
+    chatHistory.push({ role: 'user', content: pendingUserPrompt });
+    chatHistory.push({ role: 'assistant', content: streamingResponse });
+    pendingUserPrompt = null;
+    while (chatHistory.length > MAX_HISTORY_TURNS * 2) chatHistory.splice(0, 2);
+  }
+
   if (!data?.truncated) setStatus('Response complete', 'success');
 }
 
 function handleError(data: { error: string }): void {
   isStreaming = false;
+  pendingUserPrompt = null; // discard dangling turn — must not enter history
 
   const sendBtn = document.getElementById('claude-send-btn') as HTMLButtonElement | null;
   const cancelBtn = document.getElementById('claude-cancel-btn') as HTMLButtonElement | null;
@@ -662,6 +694,7 @@ function cancelRequest(): void {
   if (isStreaming) {
     window.electronAPI.cancelClaudeRequest();
     isStreaming = false;
+    pendingUserPrompt = null; // discard dangling turn — must not enter history
 
     const sendBtn = document.getElementById('claude-send-btn') as HTMLButtonElement | null;
     const cancelBtn = document.getElementById('claude-cancel-btn') as HTMLButtonElement | null;

@@ -38,6 +38,9 @@ export interface ClaudePromptContext {
 /** Render mode determines the system prompt flavour */
 export type RenderMode = 'shader' | 'scene';
 
+/** A completed user/assistant exchange for multi-turn history */
+export interface ChatTurn { role: 'user' | 'assistant'; content: string; }
+
 /** Persisted key-file structure */
 interface KeyFileData {
   apiKey?: string | null;
@@ -392,11 +395,12 @@ export class ClaudeManager {
     onEnd: (info?: { truncated?: boolean }) => void,
     onError: (error: string) => void,
     attachments?: AIAttachment[],
+    history?: ChatTurn[],
   ): void {
     if (this.provider === 'anthropic') {
-      this.streamAnthropicPrompt(prompt, context, renderMode, onChunk, onEnd, onError, attachments);
+      this.streamAnthropicPrompt(prompt, context, renderMode, onChunk, onEnd, onError, attachments, history);
     } else {
-      this.streamOpenRouterPrompt(prompt, context, renderMode, onChunk, onEnd, onError, attachments);
+      this.streamOpenRouterPrompt(prompt, context, renderMode, onChunk, onEnd, onError, attachments, history);
     }
   }
 
@@ -409,6 +413,7 @@ export class ClaudeManager {
     onEnd: (info?: { truncated?: boolean }) => void,
     onError: (error: string) => void,
     attachments?: AIAttachment[],
+    history?: ChatTurn[],
   ): void {
     if (!this.apiKey) {
       onError('No Anthropic API key configured. Please add your key in Settings.');
@@ -433,12 +438,17 @@ export class ClaudeManager {
       userContent = prompt;
     }
 
+    const messages = [
+      ...(history ?? []),
+      { role: 'user', content: userContent },
+    ];
+
     const postData = JSON.stringify({
       model: this.model,
       max_tokens: 16384,
       stream: true,
       system: systemPrompt,
-      messages: [{ role: 'user', content: userContent }],
+      messages,
     });
 
     const options: https.RequestOptions = {
@@ -535,6 +545,7 @@ export class ClaudeManager {
     onEnd: (info?: { truncated?: boolean }) => void,
     onError: (error: string) => void,
     attachments?: AIAttachment[],
+    history?: ChatTurn[],
   ): void {
     if (!this.openrouterApiKey) {
       onError('No OpenRouter API key configured. Please add your key in Settings.');
@@ -564,6 +575,7 @@ export class ClaudeManager {
       stream: true,
       messages: [
         { role: 'system', content: systemPrompt },
+        ...(history ?? []),
         { role: 'user', content: userContent },
       ],
     });

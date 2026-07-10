@@ -727,8 +727,8 @@ export class IPCRegistry {
     });
 
     // 36. stream-claude-prompt
-    ipcMain.on('stream-claude-prompt', (event, data: { prompt: string; context?: ClaudePromptContext; renderMode?: 'shader' | 'scene'; attachments?: Array<{ dataUrl: string; name: string; mediaType: string }> }) => {
-      const { prompt, context, renderMode, attachments } = data;
+    ipcMain.on('stream-claude-prompt', (event, data: { prompt: string; context?: ClaudePromptContext; renderMode?: 'shader' | 'scene'; attachments?: Array<{ dataUrl: string; name: string; mediaType: string }>; history?: Array<{ role: 'user' | 'assistant'; content: string }> }) => {
+      const { prompt, context, renderMode, attachments, history } = data;
       claudeManager.streamPrompt(
         prompt,
         context,
@@ -737,6 +737,7 @@ export class IPCRegistry {
         (info) => { event.sender.send('claude-stream-end', { complete: true, truncated: info?.truncated ?? false }); },
         (error) => { event.sender.send('claude-error', { error }); },
         attachments,
+        history,
       );
     });
 

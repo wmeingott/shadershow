@@ -231,6 +231,17 @@
   float: right;
 }
 
+.chat-message.assistant .message-content {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  padding: 10px 14px;
+  border-radius: 12px 12px 12px 4px;
+  display: inline-block;
+  max-width: 85%;
+  font-size: 13px;
+  border: 1px solid var(--border-color);
+}
+
 /* Response area */
 .claude-ai-response {
   background: var(--bg-tertiary);

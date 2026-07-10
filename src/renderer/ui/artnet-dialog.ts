@@ -101,7 +101,7 @@ export function showArtNetMappingDialog(
 }
 
 /** Get available param names from current shader */
-function getParamNames(): string[] {
+export function getParamNames(): string[] {
   const renderer = state.renderer as RendererLike | null;
   if (!renderer?.getCustomParamDefs) return [];
   return renderer.getCustomParamDefs().map(d => d.name);
@@ -154,25 +154,7 @@ function renderMappingList(): void {
     });
 
     // Target-specific inputs
-    const paramSelect = row.querySelector('.artnet-param-name') as HTMLSelectElement | null;
-    paramSelect?.addEventListener('change', () => {
-      (editMappings[idx]!.target as { name: string }).name = paramSelect.value;
-    });
-
-    const chIdxInput = row.querySelector('.artnet-ch-idx') as HTMLInputElement | null;
-    chIdxInput?.addEventListener('change', () => {
-      (editMappings[idx]!.target as { channelIndex: number }).channelIndex = parseInt(chIdxInput.value) || 0;
-    });
-
-    const vpTabInput = row.querySelector('.artnet-vp-tab') as HTMLInputElement | null;
-    vpTabInput?.addEventListener('change', () => {
-      (editMappings[idx]!.target as { vpTabIndex: number }).vpTabIndex = parseInt(vpTabInput.value) || 0;
-    });
-
-    const presetInput = row.querySelector('.artnet-preset-idx') as HTMLInputElement | null;
-    presetInput?.addEventListener('change', () => {
-      (editMappings[idx]!.target as { presetIndex: number }).presetIndex = parseInt(presetInput.value) || 0;
-    });
+    wireTargetInputs(row, editMappings[idx]!.target);
 
     const removeBtn = row.querySelector('.artnet-remove-btn') as HTMLButtonElement;
     removeBtn.addEventListener('click', () => {
@@ -183,7 +165,7 @@ function renderMappingList(): void {
 }
 
 /** Render target-specific option inputs */
-function renderTargetOptions(target: ArtNetTarget, paramNames: string[]): string {
+export function renderTargetOptions(target: ArtNetTarget, paramNames: string[]): string {
   switch (target.type) {
     case 'speed':
       return '<span style="color: var(--text-secondary); font-size: 11px; flex: 1;">0-255 → 0.0-2.0</span>';
@@ -212,8 +194,31 @@ function renderTargetOptions(target: ArtNetTarget, paramNames: string[]): string
   }
 }
 
+/** Wire the target-specific inputs produced by renderTargetOptions (shared with the MIDI dialog) */
+export function wireTargetInputs(row: Element, target: ArtNetTarget): void {
+  const paramSelect = row.querySelector('.artnet-param-name') as HTMLSelectElement | null;
+  paramSelect?.addEventListener('change', () => {
+    (target as { name: string }).name = paramSelect.value;
+  });
+
+  const chIdxInput = row.querySelector('.artnet-ch-idx') as HTMLInputElement | null;
+  chIdxInput?.addEventListener('change', () => {
+    (target as { channelIndex: number }).channelIndex = parseInt(chIdxInput.value) || 0;
+  });
+
+  const vpTabInput = row.querySelector('.artnet-vp-tab') as HTMLInputElement | null;
+  vpTabInput?.addEventListener('change', () => {
+    (target as { vpTabIndex: number }).vpTabIndex = parseInt(vpTabInput.value) || 0;
+  });
+
+  const presetInput = row.querySelector('.artnet-preset-idx') as HTMLInputElement | null;
+  presetInput?.addEventListener('change', () => {
+    (target as { presetIndex: number }).presetIndex = parseInt(presetInput.value) || 0;
+  });
+}
+
 /** Create a default target for a given type */
-function createDefaultTarget(type: string): ArtNetTarget {
+export function createDefaultTarget(type: string): ArtNetTarget {
   switch (type) {
     case 'speed': return { type: 'speed' };
     case 'param': return { type: 'param', name: '' };

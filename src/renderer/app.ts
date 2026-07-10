@@ -13,6 +13,7 @@ import { restoreViewState } from './ui/view-state.js';
 import { initTileConfig, showTileConfigDialog } from './tiles/tile-config.js';
 import { initMixer } from './ui/mixer.js';
 import { initSettingsOnLoad } from './ui/settings-dialog.js';
+import { initMidiOnLoad } from './ui/midi.js';
 import { initConsolePanel } from './ui/console-panel.js';
 import { createTaggedLogger, LOG_LEVEL } from '../shared/logger.js';
 import { initRenderer } from './core/renderer-manager.js';
@@ -49,6 +50,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     log.debug('Renderer', 'Controls initialized');
 
     await initSettingsOnLoad();
+    void initMidiOnLoad(); // don't block startup on MIDI permission
     initParams();
     initPostProcess();
     initTiling();
